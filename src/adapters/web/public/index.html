@@ -3,35 +3,74 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Anatomia — Code Graph Viz</title>
+  <title>Anatomia -- Code Graph Viz</title>
   <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: system-ui, sans-serif; background: #0f1117; color: #e1e4e8; }
-    h1 { padding: 12px 16px; font-size: 1.1rem; background: #161b22; border-bottom: 1px solid #30363d; }
-    #main { display: flex; height: calc(100vh - 44px); }
+
+    /* Header */
+    #header { display: flex; align-items: center; padding: 8px 16px; gap: 16px;
+              background: #161b22; border-bottom: 1px solid #30363d; min-height: 44px; }
+    #header h1 { font-size: 1.1rem; white-space: nowrap; }
+
+    /* You Are Here (T42) */
+    #where-widget { flex: 1; font-size: 0.78rem; color: #58a6ff;
+                    background: #0d1117; border: 1px solid #30363d;
+                    border-radius: 4px; padding: 3px 8px;
+                    font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #live-badge { font-size: 0.7rem; color: #3fb950; padding: 2px 6px;
+                  border: 1px solid #3fb950; border-radius: 3px; white-space: nowrap; }
+    #live-badge.offline { color: #6e7681; border-color: #6e7681; }
+
+    /* Main layout */
+    #main { display: flex; height: calc(100vh - 44px - 180px); }
     #graph-panel { flex: 1; position: relative; }
     #graph { width: 100%; height: 100%; }
-    #side { width: 340px; overflow-y: auto; background: #161b22; border-left: 1px solid #30363d; padding: 12px; }
-    #side h2 { font-size: 0.9rem; color: #8b949e; margin-bottom: 8px; text-transform: uppercase; letter-spacing: .05em; }
+    #side { width: 340px; overflow-y: auto; background: #161b22;
+            border-left: 1px solid #30363d; padding: 12px; }
+    #side h2 { font-size: 0.9rem; color: #8b949e; margin-bottom: 8px;
+               text-transform: uppercase; letter-spacing: .05em; }
+
     table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
-    th { background: #21262d; padding: 4px 6px; text-align: left; color: #8b949e; position: sticky; top: 0; }
+    th { background: #21262d; padding: 4px 6px; text-align: left; color: #8b949e;
+         position: sticky; top: 0; }
     td { padding: 3px 6px; border-bottom: 1px solid #21262d; font-family: monospace; }
     tr:hover td { background: #1c2129; }
     .badge { display: inline-block; padding: 1px 5px; border-radius: 3px; font-size: 0.7rem; }
     .high { background: #da3633; color: #fff; }
     .med  { background: #d29922; color: #000; }
     .low  { background: #238636; color: #fff; }
-    #loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-               background: rgba(15,17,23,0.85); font-size: 1rem; }
+    #loading { position: absolute; inset: 0; display: flex; align-items: center;
+               justify-content: center; background: rgba(15,17,23,0.85); font-size: 1rem; }
+
+    /* Timeline panel (T40) */
+    #timeline-panel { height: 180px; background: #0d1117; border-top: 1px solid #30363d;
+                      padding: 8px 12px; overflow-x: auto; overflow-y: hidden; }
+    #timeline-panel h2 { font-size: 0.8rem; color: #8b949e; text-transform: uppercase;
+                         letter-spacing: .05em; margin-bottom: 6px; }
+    #timeline-scroll { display: flex; gap: 3px; height: 130px; align-items: flex-end; }
+    .tl-frame { display: flex; flex-direction: column; gap: 2px; min-width: 40px;
+                align-items: stretch; height: 100%; justify-content: flex-end; }
+    .tl-bar { border-radius: 2px 2px 0 0; min-height: 3px; cursor: default;
+              transition: opacity .15s; }
+    .tl-bar:hover { opacity: 0.8; }
+    .tl-frame-id { font-size: 0.6rem; color: #6e7681; text-align: center; margin-top: 2px; }
   </style>
 </head>
 <body>
-  <h1>Anatomia — Code Graph Viz</h1>
+  <!-- Header: title + You-Are-Here (T42) + live badge -->
+  <div id="header">
+    <h1>Anatomia -- Code Graph Viz</h1>
+    <div id="where-widget">no trace data</div>
+    <div id="live-badge" class="offline">&#9679; offline</div>
+  </div>
+
+  <!-- Main: graph + side metrics -->
   <div id="main">
     <div id="graph-panel">
       <div id="graph"></div>
-      <div id="loading">Loading graph…</div>
+      <div id="loading">Loading graph...</div>
     </div>
     <div id="side">
       <h2>Complexity Metrics</h2>
@@ -49,8 +88,31 @@
       </table>
     </div>
   </div>
+
+  <!-- Timeline swimlane (T40) -->
+  <div id="timeline-panel">
+    <h2>Frame x Mechanic Timeline</h2>
+    <div id="timeline-scroll"></div>
+  </div>
+
   <script>
-    async function loadData() {
+    // Colour palette for mechanics
+    const PALETTE = [
+      '#58a6ff','#3fb950','#d29922','#f78166','#bc8cff',
+      '#39c5cf','#e3b341','#ff7b72','#7ee787','#ffa657',
+    ];
+    const mechanicColors = new Map();
+    let colorIdx = 0;
+    function mechanicColor(m) {
+      if (!mechanicColors.has(m)) {
+        mechanicColors.set(m, PALETTE[colorIdx % PALETTE.length]);
+        colorIdx++;
+      }
+      return mechanicColors.get(m);
+    }
+
+    // Static graph load
+    async function loadStaticData() {
       const [graphRes, metricsRes] = await Promise.all([
         fetch('/api/graph'),
         fetch('/api/metrics'),
@@ -68,51 +130,63 @@
     }
 
     function shortAnchor(id) {
-      return id.length > 12 ? id.slice(0, 12) + '…' : id;
+      return id.length > 12 ? id.slice(0, 12) + '...' : id;
     }
 
     function renderMetrics(metrics) {
       const tbody = document.getElementById('metrics-body');
-      // Sort by coupling desc
       const sorted = [...metrics].sort((a, b) => b.coupling - a.coupling);
-      tbody.innerHTML = sorted.map(m => `
-        <tr>
-          <td title="${m.anchor}">${shortAnchor(m.anchor)}</td>
-          <td>${m.fanIn}</td>
-          <td>${m.fanOut}</td>
-          <td>${m.cyclomatic}</td>
-          <td><span class="badge ${couplingClass(m.coupling)}">${m.coupling}</span></td>
-        </tr>
-      `).join('');
+      tbody.innerHTML = sorted.map(m =>
+        '<tr>' +
+        '<td title="' + m.anchor + '">' + shortAnchor(m.anchor) + '</td>' +
+        '<td>' + m.fanIn + '</td>' +
+        '<td>' + m.fanOut + '</td>' +
+        '<td>' + m.cyclomatic + '</td>' +
+        '<td><span class="badge ' + couplingClass(m.coupling) + '">' + m.coupling + '</span></td>' +
+        '</tr>'
+      ).join('');
     }
 
+    // vis-network instance
+    let visNetwork = null;
+    let visNodes = null;
+    let visEdges = null;
+
     function renderGraph(graphData, metrics) {
-      const couplingById = Object.fromEntries(metrics.map(m => [m.anchor, m.coupling]));
+      const couplingById = {};
+      metrics.forEach(function(m) { couplingById[m.anchor] = m.coupling; });
 
-      const visNodes = graphData.nodes.map(n => ({
-        id: n.id,
-        label: n.name,
-        title: `${n.kind} · ${n.id}\n${n.sourceRange.filePath}:${n.sourceRange.start.line}`,
-        color: {
-          background: couplingById[n.id] >= 10 ? '#da3633'
-                    : couplingById[n.id] >= 4  ? '#d29922'
-                    : '#238636',
-          border: '#30363d',
-        },
-        font: { color: '#e1e4e8', size: 11 },
-      }));
+      const nodeData = graphData.nodes.map(function(n) {
+        return {
+          id: n.id,
+          label: n.name,
+          title: n.kind + ' - ' + n.id + '\n' + n.sourceRange.filePath + ':' + n.sourceRange.start.line,
+          color: {
+            background: (couplingById[n.id] || 0) >= 10 ? '#da3633'
+                      : (couplingById[n.id] || 0) >= 4  ? '#d29922'
+                      : '#238636',
+            border: '#30363d',
+            highlight: { background: '#58a6ff', border: '#ffffff' },
+          },
+          font: { color: '#e1e4e8', size: 11 },
+        };
+      });
 
-      const visEdges = graphData.edges.map(e => ({
-        from: e.from,
-        to: e.to,
-        label: e.kind,
-        arrows: 'to',
-        font: { size: 9, color: '#8b949e' },
-        color: { color: '#30363d' },
-      }));
+      const edgeData = graphData.edges.map(function(e) {
+        return {
+          from: e.from,
+          to: e.to,
+          label: e.kind,
+          arrows: 'to',
+          font: { size: 9, color: '#8b949e' },
+          color: { color: '#30363d' },
+        };
+      });
 
       const container = document.getElementById('graph');
-      new vis.Network(
+      visNodes = new vis.DataSet(nodeData);
+      visEdges = new vis.DataSet(edgeData);
+      visNetwork = new vis.Network(
         container,
         { nodes: visNodes, edges: visEdges },
         {
@@ -124,11 +198,93 @@
       );
     }
 
-    loadData().then(({ graph, metrics }) => {
-      renderMetrics(metrics);
-      renderGraph(graph, metrics);
+    // T41: apply active overlay to graph
+    function applyActiveOverlay(overlay) {
+      if (!visNodes) return;
+      const litSet = new Set(overlay.litAnchors);
+      const litUpdates = [];
+      visNodes.getIds().forEach(function(id) {
+        if (litSet.has(id)) {
+          litUpdates.push({ id: id, color: { background: '#58a6ff', border: '#ffffff' } });
+        }
+      });
+      if (litUpdates.length > 0) visNodes.update(litUpdates);
+    }
+
+    // T40: render timeline swimlane
+    let lastFrameIds = new Set();
+    function renderTimeline(tl) {
+      const scroll = document.getElementById('timeline-scroll');
+      if (!tl.frames || tl.frames.length === 0) return;
+
+      const maxUs = Math.max.apply(null, tl.frames.map(function(f) { return f.totalUs; }).concat([1]));
+
+      const newIds = new Set(tl.frames.map(function(f) { return f.frameId; }));
+      let same = (newIds.size === lastFrameIds.size);
+      if (same) {
+        newIds.forEach(function(id) { if (!lastFrameIds.has(id)) same = false; });
+      }
+      if (same) return;
+      lastFrameIds = newIds;
+
+      scroll.innerHTML = tl.frames.map(function(f) {
+        const bars = f.bars.map(function(b) {
+          const pct = f.totalUs > 0 ? Math.max(1, Math.round((b.durationUs / maxUs) * 120)) : 4;
+          const color = mechanicColor(b.mechanic);
+          return '<div class="tl-bar" style="height:' + pct + 'px;background:' + color + ';" title="' + b.mechanic + ': ' + b.durationUs + 'us"></div>';
+        }).join('');
+        return '<div class="tl-frame">' + bars + '<div class="tl-frame-id">' + f.frameId + '</div></div>';
+      }).join('');
+    }
+
+    // T42: update where widget
+    function updateWhere(where) {
+      const el = document.getElementById('where-widget');
+      el.textContent = where.label || 'no trace data';
+    }
+
+    // Live badge
+    function setBadge(isLive) {
+      const el = document.getElementById('live-badge');
+      if (isLive) {
+        el.textContent = '● live';
+        el.classList.remove('offline');
+      } else {
+        el.textContent = '● offline';
+        el.classList.add('offline');
+      }
+    }
+
+    // Dynamic trace poll (T40/T41/T42)
+    async function pollTrace() {
+      try {
+        const [tlRes, activeRes, whereRes] = await Promise.all([
+          fetch('/api/trace/timeline?window=40'),
+          fetch('/api/trace/active'),
+          fetch('/api/trace/where'),
+        ]);
+        if (tlRes.ok) renderTimeline(await tlRes.json());
+        if (activeRes.ok) applyActiveOverlay(await activeRes.json());
+        if (whereRes.ok) {
+          const w = await whereRes.json();
+          updateWhere(w);
+          setBadge(w.label !== 'no trace data');
+        }
+      } catch (e) {
+        // ignore transient poll errors
+      }
+    }
+
+    // Boot
+    loadStaticData().then(function(data) {
+      renderMetrics(data.metrics);
+      renderGraph(data.graph, data.metrics);
       document.getElementById('loading').style.display = 'none';
-    }).catch(err => {
+
+      // Start dynamic trace polling every 500 ms
+      pollTrace();
+      setInterval(pollTrace, 500);
+    }).catch(function(err) {
       document.getElementById('loading').textContent = 'Error: ' + err.message;
     });
   </script>
