@@ -1,8 +1,18 @@
 /**
- * dynamic/ — Runtime trace layer (G7) + visualization (G8).
- * Tasks: T33 (loop skeleton), T34-T35 (marker injection), T36 (frame scope runtime),
- *        T37 (trace transport), T38 (zone↔card join), T39 (instrumented build),
- *        T40-T42 (visualization: timeline / lit graph / you-are-here).
- * This barrel is a placeholder; implementations land in future tasks.
+ * dynamic/ — Runtime trace layer (G7).
+ * T33: loop skeleton extractor
+ * T34: C++ scope marker codegen
+ * T35: C# scope marker codegen
+ * T36: wire protocol + ring buffer decoder
+ * T37: trace transport (async receiver with retry)
+ * T38: zone↔card join (stitch)
+ * T39: build strategy configuration
  */
-export {};
+export * from './skeleton.js';
+export * from './inject-cpp.js';
+export * from './inject-csharp.js';
+export * from './protocol.js';
+export * from './ringbuffer.js';
+export * from './transport.js';
+export * from './stitch.js';
+export * from './build-strategy.js';
