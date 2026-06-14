@@ -406,25 +406,20 @@ export class KuzuCodeGraph implements CodeGraphQuery {
     while (frontier.length > 0 && depth < maxDepth) {
       const next: AnchorId[] = [];
       for (const fid of frontier) {
-        const nodes =
-          direction === "incoming"
-            ? await this._queryNeighbors(fid, undefined, "incoming")
-            : direction === "both"
-            ? [
-                ...(await this._queryNeighbors(fid, undefined, "outgoing")),
-                ...(await this._queryNeighbors(fid, undefined, "incoming")),
-              ]
-            : await this._queryNeighbors(fid, undefined, "outgoing");
-
-        const filtered = activeKinds
-          ? await Promise.all(
-              activeKinds.map((k) =>
-                direction === "incoming"
-                  ? this._queryNeighbors(fid, k, "incoming")
-                  : this._queryNeighbors(fid, k, "outgoing"),
-              ),
-            ).then((arrs) => arrs.flat())
-          : nodes;
+        const filtered = await Promise.all(
+          activeKinds.map(async (k) => {
+            if (direction === "incoming") {
+              return this._queryNeighbors(fid, k, "incoming");
+            }
+            if (direction === "both") {
+              return [
+                ...(await this._queryNeighbors(fid, k, "outgoing")),
+                ...(await this._queryNeighbors(fid, k, "incoming")),
+              ];
+            }
+            return this._queryNeighbors(fid, k, "outgoing");
+          }),
+        ).then((arrs) => arrs.flat());
 
         const deduped = filtered.filter((n) => !visited.has(n.id));
         for (const n of deduped) {
