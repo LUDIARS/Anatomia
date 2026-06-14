@@ -191,4 +191,11 @@ describe("T13 KuzuCodeGraph — reachable / isReachable", () => {
     const names = nodes.map((n) => n.name);
     expect(names).toContain("f_fn");
   });
+
+  it("reachable with both directions walks incoming and outgoing edges", async () => {
+    const nodes = await q.reachable(idOf["b_fn"]!, { direction: "both", maxDepth: 1 });
+    const names = nodes.map((n) => n.name);
+    expect(names).toContain("a_fn");
+    expect(names).toContain("c_fn");
+  });
 });
