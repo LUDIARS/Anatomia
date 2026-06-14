@@ -221,6 +221,9 @@ export function normalizeSignatureShape(bodyNode: Node): string {
   const fn = bodyNode.parent;
   if (!fn) return "(sig)";
 
+  const scope = enclosingScope(fn);
+  const fnName = functionName(fn);
+
   // ── Return type ────────────────────────────────────────────────────────────
   const retNode = fn.childForFieldName("type");
   const retText = retNode ? retNode.text.replace(/\s+/g, " ").trim() : "";
@@ -252,5 +255,71 @@ export function normalizeSignatureShape(bodyNode: Node): string {
   }
 
   const parts = paramTypes.map((t) => "(param " + t + ")").join(" ");
-  return "(sig (ret " + retText + ")" + (parts ? " " + parts : "") + ")";
+  return (
+    "(sig (scope " +
+    scope +
+    ") (name " +
+    fnName +
+    ") (ret " +
+    retText +
+    ")" +
+    (parts ? " " + parts : "") +
+    ")"
+  );
+}
+
+const TYPE_SCOPE_NODE_TYPES = new Set<string>([
+  "class_specifier",
+  "struct_specifier",
+  "class_declaration",
+  "struct_declaration",
+  "interface_declaration",
+  "namespace_definition",
+]);
+
+function enclosingScope(fn: Node): string {
+  const names: string[] = [];
+  let current = fn.parent;
+  while (current) {
+    if (TYPE_SCOPE_NODE_TYPES.has(current.type)) {
+      const name = current.childForFieldName("name");
+      if (name) names.push(name.text.replace(/\s+/g, " ").trim());
+    }
+    current = current.parent;
+  }
+  return names.reverse().join("::");
+}
+
+function functionName(fn: Node): string {
+  const name = fn.childForFieldName("name");
+  if (name) return name.text.replace(/\s+/g, " ").trim();
+
+  const declarator = fn.childForFieldName("declarator");
+  const fromDeclarator = declarator ? declaratorName(declarator) : null;
+  return fromDeclarator ?? "";
+}
+
+function declaratorName(node: Node): string | null {
+  if (
+    node.type === "identifier" ||
+    node.type === "field_identifier" ||
+    node.type === "qualified_identifier" ||
+    node.type === "operator_name" ||
+    node.type === "destructor_name"
+  ) {
+    return node.text.replace(/\s+/g, " ").trim();
+  }
+
+  const inner = node.childForFieldName("declarator");
+  if (inner) {
+    const found = declaratorName(inner);
+    if (found) return found;
+  }
+
+  for (const child of node.namedChildren) {
+    if (!child) continue;
+    const found = declaratorName(child);
+    if (found) return found;
+  }
+  return null;
 }

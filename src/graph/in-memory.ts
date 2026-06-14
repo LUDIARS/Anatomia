@@ -105,7 +105,12 @@ export class InMemoryCodeGraph implements CodeGraphQuery {
       const filtered = kinds ? nextEdges.filter((e) => kinds.includes(e.kind)) : nextEdges;
 
       for (const edge of filtered) {
-        const nextId = direction === "incoming" ? edge.from : edge.to;
+        const nextId =
+          direction === "incoming"
+            ? edge.from
+            : direction === "both" && edge.to === current.id
+            ? edge.from
+            : edge.to;
         if (visited.has(nextId)) continue;
         visited.add(nextId);
         const node = this.graph.nodes.get(nextId);

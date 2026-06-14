@@ -95,6 +95,40 @@ describe("runCli verify", () => {
     expect(exitCode).toBe(0);
     expect(output).toMatch(/PASS/);
   });
+
+  it("accepts a unified diff and verifies the post-image hunk", async () => {
+    const diffPath = join(tmpDir, "change.diff");
+    await writeFile(
+      diffPath,
+      [
+        "diff --git a/main.cpp b/main.cpp",
+        "index 1111111..2222222 100644",
+        "--- a/main.cpp",
+        "+++ b/main.cpp",
+        "@@ -1,2 +1,6 @@",
+        " void hello() { }",
+        " void world() { hello(); }",
+        "+void addedFromDiff() {",
+        "+  hello();",
+        "+}",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const args: CliArgs = {
+      subcommand: "verify",
+      repoPath: tmpDir,
+      diff: diffPath,
+      json: true,
+    };
+    const { output } = await runCli(args);
+    const parsed = JSON.parse(output);
+    const specGate = parsed.gates.find((g: { gate: string }) => g.gate === "spec_linkage");
+
+    expect(specGate.pass).toBe(false);
+    expect(specGate.suggestion).toContain("addedFromDiff");
+  });
 });
 
 describe("runCli context", () => {

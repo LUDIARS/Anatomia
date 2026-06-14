@@ -198,4 +198,26 @@ describe("T12 InMemoryCodeGraph — reachable / isReachable", () => {
     expect(names).toContain("b_fn");
     expect(names).toContain("a_fn");
   });
+
+  it("reachable with both directions walks incoming and outgoing edges", async () => {
+    const nodes = await q.reachable(idOf["b_fn"]!, { direction: "both", maxDepth: 1 });
+    const names = nodes.map((n) => n.name);
+    expect(names).toContain("a_fn");
+    expect(names).toContain("c_fn");
+  });
+});
+
+describe("T12 InMemoryCodeGraph duplicate implementation shapes", () => {
+  it("keeps distinct functions with identical bodies as separate nodes", async () => {
+    const { file, edgeInfo } = await makeFile(
+      "int first_same() { return 1; }\nint second_same() { return 1; }\n",
+      "/duplicates.cpp",
+    );
+    const graph = buildGraph([file], edgeInfo);
+    const graphQuery = new InMemoryCodeGraph(graph);
+    const nodes = await graphQuery.allNodes();
+
+    expect(nodes.map((n) => n.name).sort()).toEqual(["first_same", "second_same"]);
+    expect(new Set(nodes.map((n) => n.id)).size).toBe(2);
+  });
 });
