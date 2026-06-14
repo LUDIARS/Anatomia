@@ -204,6 +204,8 @@ export interface Link {
   to: string; // SpecClause.id
   confidence: number; // 0.0–1.0
   evidence: LinkEvidence;
+  /** True once a human or automated gate has ratified this link. */
+  ratified?: boolean;
 }
 
 // ---------------------------------------------------------------------------
