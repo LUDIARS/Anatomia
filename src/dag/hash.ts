@@ -10,6 +10,8 @@
  * parameter or return types get distinct AnchorIds (DESIGN §4.2:
  * "公開シンボル名・型は含める"). Parameter *names* are NOT included (only
  * types), preserving the local-rename invariance property.
+ * The implementation also folds the source file path into the hash input so
+ * same-shaped internal functions in different files remain distinct graph nodes.
  */
 
 import { createHash } from "node:crypto";
@@ -31,7 +33,8 @@ export function hashFunction(normalized: string): AnchorId {
  */
 export function assignAnchorId(fn: FunctionNode, normalized: string): AnchorId {
   const sigShape = normalizeSignatureShape(fn.bodyAst);
-  const id = hashFunction(normalized + "|sig|" + sigShape);
+  const locationScope = fn.sourceRange.filePath.replace(/\\/g, "/");
+  const id = hashFunction(normalized + "|sig|" + sigShape + "|file|" + locationScope);
   fn.id = id;
   return id;
 }

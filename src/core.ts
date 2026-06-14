@@ -277,8 +277,9 @@ export async function buildContextBundle(
  * Uses a zero-vector mock embed client (no real LLM calls from adapters).
  */
 export async function buildVerdict(ctx: AnalysisContext, diff: string): Promise<Verdict> {
-  const tree = await parse(diff, "cpp");
-  const fns = extractFunctions(tree, diff, "<diff>");
+  const source = sourceFromDiffInput(diff);
+  const tree = await parse(source, "cpp");
+  const fns = extractFunctions(tree, source, "<diff>");
   for (const fn of fns) assignAnchorId(fn, normalize(fn.bodyAst));
 
   // Mock embed: zero vectors → duplication gate always passes (no similarity).
@@ -296,6 +297,37 @@ export async function buildVerdict(ctx: AnalysisContext, diff: string): Promise<
 
   const gates = buildDefaultGates({ embed: mockEmbed });
   return verify(diffInput, gates);
+}
+
+function sourceFromDiffInput(input: string): string {
+  if (!looksLikeUnifiedDiff(input)) return input;
+
+  const postImageLines: string[] = [];
+  let inHunk = false;
+
+  for (const line of input.split(/\r?\n/)) {
+    if (line.startsWith("@@")) {
+      inHunk = true;
+      continue;
+    }
+    if (!inHunk) continue;
+    if (line.startsWith("diff --git ") || line.startsWith("index ")) {
+      inHunk = false;
+      continue;
+    }
+    if (line.startsWith("+++") || line.startsWith("---")) continue;
+    if (line.startsWith("\\ No newline")) continue;
+
+    if (line.startsWith("+") || line.startsWith(" ")) {
+      postImageLines.push(line.slice(1));
+    }
+  }
+
+  return postImageLines.length > 0 ? postImageLines.join("\n") : input;
+}
+
+function looksLikeUnifiedDiff(input: string): boolean {
+  return /^diff --git /m.test(input) || /^@@ .* @@/m.test(input);
 }
 
 // ---------------------------------------------------------------------------
