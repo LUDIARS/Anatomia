@@ -18,7 +18,7 @@ import type { Lang } from "../types.js";
 import { parse } from "./parser.js";
 import { extractFunctions } from "./extract.js";
 import { normalize } from "./normalize.js";
-import { hashFunction } from "./hash.js";
+import { assignAnchorId } from "./hash.js";
 
 /** Hash the FIRST top-level function found in a C++ snippet. */
 export async function hashSnippet(source: string, lang: Lang = "cpp"): Promise<string> {
@@ -26,7 +26,8 @@ export async function hashSnippet(source: string, lang: Lang = "cpp"): Promise<s
   try {
     const fns = extractFunctions(tree, source);
     if (fns.length === 0) throw new Error("no function found in snippet");
-    return hashFunction(normalize(fns[0]!.bodyAst));
+    const fn = fns[0]!;
+    return assignAnchorId(fn, normalize(fn.bodyAst));
   } finally {
     tree.delete();
   }

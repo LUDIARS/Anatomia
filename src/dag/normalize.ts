@@ -200,3 +200,57 @@ export function normalize(node: Node, _source?: string): string {
   const map = buildRenameMap(node);
   return emit(node, map);
 }
+
+/**
+ * Normalize the *signature shape* of the function that owns `bodyNode`.
+ *
+ * Returns a canonical string encoding the return type and each parameter's
+ * *type* (not name) so that:
+ *   - parameter *renames*  (int a → int b)  → SAME string (names ignored)
+ *   - parameter *type* changes (int → float) → DIFFERENT string
+ *   - return-type changes                    → DIFFERENT string
+ *
+ * Types are kept verbatim (public symbols), only collapsing internal
+ * whitespace. Falls back to "(sig)" if the AST offers no type info
+ * (e.g. no parent node), ensuring graceful degradation.
+ *
+ * The result is NOT a complete type system; it is a best-effort canonical
+ * shape string derived directly from tree-sitter text fields.
+ */
+export function normalizeSignatureShape(bodyNode: Node): string {
+  const fn = bodyNode.parent;
+  if (!fn) return "(sig)";
+
+  // ── Return type ────────────────────────────────────────────────────────────
+  const retNode = fn.childForFieldName("type");
+  const retText = retNode ? retNode.text.replace(/\s+/g, " ").trim() : "";
+
+  // ── Parameter list ─────────────────────────────────────────────────────────
+  // tree-sitter uses field name "parameters" for C++ and C# function nodes.
+  const paramList =
+    fn.childForFieldName("parameters") ??
+    fn.descendantsOfType("parameter_list")[0] ??
+    null;
+
+  const paramTypes: string[] = [];
+  if (paramList) {
+    for (const p of paramList.namedChildren) {
+      if (!p) continue;
+      // C++: parameter_declaration has a `type` field.
+      // C#:  parameter has a `type` field too.
+      // variadic `...` (optional_parameter / variadic_parameter): use node text.
+      const typeField = p.childForFieldName("type");
+      if (typeField) {
+        paramTypes.push(typeField.text.replace(/\s+/g, " ").trim());
+      } else if (p.type === "variadic_parameter" || p.type === "optional_parameter") {
+        // Keep the full node text for variadic / optional params (no name).
+        paramTypes.push(p.text.replace(/\s+/g, " ").trim());
+      }
+      // Nodes with no type field (e.g. `this` pseudo-param in C#, or comment
+      // extras) are simply skipped — they carry no type information.
+    }
+  }
+
+  const parts = paramTypes.map((t) => "(param " + t + ")").join(" ");
+  return "(sig (ret " + retText + ")" + (parts ? " " + parts : "") + ")";
+}
