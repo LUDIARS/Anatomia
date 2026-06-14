@@ -1,7 +1,65 @@
 /**
  * mechanics/ — Mechanic detection, rules engine, mechanic cards (G3).
- * Tasks: T14 (rule predicate engine), T15 (preset catalog), T16 (template rules),
- *        T17 (rule mining), T18 (plugin loader), T19 (mechanic detection), T20 (card gen).
- * This barrel is a placeholder; implementations land in future tasks.
+ *
+ * Pipeline:
+ *   predicate.ts  (T14) — NodeFilter matching helpers
+ *   engine.ts     (T14) — evaluatePredicate over the Predicate ADT (types.ts)
+ *   presets.ts    (T15) — parameterized preset factories -> Predicate
+ *   matcher.ts    (T16) — structural template matcher (AST)
+ *   template.ts   (T16) — TemplateRule -> TemplatePredicate + evaluation
+ *   mining.ts     (T17) — reverse rule generation from an exemplar
+ *   ontology.ts   (T18) — mechanic-ontology plugin loader + builtins
+ *   detect.ts     (T19) — mechanic detection (conformance)
+ *   card.ts       (T20) — content-keyed mechanic-card generation (injected LLM)
  */
-export {};
+
+// T14 — predicate engine
+export { matchesFilter, selectNodes } from "./predicate.js";
+export { evaluatePredicate } from "./engine.js";
+export type { TemplateResolver, EvaluateOptions } from "./engine.js";
+
+// T15 — presets
+export {
+  layerDependencyDirection,
+  stateAccessPath,
+  forbiddenCall,
+  couplingCap,
+  noCycle,
+  hotPathNoAlloc,
+  buildPresetPredicate,
+  PRESET_FACTORIES,
+} from "./presets.js";
+export type { PresetId } from "./presets.js";
+
+// T16 — templates
+export { isMetavar, decodeMetavar, matchTemplateAst } from "./matcher.js";
+export type { MatchResult } from "./matcher.js";
+export {
+  encodePattern,
+  compileTemplate,
+  matchTemplate,
+  evaluateTemplate,
+  makeTemplateResolver,
+} from "./template.js";
+export type { TemplateRule } from "./template.js";
+
+// T17 — mining
+export { mineRules } from "./mining.js";
+export type { CandidateRule, MiningOptions } from "./mining.js";
+
+// T18 — ontology loader
+export { loadOntology, BUILTIN_MECHANICS } from "./ontology.js";
+export type { MechanicDef, ConfiguredPreset, MechanicOntology } from "./ontology.js";
+
+// T19 — detection
+export { detectMechanic, detectMechanics } from "./detect.js";
+export type { DetectionResult } from "./detect.js";
+
+// T20 — card generation
+export {
+  createCardCache,
+  generateCard,
+  assemblePrompt,
+  merkleHash,
+} from "./card.js";
+export type { LLMClient, MechanicCard, CardCache } from "./card.js";

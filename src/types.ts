@@ -81,11 +81,20 @@ export type EdgeKind =
   | "overrides"
   | "includes";
 
+export type NodeKind = "function" | "method" | "class" | "module" | "file";
+
 export interface CodeNode {
   id: AnchorId;
   name: string;
-  kind: "function" | "method" | "class" | "module" | "file";
+  kind: NodeKind;
   sourceRange: SourceRange;
+  /**
+   * Optional classification tags (e.g. "hotPath", "alloc", layer names).
+   * Used by the mechanics rule engine's NodeFilter (G3, DESIGN §4.3).
+   * Tagging is supplied externally (mechanic ontology / heuristics); the static
+   * DAG layer does not assign tags.
+   */
+  tags?: string[];
 }
 
 export interface Edge {
@@ -102,28 +111,72 @@ export type RuleSeverity = "block" | "warn";
 export type RuleScope = "global" | "mechanic";
 
 /**
- * An architectural rule.
- * `predicate` is opaque at scaffold time; T14 will define the evaluated form.
+ * Severity attached to a concrete violation (distinct from a Rule's
+ * block/warn gate severity). Mirrors common linter levels.
+ */
+export type ViolationSeverity = "error" | "warning" | "info";
+
+// ── Predicate ADT (T14) ────────────────────────────────────────────────────
+
+/**
+ * A NodeFilter matches CodeNodes by kind, name (regex) and/or tags.
+ * All present fields are ANDed. An empty filter matches every node.
+ */
+export interface NodeFilter {
+  /** Match nodes of this kind. */
+  kind?: NodeKind;
+  /** Match nodes whose name matches this regex (JS RegExp source). */
+  namePattern?: string;
+  /** Match nodes that carry ALL of these tags. */
+  tags?: string[];
+}
+
+/**
+ * Concrete, serializable predicate representation (discriminated union).
+ * Evaluated by evaluatePredicate() in mechanics/engine.ts (T14).
+ *
+ * This replaces the scaffold's opaque `Rule.predicate: unknown`.
+ */
+export type Predicate =
+  /** No edge of `kind` may exist between a `from`-match and a `to`-match. */
+  | { type: "EdgeForbidden"; from: NodeFilter; to: NodeFilter; kind: EdgeKind }
+  /** Fan-in (incoming edges, optionally of `kind`) of each target ≤ max. */
+  | { type: "FanInCap"; target: NodeFilter; max: number; kind?: EdgeKind }
+  /** Fan-out (outgoing edges, optionally of `kind`) of each target ≤ max. */
+  | { type: "FanOutCap"; target: NodeFilter; max: number; kind?: EdgeKind }
+  /** No cycle may exist among nodes matching `scope` (following `kind`). */
+  | { type: "NoCycle"; scope: NodeFilter; kind?: EdgeKind }
+  /** References a template rule (compiled in T16). */
+  | { type: "TemplatePredicate"; templateId: string }
+  | { type: "And"; children: Predicate[] }
+  | { type: "Or"; children: Predicate[] }
+  | { type: "Not"; child: Predicate };
+
+/**
+ * An architectural rule (DESIGN §4.3): scope + concrete predicate + gate
+ * severity.
  */
 export interface Rule {
   id: string;
   scope: RuleScope;
   /** Human-readable description. */
   description: string;
-  /** Opaque predicate; evaluated by the rule engine (T14). */
-  predicate: unknown;
+  /** Concrete, serializable predicate (T14). */
+  predicate: Predicate;
   severity: RuleSeverity;
 }
 
+/**
+ * A concrete rule violation (T14). `anchors` lists every code anchor involved;
+ * `evidence` is a human-readable explanation string.
+ */
 export interface Violation {
   ruleId: string;
-  severity: RuleSeverity;
-  /** The code node that violates the rule. */
-  anchor: AnchorId;
-  /** Human-readable explanation. */
-  message: string;
-  /** Supporting evidence (anchor IDs of nodes involved). */
-  evidence: AnchorId[];
+  /** All code anchors involved in this violation. */
+  anchors: AnchorId[];
+  /** Human-readable evidence / explanation. */
+  evidence: string;
+  severity: ViolationSeverity;
 }
 
 // ---------------------------------------------------------------------------
