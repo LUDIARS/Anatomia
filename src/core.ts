@@ -20,8 +20,14 @@ import { InMemoryCodeGraph } from "./graph/in-memory.js";
 import { assembleBundle } from "./supply/bundle.js";
 import { verify, buildDefaultGates } from "./supply/verify.js";
 import { resolveLanding } from "./supply/landing.js";
-import type { AnchorId, ContextBundle, FileNode, FunctionNode, Verdict } from "./types.js";
+import { loadOntology } from "./mechanics/ontology.js";
+import { detectMechanics } from "./mechanics/detect.js";
+import { parseSpecFiles } from "./spec/parse.js";
+import { findExplicitLinks } from "./spec/explicit.js";
+import { findStructuralLinks } from "./spec/structural.js";
+import type { AnchorId, ContextBundle, FileNode, FunctionNode, Link, SpecClause, Verdict } from "./types.js";
 import type { Landing, LandingTask, MechanicDetector, LayerRules, SiblingLookup } from "./supply/landing.js";
+import type { DetectionResult } from "./mechanics/detect.js";
 import type { DiffInput } from "./supply/gates/types.js";
 import type { Lang } from "./types.js";
 
@@ -35,6 +41,19 @@ export interface AnalysisContext {
   graph: InMemoryCodeGraph;
   files: FileNode[];
   functions: FunctionNode[];
+  /**
+   * The following are always populated by `analyze()`. They are optional in the
+   * type so adapter tests / external callers can build a minimal context (just
+   * graph + files + functions) without the G3/G4 layers.
+   */
+  /** Spec clauses parsed from spec/*.md + DESIGN.md under repoPath (G4). */
+  specClauses?: SpecClause[];
+  /** Explicit + structural code↔spec links (G4). */
+  links?: Link[];
+  /** Mechanic-detection results from the builtin ontology + plugins (G3). */
+  mechanics?: DetectionResult[];
+  /** Files that could not be read or parsed (skipped, with reason). */
+  skipped?: { filePath: string; reason: string }[];
 }
 
 export interface BundleRequest {
@@ -42,13 +61,23 @@ export interface BundleRequest {
   mechanicHints?: string[];
 }
 
+/** Options for analyze(). */
+export interface AnalyzeOptions {
+  /** Suppress per-file skip warnings (default: warn to console). */
+  quiet?: boolean;
+  /** Explicit mechanic-ontology plugin dir (else ANATOMIA_PLUGIN_DIR). */
+  pluginDir?: string;
+}
+
 // ---------------------------------------------------------------------------
 // Source file discovery
 // ---------------------------------------------------------------------------
 
 const SOURCE_EXTS = new Set([".cpp", ".h", ".cs"]);
+const SPEC_EXTS = new Set([".md"]);
 
-async function collectSourceFiles(dir: string): Promise<string[]> {
+/** Collect files under `dir` (recursive) whose extension is in `exts`. */
+async function collectFilesByExt(dir: string, exts: Set<string>): Promise<string[]> {
   const result: string[] = [];
   let entries: import("node:fs").Dirent[];
   try {
@@ -58,8 +87,8 @@ async function collectSourceFiles(dir: string): Promise<string[]> {
   }
   for (const entry of entries) {
     if (!entry.isFile()) continue;
-    const ext = extname(entry.name);
-    if (!SOURCE_EXTS.has(ext)) continue;
+    const ext = extname(entry.name).toLowerCase();
+    if (!exts.has(ext)) continue;
     const parentPath: string =
       (entry as unknown as { parentPath?: string }).parentPath ??
       (entry as unknown as { path?: string }).path ??
@@ -67,6 +96,14 @@ async function collectSourceFiles(dir: string): Promise<string[]> {
     result.push(join(parentPath, entry.name));
   }
   return result;
+}
+
+function collectSourceFiles(dir: string): Promise<string[]> {
+  return collectFilesByExt(dir, SOURCE_EXTS);
+}
+
+function collectSpecFiles(dir: string): Promise<string[]> {
+  return collectFilesByExt(dir, SPEC_EXTS);
 }
 
 /** Detect language from file extension. Defaults to "cpp" for .h and .cpp. */
@@ -81,29 +118,51 @@ function langFor(filePath: string): Lang {
 // ---------------------------------------------------------------------------
 
 /**
- * Scan all .cpp/.h/.cs files under repoPath, build the full G1-G2 graph, and
- * return an AnalysisContext. The parser WASM is cached globally across calls.
+ * Run the whole G1→G5 chain on a real repo:
+ *   discover .cpp/.h/.cs → parse → extract → normalize → hash → Merkle DAG →
+ *   code graph → mechanic detection → spec linking → (supply/verify ready).
+ *
+ * Un-parseable / unreadable files are skipped with a warning (the analysis does
+ * not crash); they are recorded in `skipped`. The parser WASM is cached globally.
  */
-export async function analyze(repoPath: string): Promise<AnalysisContext> {
+export async function analyze(
+  repoPath: string,
+  options: AnalyzeOptions = {},
+): Promise<AnalysisContext> {
   const filePaths = await collectSourceFiles(repoPath);
 
   const files: FileNode[] = [];
   const allFunctions: FunctionNode[] = [];
+  const skipped: { filePath: string; reason: string }[] = [];
+
+  const warn = (filePath: string, reason: string): void => {
+    skipped.push({ filePath, reason });
+    if (!options.quiet) {
+      console.warn(`[anatomia/analyze] skipping ${filePath}: ${reason}`);
+    }
+  };
 
   // Phase 1 — parse + extract + hash (trees must remain alive for edge extraction).
   for (const filePath of filePaths) {
     let src: string;
     try {
       src = await readFile(filePath, "utf8");
-    } catch {
+    } catch (err) {
+      warn(filePath, `read failed (${String(err)})`);
       continue;
     }
     const lang = langFor(filePath);
-    const tree = await parse(src, lang);
-    const fns = extractFunctions(tree, src, filePath);
-    for (const fn of fns) assignAnchorId(fn, normalize(fn.bodyAst));
-    const fileNode = buildFileNode(filePath, fns);
-    files.push(fileNode);
+    let fns: FunctionNode[];
+    try {
+      const tree = await parse(src, lang);
+      fns = extractFunctions(tree, src, filePath);
+      for (const fn of fns) assignAnchorId(fn, normalize(fn.bodyAst));
+    } catch (err) {
+      // Parse / extract / normalize failure on one file must not abort the run.
+      warn(filePath, `parse/extract failed (${String(err)})`);
+      continue;
+    }
+    files.push(buildFileNode(filePath, fns));
     allFunctions.push(...fns);
     // NOTE: trees are NOT deleted here so that extractEdgeInfo can walk the AST.
   }
@@ -115,7 +174,47 @@ export async function analyze(repoPath: string): Promise<AnalysisContext> {
   const codeGraph = buildGraph(files, edgeInfo);
   const graph = new InMemoryCodeGraph(codeGraph);
 
-  return { repoPath, graph, files, functions: allFunctions };
+  // Phase 4 — mechanic detection (G3). Builtin ontology + optional plugins.
+  let mechanics: DetectionResult[] = [];
+  try {
+    const ontology = await loadOntology(options.pluginDir);
+    mechanics = await detectMechanics(ontology, graph, allFunctions);
+  } catch (err) {
+    if (!options.quiet) {
+      console.warn(`[anatomia/analyze] mechanic detection failed: ${String(err)}`);
+    }
+  }
+
+  // Phase 5 — spec linking (G4). Parse markdown, then explicit + structural links.
+  let specClauses: SpecClause[] = [];
+  let links: Link[] = [];
+  try {
+    const specPaths = await collectSpecFiles(repoPath);
+    if (specPaths.length > 0) {
+      specClauses = await parseSpecFiles(specPaths);
+      const sourcePaths = files.map((f) => f.path);
+      const [explicit, structural] = await Promise.all([
+        findExplicitLinks(specClauses, sourcePaths),
+        findStructuralLinks(specClauses, sourcePaths),
+      ]);
+      links = [...explicit, ...structural];
+    }
+  } catch (err) {
+    if (!options.quiet) {
+      console.warn(`[anatomia/analyze] spec linking failed: ${String(err)}`);
+    }
+  }
+
+  return {
+    repoPath,
+    graph,
+    files,
+    functions: allFunctions,
+    specClauses,
+    links,
+    mechanics,
+    skipped,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -151,13 +250,19 @@ export async function buildContextBundle(
     .map((l) => l.anchor)
     .filter((a): a is AnchorId => a !== null);
 
+  // Existing mechanics that actually have implementors in this repo feed the
+  // duplication-avoidance segment of the bundle (DESIGN §9.1 ①).
+  const existingMechanics = (ctx.mechanics ?? [])
+    .filter((m) => m.implementors.length > 0)
+    .map((m) => m.mechanic);
+
   const { bundle } = assembleBundle({
     landingAnchors,
     rules: [],
-    specClauses: [],
+    specClauses: ctx.specClauses ?? [],
     exemplars,
     impactRadius: [],
-    existingMechanics: [],
+    existingMechanics,
   });
 
   return bundle;
@@ -183,6 +288,10 @@ export async function buildVerdict(ctx: AnalysisContext, diff: string): Promise<
   const diffInput: DiffInput = {
     changed: fns,
     graph: ctx.graph,
+    // Real spec clauses + links so the spec_linkage gate has context to judge
+    // whether the changed functions tie into any spec clause (orphan warning).
+    specClauses: ctx.specClauses ?? [],
+    links: ctx.links ?? [],
   };
 
   const gates = buildDefaultGates({ embed: mockEmbed });
