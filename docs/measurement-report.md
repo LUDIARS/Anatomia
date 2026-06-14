@@ -39,11 +39,13 @@ Un-parseable / unreadable files are **skipped with a warning** (recorded in
 | Graph edges (calls/reads/writes) | **608** |
 | Mechanics detected (attempted) | **2** (builtin ontology) |
 
-**Note on nodes < functions (310 < 358):** the graph is keyed by Anchor ID, and
-**48 functions share an Anchor ID with another function** (same normalized body).
-Most are legitimate (trivial getters/setters that normalize identically); 2 of
-those collapses are *semantic* collisions — see §1(d). The DAG correctly treats
-identical-bodied functions as one content-addressed node.
+**Note on nodes < functions (339 < 358):** the graph is keyed by Anchor ID, and
+**19 functions share an Anchor ID with another function** (same normalized body
+*and* same signature shape). These are all legitimate collapses — trivial
+getters/setters that are genuinely identical in both body and type signature.
+The two former *semantic* collisions (`EffectCatalog::add` / `GradeTable::add`
+and the `replace` pair) are now correctly distinct after the §1(d) fix. The
+DAG correctly treats truly identical functions as one content-addressed node.
 
 ### Mechanics detected (builtin ontology: `state-machine`, `hot-path-processor`)
 
@@ -132,43 +134,43 @@ correct (an empty body genuinely has nothing to mutate inside).
 > a known confound rather than a hashing weakness; the in-body statement-add
 > result above is the clean signal.
 
-### (d) Collisions — distinct real functions sharing a hash ⚠️ REAL BREAKAGE
+### (d) Collisions — distinct real functions sharing a hash ✅ FIXED
 
 | | |
 |---|---|
 | Distinct function bodies | 305 |
-| Hash buckets | 303 |
-| **Collision groups (same hash, different body)** | **2** |
-| Colliding distinct pairs | 2 |
+| Hash buckets | 333 |
+| **Collision groups (same hash, different body)** | **0** |
+| Colliding distinct pairs | 0 |
 | Total distinct pairs | 46 360 |
-| **False-collision rate** | **4.31e-5 (2 / 46 360)** |
+| **False-collision rate** | **0 (0 / 46 360)** |
 
-**Two REAL semantic collisions found on AdventureCube code.** These are the kind
-of real-code breakage the task asks to surface honestly:
+**Zero collisions after folding signature shape into the Anchor ID.**
 
-1. `EffectCatalog::replace(const CatalogEntry&)` ≡ `GradeTable::replace(const GradeEntry&)`
-   — byte-identical bodies (loop over `entries_`, compare `e.id == entry.id`,
-   `push_back`, return). Only difference: the **parameter type**
-   (`CatalogEntry` vs `GradeEntry`).
-2. `EffectCatalog::add(CatalogEntry)` ≡ `GradeTable::add(GradeEntry)`
-   — both `{ entries_.push_back(std::move(entry)); }`. Only the param type differs.
+The original report identified two pairs whose byte-identical bodies collided
+because parameter types were excluded from the hash:
 
-**Root cause (important):** the PoC Anchor ID is a hash of the **normalized
-function *body*** (DESIGN §4.2: "PoC粒度=関数 / 関数本体の構造"). The function's
-**signature — including return type and parameter types — is NOT part of the
-hash.** DESIGN §4.2 says "公開シンボル名・型は含める", but in this implementation
-the parameter/return types live in `FunctionNode.signature`, which `hashFunction`
-never sees. So two functions whose bodies are structurally identical and which
-differ *only* in parameter type collide.
+1. `EffectCatalog::replace(const CatalogEntry&)` vs `GradeTable::replace(const GradeEntry&)`
+2. `EffectCatalog::add(CatalogEntry)` vs `GradeTable::add(GradeEntry)`
 
-**Assessment:** the collision rate is tiny (4.3e-5) and the colliding pairs are
-genuine "structural twins" — for *traceability* and *caching* the collapse is
-arguably correct (identical behaviour ⇒ identical content). But for **verify /
-duplication / impact** it is a real false-merge: a change to `EffectCatalog::add`
-would appear to touch `GradeTable::add`. **Follow-up:** fold normalized parameter
-types (and return type) into the Anchor ID, or key the DAG node on
-`hash(body) + signature-shape` so type-only-differentiated functions stay
-distinct. This is the single concrete correctness gap real C++ exposed.
+**Fix applied:** `assignAnchorId` now computes the hash over
+`normalize(body) + "|sig|" + normalizeSignatureShape(body)`, where
+`normalizeSignatureShape` extracts each parameter's *type* (from the
+tree-sitter `type` field of each `parameter_declaration`) and the return type —
+without including parameter *names*. This means:
+
+- `foo(int a)` vs `foo(int b)` → **same hash** (param rename, types identical).
+- `foo(int a)` vs `foo(float a)` → **different hash** (type change).
+- `EffectCatalog::add(CatalogEntry)` vs `GradeTable::add(GradeEntry)` →
+  **different hash** (param type differs: `CatalogEntry` vs `GradeEntry`).
+
+The local-rename invariance property (formatting / comment / local-rename →
+same hash) is **fully preserved** — false-invalidation rate remains **0%**
+(see §1b).
+
+Note: `hashBuckets` grew from 303 → 333 because the 30 functions that previously
+collapsed to the same body-only hash are now correctly distinct by signature shape.
+All 358 functions continue to be extracted and hashed; 0 skipped.
 
 ---
 
@@ -218,7 +220,7 @@ path, so it never flags — a real embedder is injected in production.)
 | | |
 |---|---|
 | `npm run build` (`tsc`) | ✅ green |
-| `npm test` (vitest) | ✅ **42 files / 289 tests passing** |
+| `npm test` (vitest) | ✅ **42 files / 297 tests passing** |
 | `src/__tests__/e2e.test.ts` | ✅ 6 tests (mini fixture + AdventureCube subset) |
 
 The AdventureCube e2e block auto-skips (`describe.skip`) when the repo is not
@@ -241,11 +243,12 @@ checked out at the expected path, so the suite stays portable.
   premise (DESIGN §9).
 
 **What's weak / needs follow-up:**
-1. **Body-only hashing collides type-only-differentiated functions** (§1d). The
-   `add`/`replace` twins across `EffectCatalog`/`GradeTable` share an Anchor ID
-   because parameter types aren't hashed. Concrete fix: fold normalized
-   parameter + return types into the Anchor ID. (Rate is tiny but it is a real
-   false-merge for verify/impact.)
+1. ~~**Body-only hashing collides type-only-differentiated functions** (§1d).~~
+   **Fixed.** The `add`/`replace` twins across `EffectCatalog`/`GradeTable`
+   previously shared an Anchor ID because parameter types were excluded from the
+   hash. `assignAnchorId` now folds the normalized signature shape (parameter
+   types + return type, names excluded) into the hash input. False-collision
+   count on AdventureCube is now **0**; false-invalidation stays **0%**.
 2. **Builtin mechanics are generic.** `state-machine` over-matches and
    `hot-path-processor` matches nothing real. A real AdventureCube ontology
    plugin (Skill/Action/Shield/Melee) is needed for meaningful detection — the

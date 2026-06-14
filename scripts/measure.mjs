@@ -27,7 +27,7 @@ import { join, extname, basename } from "node:path";
 import { parse } from "../dist/dag/parser.js";
 import { extractFunctions } from "../dist/dag/extract.js";
 import { normalize } from "../dist/dag/normalize.js";
-import { hashFunction } from "../dist/dag/hash.js";
+import { assignAnchorId } from "../dist/dag/hash.js";
 import { analyze, buildContextBundle, buildVerdict } from "../dist/core.js";
 import { parseSpecFiles } from "../dist/spec/parse.js";
 import { findExplicitLinks } from "../dist/spec/explicit.js";
@@ -68,7 +68,8 @@ async function hashSnippet(text) {
   const tree = await parse(text, "cpp");
   const fns = extractFunctions(tree, text, "<p>");
   if (fns.length === 0) return null;
-  return hashFunction(normalize(fns[0].bodyAst));
+  const fn = fns[0];
+  return assignAnchorId(fn, normalize(fn.bodyAst));
 }
 
 const normWs = (s) => s.replace(/\s+/g, " ").trim();
@@ -190,7 +191,7 @@ async function main() {
     for (const fn of fns) {
       let h;
       try {
-        h = hashFunction(normalize(fn.bodyAst));
+        h = assignAnchorId(fn, normalize(fn.bodyAst));
       } catch {
         continue;
       }
