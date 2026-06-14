@@ -3,10 +3,11 @@
  * Re-exports core types (T02) and sub-module barrels.
  */
 
-// Core types (T02)
+// Core types (T02 + T03)
 export type {
   AnchorId,
   AstNode,
+  Lang,
   SourcePosition,
   SourceRange,
   FunctionNode,

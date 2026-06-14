@@ -1,8 +1,10 @@
 /**
  * Core types for Anatomia (T02).
  * Types only — no logic, no circular imports.
- * Placeholder types (e.g. AstNode) will be filled by later tasks (T03+).
+ * The AstNode placeholder is filled by T03 (web-tree-sitter integration).
  */
+
+import type { Node as TreeSitterNode } from "web-tree-sitter";
 
 // ---------------------------------------------------------------------------
 // Branded primitives
@@ -12,11 +14,18 @@
 export type AnchorId = string & { readonly __brand: "AnchorId" };
 
 // ---------------------------------------------------------------------------
-// AST placeholder (filled by T03 web-tree-sitter integration)
+// AST node (web-tree-sitter, T03)
 // ---------------------------------------------------------------------------
 
-/** Opaque handle to a tree-sitter SyntaxNode. Concrete type added by T03. */
-export type AstNode = unknown;
+/**
+ * A tree-sitter syntax node. In web-tree-sitter 0.25 the concrete class is
+ * named `Node` (formerly `SyntaxNode`); we alias it here so the rest of the
+ * codebase has a single stable name.
+ */
+export type AstNode = TreeSitterNode;
+
+/** Supported source languages (tree-sitter grammar identifiers). */
+export type Lang = "cpp" | "c_sharp";
 
 // ---------------------------------------------------------------------------
 // Source location
@@ -46,7 +55,7 @@ export interface FunctionNode {
   /** Full signature text (return type + params). */
   signature: string;
   sourceRange: SourceRange;
-  /** Raw AST subtree for this function body. Typed concretely by T03. */
+  /** Raw AST subtree for this function body. */
   bodyAst: AstNode;
 }
 
