@@ -32,7 +32,12 @@ describe("T02 core types", () => {
       id: "global/no-alloc-in-hot-path",
       scope: "global",
       description: "No heap allocation on the hot render path.",
-      predicate: null,
+      predicate: {
+        type: "EdgeForbidden",
+        from: { tags: ["hotPath"] },
+        to: { tags: ["alloc"] },
+        kind: "calls",
+      },
       severity: "block",
     };
     expect(rule.scope).toBe("global");
