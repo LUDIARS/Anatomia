@@ -31,6 +31,19 @@ export type {
   Verdict,
 } from "./types.js";
 
+// Core wiring (G9 — e2e entry points: analyze / context / verify / impact)
+export {
+  analyze,
+  buildContextBundle,
+  buildVerdict,
+  getImpactRadius,
+} from "./core.js";
+export type {
+  AnalysisContext,
+  AnalyzeOptions,
+  BundleRequest,
+} from "./core.js";
+
 // Sub-module placeholders (implementations added by later tasks)
 export * from "./dag/index.js";
 export * from "./graph/index.js";

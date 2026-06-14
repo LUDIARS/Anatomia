@@ -5,7 +5,8 @@
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "measure": "node scripts/measure.mjs"
   },
   "dependencies": {
     "@hono/node-server": "^2.0.4",
