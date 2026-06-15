@@ -1,0 +1,92 @@
+# Anatomia
+
+コードを「機構」へ解剖し、仕様・実行時挙動に結びつけ、**決定的キャッシュ**の上で
+**AI のクリーンなコード生成を支える**建築規約オラクル（LUDIARS、略称 `An`）。
+
+「クリーン」= 抽象的な美しさではなく、その codebase の grain（ドメイン・ルール・仕様）に
+逆らわないこと。既存ドメインを再発明せず、結合を無闇に上げず、仕様の意図に結びつき、周りと一貫する。
+
+- **DAG** = 正規化 Merkle-AST（関数粒度・acyclic）＝キャッシュ土台。意味が同じなら同一 Anchor ID。
+- **KG** = その上の派生ビュー（Kuzu 射影、関係クエリ用）。
+- **supply→verify ループ**（重心）= 生成前に着地点 / 適用ルール / 手本 / 影響半径 / 重複回避を渡し、
+  生成後に 5 ゲートで検証する。
+
+詳細設計は [`DESIGN.md`](./DESIGN.md)、タスクは [`TASKS.md`](./TASKS.md)。
+
+---
+
+## セットアップ
+
+### 必要環境
+- Node.js 20+（ESM / `"type": "module"`）
+- ネイティブ依存（`kuzu`, `web-tree-sitter` の WASM）を含むため、初回は `npm install` でビルドが走る。
+
+### インストール & ビルド
+
+```sh
+git clone https://github.com/LUDIARS/Anatomia.git
+cd Anatomia
+npm install
+npm run build      # tsc → dist/  （bin は dist/ をロードするため必須）
+```
+
+> CLI / MCP の入口（`bin/anatomia.mjs` / `bin/anatomia-mcp.mjs`）は `.ts` ソースではなく
+> `dist/` を読む。**コード変更後は必ず `npm run build`**。
+
+### スクリプト
+
+| コマンド | 内容 |
+|---|---|
+| `npm run build` | `tsc` で `dist/` を生成 |
+| `npm run typecheck` | `tsc --noEmit` |
+| `npm test` | `vitest run`（全テスト） |
+| `npm run measure` | 計測（ハッシュ命中率 / 束決定性 / verify 精度） |
+
+### 実 LLM / embedder（任意）
+
+未設定なら hash-embedder + mock カードで動作（hermetic・API 不要）。実プロバイダを入れると
+duplication ゲートが「車輪の再発明」を実検出する。
+
+| 変数 | 効果 |
+|---|---|
+| `ANTHROPIC_API_KEY` | LLM 蒸留を有効化（既定モデル `claude-opus-4-8`） |
+| `ANATOMIA_LLM_MODEL` | LLM モデル上書き |
+| `ANATOMIA_EMBED_BASE_URL` / `_API_KEY` / `_MODEL` / `_DIM` | OpenAI 互換 embedder（ローカル Ollama 可） |
+
+---
+
+## クイックスタート
+
+```sh
+# プロジェクトを登録して解析（Merkle キャッシュが効く）
+node bin/anatomia.mjs project add adventure <path-to-repo>
+node bin/anatomia.mjs project analyze adventure
+
+# 生成前: タスクの文脈束を組む
+node bin/anatomia.mjs context --project adventure --task "freeze effect を追加"
+
+# 生成後: diff を 5 ゲートで検証（block 失敗で exit 1）
+git diff | node bin/anatomia.mjs verify --project adventure --json
+```
+
+単発（登録なし）は `--repo <path>`、静的グラフは `export-graph -o graph.html`、
+複数プロジェクト管理 UI は `web --port 4200`。
+
+**詳しい解析手順は [`spec/usage/analysis-procedure.md`](./spec/usage/analysis-procedure.md)。**
+
+---
+
+## AI への接続
+
+生成前 supply / 生成後 verify を AI ホストから回す経路は 2 つ。
+
+- **MCP（常駐サーバ）** — `.mcp.json` に `bin/anatomia-mcp.mjs` を登録し 7 ツールを公開。
+  設定は [`docs/mcp-setup.md`](./docs/mcp-setup.md)。
+- **Skill（MCP 不要・CLI ラッパ）** — Claude Code のスキル `anatomia-analyze` から CLI を直接叩く。
+  常駐プロセス不要。`spec/usage/analysis-procedure.md` §4.2 参照。
+
+---
+
+## ライセンス
+
+LUDIARS internal（private）。
