@@ -58,6 +58,10 @@ const LOCAL_DECL_TYPES = new Set<string>([
   "init_declarator",
   // C#
   "variable_declarator",
+  // TypeScript: `const x = ...` / `let x = ...` / `var x = ...`
+  // The outer node is `lexical_declaration`; the inner binders are
+  // `variable_declarator` nodes (shared with C# but same semantics here).
+  "lexical_declaration",
 ]);
 
 interface RenameMap {
@@ -69,13 +73,18 @@ interface RenameMap {
 
 /** Walk a parameter list and collect parameter names in order. */
 function collectParamNames(funcNode: Node, params: Map<string, string>): void {
+  // C++/C#: field name "parameters" → parameter_list / parameter_declaration
+  // TypeScript: field name "parameters" → formal_parameters / required_parameter / optional_parameter
   const paramList =
     funcNode.childForFieldName("parameters") ??
     funcNode.descendantsOfType("parameter_list")[0] ??
+    funcNode.descendantsOfType("formal_parameters")[0] ??
     null;
   if (!paramList) return;
   for (const p of paramList.namedChildren) {
     if (!p) continue;
+    // TypeScript: required_parameter / optional_parameter have a `pattern` field
+    // (the binding identifier) or a plain `identifier` child.
     const name = findBoundIdentifier(p);
     if (name && !params.has(name)) {
       params.set(name, "$p" + params.size);
@@ -91,6 +100,11 @@ function findBoundIdentifier(node: Node): string | null {
   // C# parameter / variable_declarator expose `name`.
   const nameField = node.childForFieldName("name");
   if (nameField && nameField.type === "identifier") return nameField.text;
+
+  // TypeScript: required_parameter / optional_parameter expose a `pattern` field
+  // (which is an `identifier` for simple params).
+  const patternField = node.childForFieldName("pattern");
+  if (patternField && patternField.type === "identifier") return patternField.text;
 
   // C++ declarator chain.
   const declarator = node.childForFieldName("declarator");
@@ -125,6 +139,13 @@ function collectLocalNames(node: Node, vars: Map<string, string>): void {
       if (!bound) {
         const direct = findBoundIdentifier(node);
         if (direct && !vars.has(direct)) vars.set(direct, "$v" + vars.size);
+      }
+    } else if (node.type === "lexical_declaration") {
+      // TypeScript: `const x = ...` / `let x = ...` — children are variable_declarator nodes.
+      for (const child of node.namedChildren) {
+        if (!child || child.type !== "variable_declarator") continue;
+        const name = findBoundIdentifier(child);
+        if (name && !vars.has(name)) vars.set(name, "$v" + vars.size);
       }
     } else {
       // C# variable_declarator (or C++ bare init_declarator).
@@ -225,14 +246,23 @@ export function normalizeSignatureShape(bodyNode: Node): string {
   const fnName = functionName(fn);
 
   // ── Return type ────────────────────────────────────────────────────────────
-  const retNode = fn.childForFieldName("type");
-  const retText = retNode ? retNode.text.replace(/\s+/g, " ").trim() : "";
+  // C++/C#: `type` field. TypeScript uses a `type_annotation` node (`: T`)
+  // or `return_type` field in some grammar versions. We try both.
+  const retNode =
+    fn.childForFieldName("return_type") ??
+    fn.childForFieldName("type") ??
+    fn.childForFieldName("type_annotation") ??
+    null;
+  const retText = retNode ? retNode.text.replace(/:\s*/, "").replace(/\s+/g, " ").trim() : "";
 
   // ── Parameter list ─────────────────────────────────────────────────────────
-  // tree-sitter uses field name "parameters" for C++ and C# function nodes.
+  // C++/C#: field name "parameters" → parameter_list / parameter_declaration.
+  // TypeScript: field name "parameters" → formal_parameters / required_parameter /
+  //   optional_parameter. Type annotation sits in a `type` field (`: T`).
   const paramList =
     fn.childForFieldName("parameters") ??
     fn.descendantsOfType("parameter_list")[0] ??
+    fn.descendantsOfType("formal_parameters")[0] ??
     null;
 
   const paramTypes: string[] = [];
@@ -241,16 +271,22 @@ export function normalizeSignatureShape(bodyNode: Node): string {
       if (!p) continue;
       // C++: parameter_declaration has a `type` field.
       // C#:  parameter has a `type` field too.
-      // variadic `...` (optional_parameter / variadic_parameter): use node text.
+      // TypeScript required_parameter / optional_parameter: `type` field is the
+      //   type annotation node (text includes leading `:` in some grammar versions).
       const typeField = p.childForFieldName("type");
       if (typeField) {
-        paramTypes.push(typeField.text.replace(/\s+/g, " ").trim());
-      } else if (p.type === "variadic_parameter" || p.type === "optional_parameter") {
-        // Keep the full node text for variadic / optional params (no name).
+        // Strip the leading `: ` in TypeScript type annotations if present.
+        paramTypes.push(typeField.text.replace(/^:\s*/, "").replace(/\s+/g, " ").trim());
+      } else if (p.type === "variadic_parameter") {
+        // Keep the full node text for variadic params (no name).
+        paramTypes.push(p.text.replace(/\s+/g, " ").trim());
+      } else if (p.type === "optional_parameter") {
+        // C++ optional_parameter (variadic-style) — no type field, use node text.
         paramTypes.push(p.text.replace(/\s+/g, " ").trim());
       }
       // Nodes with no type field (e.g. `this` pseudo-param in C#, or comment
-      // extras) are simply skipped — they carry no type information.
+      // extras, or TS untyped params) are simply skipped — they carry no type
+      // information relevant to the signature shape.
     }
   }
 
@@ -275,6 +311,9 @@ const TYPE_SCOPE_NODE_TYPES = new Set<string>([
   "struct_declaration",
   "interface_declaration",
   "namespace_definition",
+  // TypeScript
+  "class",
+  "interface_body",
 ]);
 
 function enclosingScope(fn: Node): string {
