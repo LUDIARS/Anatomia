@@ -18,6 +18,8 @@ const require = createRequire(import.meta.url);
 const GRAMMAR_WASM: Record<Lang, string> = {
   cpp: "tree-sitter-wasms/out/tree-sitter-cpp.wasm",
   c_sharp: "tree-sitter-wasms/out/tree-sitter-c_sharp.wasm",
+  typescript: "tree-sitter-wasms/out/tree-sitter-typescript.wasm",
+  tsx: "tree-sitter-wasms/out/tree-sitter-tsx.wasm",
 };
 
 let initPromise: Promise<void> | null = null;

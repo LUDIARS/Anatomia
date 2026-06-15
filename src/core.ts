@@ -73,7 +73,7 @@ export interface AnalyzeOptions {
 // Source file discovery
 // ---------------------------------------------------------------------------
 
-const SOURCE_EXTS = new Set([".cpp", ".h", ".cs"]);
+const SOURCE_EXTS = new Set([".cpp", ".h", ".cs", ".ts", ".tsx"]);
 const SPEC_EXTS = new Set([".md"]);
 
 /** Collect files under `dir` (recursive) whose extension is in `exts`. */
@@ -110,7 +110,24 @@ function collectSpecFiles(dir: string): Promise<string[]> {
 function langFor(filePath: string): Lang {
   const ext = extname(filePath).toLowerCase();
   if (ext === ".cs") return "c_sharp";
+  if (ext === ".tsx") return "tsx";
+  if (ext === ".ts") return "typescript";
   return "cpp";
+}
+
+/** Path segments that should be excluded from TypeScript source collection. */
+const TS_EXCLUDE_SEGMENTS = new Set(["node_modules", "dist", ".git"]);
+
+/**
+ * Return true if the path should be skipped for TS/TSX:
+ *   - declaration files (*.d.ts)
+ *   - files under node_modules / dist / .git
+ */
+function shouldSkipTsPath(filePath: string): boolean {
+  const normalized = filePath.replace(/\\/g, "/");
+  if (normalized.endsWith(".d.ts")) return true;
+  const segments = normalized.split("/");
+  return segments.some((s) => TS_EXCLUDE_SEGMENTS.has(s));
 }
 
 // ---------------------------------------------------------------------------
@@ -129,7 +146,13 @@ export async function analyze(
   repoPath: string,
   options: AnalyzeOptions = {},
 ): Promise<AnalysisContext> {
-  const filePaths = await collectSourceFiles(repoPath);
+  const rawFilePaths = await collectSourceFiles(repoPath);
+  // For TypeScript files, skip *.d.ts and files under node_modules/dist.
+  const filePaths = rawFilePaths.filter((fp) => {
+    const ext = extname(fp).toLowerCase();
+    if (ext === ".ts" || ext === ".tsx") return !shouldSkipTsPath(fp);
+    return true;
+  });
 
   const files: FileNode[] = [];
   const allFunctions: FunctionNode[] = [];

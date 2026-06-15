@@ -25,10 +25,15 @@ const FUNCTION_DEFINITION_TYPES = new Set<string>([
   "destructor_declaration",
   "operator_declaration",
   "local_function_statement",
+  // TypeScript / TSX
+  "function_declaration",
+  "method_definition",
+  "arrow_function",
+  "function_expression",
 ]);
 
 /** Body container node types (the block we normalize over). */
-const BODY_TYPES = new Set<string>(["compound_statement", "block"]);
+const BODY_TYPES = new Set<string>(["compound_statement", "block", "statement_block"]);
 
 function toRange(node: Node, filePath: string): SourceRange {
   return {
@@ -56,6 +61,9 @@ function findBody(node: Node): Node | null {
  * C# exposes a `name` field. C++ function_definition nests the name inside the
  * declarator (function_declarator → identifier / field_identifier /
  * qualified_identifier / operator_name / destructor_name).
+ * TypeScript function_declaration and method_definition expose a `name` field.
+ * TypeScript arrow_function / function_expression bound to a const/let get their
+ * name from the grandparent variable_declarator's `name` field.
  */
 function extractName(node: Node): string {
   const nameField = node.childForFieldName("name");
@@ -67,6 +75,17 @@ function extractName(node: Node): string {
     const id = findDeclaratorName(declarator);
     if (id) return id;
   }
+
+  // TypeScript: arrow_function / function_expression assigned to a variable.
+  // Parent is `variable_declarator`; its `name` field is the binding identifier.
+  if (node.type === "arrow_function" || node.type === "function_expression") {
+    const parent = node.parent;
+    if (parent && parent.type === "variable_declarator") {
+      const nameNode = parent.childForFieldName("name");
+      if (nameNode) return nameNode.text;
+    }
+  }
+
   return "<anonymous>";
 }
 

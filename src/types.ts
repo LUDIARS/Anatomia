@@ -25,7 +25,7 @@ export type AnchorId = string & { readonly __brand: "AnchorId" };
 export type AstNode = TreeSitterNode;
 
 /** Supported source languages (tree-sitter grammar identifiers). */
-export type Lang = "cpp" | "c_sharp";
+export type Lang = "cpp" | "c_sharp" | "typescript" | "tsx";
 
 // ---------------------------------------------------------------------------
 // Source location
