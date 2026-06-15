@@ -8,6 +8,7 @@
  * T38: zone<->card join (stitch)
  * T39: build strategy configuration
  * T40-T42: dynamic viz (TraceSource, timeline, active overlay, where)
+ * T45-T49: phase learning (signature, discover, fsm, label, classify)
  */
 export * from './skeleton.js';
 export * from './inject-cpp.js';
@@ -18,3 +19,4 @@ export * from './transport.js';
 export * from './stitch.js';
 export * from './build-strategy.js';
 export * from './viz/index.js';
+export * from './phase/index.js';
