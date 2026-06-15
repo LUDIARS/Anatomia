@@ -11,6 +11,9 @@
  *                      project list                list registered projects
  *                      project remove <id>         remove a project
  *                      project analyze <id>        analyze a project (cache-aware)
+ *   web           -- start the multi-project management panel HTTP server
+ *                      --port <n>    TCP port (default 4200)
+ *                      --home <dir>  Anatomia home dir (registry + cache location)
  *
  * `verify` / `context` / `where` / `export-graph` accept `--project <id>` to
  * target a registered project (the registered rootPath overrides --repo).
@@ -31,6 +34,7 @@ import {
 import { resolveLanding } from "../supply/landing.js";
 import { ProjectManager } from "../project/manager.js";
 import { exportGraphHtml } from "./web/export.js";
+import { startServer } from "./web/server.js";
 import type { AnalysisContext } from "../core.js";
 import type { Verdict } from "../types.js";
 
@@ -41,7 +45,7 @@ import type { Verdict } from "../types.js";
 export type ProjectAction = "add" | "list" | "remove" | "analyze";
 
 export interface CliArgs {
-  subcommand: "verify" | "context" | "where" | "project" | "export-graph";
+  subcommand: "verify" | "context" | "where" | "project" | "export-graph" | "web";
   repoPath: string;
   /** For verify: path to diff file, or "-" to read stdin. */
   diff?: string;
@@ -57,6 +61,10 @@ export interface CliArgs {
   projectAction?: ProjectAction;
   /** positional args for the project subcommand (name/path/id). */
   projectArgs?: string[];
+  /** For web: TCP port. Default 4200. */
+  port?: number;
+  /** For web: Anatomia home dir (registry + cache). */
+  homeDir?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -72,16 +80,22 @@ export function parseArgs(argv: string[]): CliArgs {
     subcommand !== "context" &&
     subcommand !== "where" &&
     subcommand !== "project" &&
-    subcommand !== "export-graph"
+    subcommand !== "export-graph" &&
+    subcommand !== "web"
   ) {
     throw new Error(
-      `Unknown subcommand "${subcommand ?? ""}". Expected: verify | context | where | project | export-graph`,
+      `Unknown subcommand "${subcommand ?? ""}". Expected: verify | context | where | project | export-graph | web`,
     );
   }
 
   // The `project` subcommand has its own positional grammar.
   if (subcommand === "project") {
     return parseProjectArgs(args);
+  }
+
+  // The `web` subcommand has its own flag set.
+  if (subcommand === "web") {
+    return parseWebArgs(args);
   }
 
   let repoPath = process.cwd();
@@ -118,6 +132,25 @@ export function parseArgs(argv: string[]): CliArgs {
   }
 
   return { subcommand, repoPath, diff, task, json, project, output };
+}
+
+function parseWebArgs(args: string[]): CliArgs {
+  let port = 4200;
+  let homeDir: string | undefined;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === "--port") {
+      port = parseInt(args[++i] ?? "4200", 10);
+    } else if (a === "--home") {
+      homeDir = args[++i];
+    }
+  }
+  return {
+    subcommand: "web",
+    repoPath: process.cwd(),
+    port,
+    homeDir,
+  };
 }
 
 function parseProjectArgs(args: string[]): CliArgs {
@@ -327,6 +360,15 @@ export async function main(): Promise<void> {
     const msg = err instanceof Error ? err.message : String(err);
     process.stderr.write(`anatomia: ${msg}\n`);
     process.exit(1);
+  }
+
+  // The `web` subcommand starts an HTTP server and keeps the process alive.
+  // We handle it here before runCli() so we never call process.exit().
+  if (args.subcommand === "web") {
+    const mgr = await ProjectManager.load({ homeDir: args.homeDir });
+    await startServer({ ctx: mgr, port: args.port ?? 4200 });
+    // startServer starts the Hono listener; the event loop keeps the process alive.
+    return;
   }
 
   const { exitCode, output } = await runCli(args);

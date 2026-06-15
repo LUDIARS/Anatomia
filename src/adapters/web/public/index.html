@@ -1,335 +1,897 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Anatomia -- Code Graph Viz</title>
+  <title>Anatomia — Management Panel</title>
   <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: system-ui, sans-serif; background: #0f1117; color: #e1e4e8; }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; font-family: system-ui, -apple-system, sans-serif;
+                 background: #0f1117; color: #e1e4e8; font-size: 14px; }
 
-    /* Header */
-    #header { display: flex; align-items: center; padding: 8px 16px; gap: 16px;
-              background: #161b22; border-bottom: 1px solid #30363d; min-height: 44px; }
-    #header h1 { font-size: 1.1rem; white-space: nowrap; }
+    /* ── Layout shell ──────────────────────────────────────── */
+    #shell { display: flex; flex-direction: column; height: 100%; }
 
-    /* You Are Here (T42) */
-    #where-widget { flex: 1; font-size: 0.78rem; color: #58a6ff;
-                    background: #0d1117; border: 1px solid #30363d;
-                    border-radius: 4px; padding: 3px 8px;
-                    font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    #live-badge { font-size: 0.7rem; color: #3fb950; padding: 2px 6px;
-                  border: 1px solid #3fb950; border-radius: 3px; white-space: nowrap; }
-    #live-badge.offline { color: #6e7681; border-color: #6e7681; }
+    /* ── Top header ────────────────────────────────────────── */
+    #topbar {
+      flex: none; display: flex; align-items: center; gap: 12px;
+      padding: 0 16px; height: 44px;
+      background: #161b22; border-bottom: 1px solid #30363d;
+    }
+    #topbar-logo { font-weight: 700; font-size: 1rem; color: #58a6ff; letter-spacing: .03em; }
+    #topbar-crumb { font-size: 0.8rem; color: #8b949e; }
+    .crumb-sep { margin: 0 6px; color: #484f58; }
+    .crumb-link { color: #58a6ff; cursor: pointer; }
+    .crumb-link:hover { text-decoration: underline; }
+    #topbar-actions { margin-left: auto; }
 
-    /* Main layout */
-    #main { display: flex; height: calc(100vh - 44px - 180px); }
-    #graph-panel { flex: 1; position: relative; }
-    #graph { width: 100%; height: 100%; }
-    #side { width: 340px; overflow-y: auto; background: #161b22;
-            border-left: 1px solid #30363d; padding: 12px; }
-    #side h2 { font-size: 0.9rem; color: #8b949e; margin-bottom: 8px;
-               text-transform: uppercase; letter-spacing: .05em; }
+    /* ── Main content ──────────────────────────────────────── */
+    #main { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
 
-    table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
-    th { background: #21262d; padding: 4px 6px; text-align: left; color: #8b949e;
-         position: sticky; top: 0; }
-    td { padding: 3px 6px; border-bottom: 1px solid #21262d; font-family: monospace; }
-    tr:hover td { background: #1c2129; }
-    .badge { display: inline-block; padding: 1px 5px; border-radius: 3px; font-size: 0.7rem; }
-    .high { background: #da3633; color: #fff; }
-    .med  { background: #d29922; color: #000; }
-    .low  { background: #238636; color: #fff; }
-    #loading { position: absolute; inset: 0; display: flex; align-items: center;
-               justify-content: center; background: rgba(15,17,23,0.85); font-size: 1rem; }
+    /* ── Buttons / inputs ──────────────────────────────────── */
+    .btn {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 5px 12px; border-radius: 6px; border: 1px solid #30363d;
+      background: #21262d; color: #e1e4e8; font-size: 0.8rem;
+      cursor: pointer; transition: background .15s;
+    }
+    .btn:hover { background: #30363d; }
+    .btn-primary { background: #238636; border-color: #2ea043; color: #fff; }
+    .btn-primary:hover { background: #2ea043; }
+    .btn-danger { background: #da3633; border-color: #b62324; color: #fff; }
+    .btn-danger:hover { background: #b62324; }
+    .btn-sm { padding: 3px 8px; font-size: 0.75rem; }
+    input[type=text] {
+      background: #21262d; border: 1px solid #30363d; border-radius: 6px;
+      color: #e1e4e8; padding: 5px 10px; font-size: 0.8rem; outline: none;
+    }
+    input[type=text]:focus { border-color: #58a6ff; }
 
-    /* Timeline panel (T40) */
-    #timeline-panel { height: 180px; background: #0d1117; border-top: 1px solid #30363d;
-                      padding: 8px 12px; overflow-x: auto; overflow-y: hidden; }
-    #timeline-panel h2 { font-size: 0.8rem; color: #8b949e; text-transform: uppercase;
-                         letter-spacing: .05em; margin-bottom: 6px; }
-    #timeline-scroll { display: flex; gap: 3px; height: 130px; align-items: flex-end; }
-    .tl-frame { display: flex; flex-direction: column; gap: 2px; min-width: 40px;
-                align-items: stretch; height: 100%; justify-content: flex-end; }
-    .tl-bar { border-radius: 2px 2px 0 0; min-height: 3px; cursor: default;
-              transition: opacity .15s; }
-    .tl-bar:hover { opacity: 0.8; }
-    .tl-frame-id { font-size: 0.6rem; color: #6e7681; text-align: center; margin-top: 2px; }
+    /* ── Badge ─────────────────────────────────────────────── */
+    .badge {
+      display: inline-block; padding: 1px 7px; border-radius: 10px;
+      font-size: 0.7rem; font-weight: 600;
+    }
+    .badge-green { background: #0d4a1e; color: #3fb950; }
+    .badge-red   { background: #4a0f0f; color: #f78166; }
+
+    /* ── VIEW: projects list ────────────────────────────────── */
+    #view-projects { flex: 1; overflow-y: auto; padding: 20px 24px; }
+    #view-projects h2 { font-size: 0.82rem; color: #8b949e; text-transform: uppercase;
+                        letter-spacing: .06em; margin-bottom: 14px; }
+
+    /* Add-project form */
+    #add-form {
+      display: none; background: #161b22; border: 1px solid #30363d;
+      border-radius: 8px; padding: 14px 16px; margin-bottom: 16px;
+    }
+    #add-form.open { display: block; }
+    .form-row { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
+    .form-label { font-size: 0.78rem; color: #8b949e; width: 56px; }
+    #add-form input[type=text] { flex: 1; min-width: 200px; }
+    #add-form-error { color: #f78166; font-size: 0.78rem; min-height: 1.2em; }
+
+    /* Projects table */
+    #projects-table { width: 100%; border-collapse: collapse; }
+    #projects-table th {
+      text-align: left; font-size: 0.7rem; color: #6e7681; font-weight: 600;
+      text-transform: uppercase; letter-spacing: .05em;
+      padding: 6px 12px; border-bottom: 1px solid #21262d;
+    }
+    #projects-table td { padding: 8px 12px; border-bottom: 1px solid #21262d;
+                         vertical-align: middle; }
+    #projects-table tr:last-child td { border-bottom: none; }
+    #projects-table tr:hover td { background: #161b22; }
+    .proj-name { font-weight: 600; cursor: pointer; }
+    .proj-name:hover { color: #58a6ff; text-decoration: underline; }
+    .proj-path { font-family: monospace; font-size: 0.75rem; color: #6e7681; }
+    .proj-counts { font-size: 0.75rem; color: #8b949e; }
+    .proj-actions { display: flex; gap: 6px; }
+
+    /* ── VIEW: dashboard ────────────────────────────────────── */
+    #view-dashboard { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+    /* Summary strip */
+    #dash-summary {
+      flex: none; padding: 10px 20px;
+      background: #161b22; border-bottom: 1px solid #30363d;
+      display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+    }
+    #dash-proj-name { font-weight: 700; font-size: 1rem; }
+    #dash-proj-path { font-family: monospace; font-size: 0.72rem; color: #6e7681; }
+    .dash-stat { font-size: 0.78rem; color: #8b949e; }
+    .dash-stat strong { color: #c9d1d9; }
+
+    /* Tabs */
+    #dash-tabs {
+      flex: none; display: flex;
+      background: #0f1117; border-bottom: 1px solid #30363d; padding: 0 16px;
+    }
+    .tab-btn {
+      padding: 8px 16px; border: none; background: none; color: #8b949e;
+      font-size: 0.82rem; cursor: pointer; border-bottom: 2px solid transparent;
+    }
+    .tab-btn:hover { color: #c9d1d9; }
+    .tab-btn.active { color: #e1e4e8; border-bottom-color: #58a6ff; }
+
+    /* Tab panels */
+    #dash-panels { flex: 1; overflow: hidden; position: relative; }
+    .tab-panel { display: none; height: 100%; overflow: auto; }
+    .tab-panel.active { display: block; }
+
+    /* ── Graph panel ────────────────────────────────────────── */
+    #panel-graph { display: none; }
+    #panel-graph.active {
+      display: flex; flex-direction: row;
+      height: 100%; overflow: hidden;
+    }
+    #graph-area { flex: 1; position: relative; }
+    #graph-canvas { width: 100%; height: 100%; }
+    #graph-loading {
+      position: absolute; inset: 0; display: flex; align-items: center;
+      justify-content: center; background: rgba(15,17,23,.85); font-size: 0.9rem;
+      z-index: 10; color: #8b949e;
+    }
+    #graph-filter-bar {
+      position: absolute; top: 10px; left: 10px; z-index: 5;
+      display: flex; gap: 8px; align-items: center;
+    }
+    #graph-filter-bar select {
+      background: #21262d; color: #e1e4e8; border: 1px solid #30363d;
+      border-radius: 4px; padding: 3px 8px; font-size: 0.78rem;
+    }
+    #graph-side {
+      width: 280px; flex: none; display: flex; flex-direction: column;
+      background: #161b22; border-left: 1px solid #30363d; overflow: hidden;
+    }
+    #graph-detail { flex: 1; overflow-y: auto; padding: 10px; }
+    #graph-detail h3 { font-size: 0.75rem; color: #8b949e; text-transform: uppercase;
+                       letter-spacing: .05em; margin-bottom: 8px; }
+    #graph-placeholder { color: #6e7681; font-size: 0.82rem; padding: 10px 0; }
+    .detail-row { display: flex; justify-content: space-between; gap: 8px;
+                  font-size: 0.76rem; padding: 3px 0; border-bottom: 1px solid #21262d; }
+    .detail-label { color: #8b949e; }
+    .detail-val { font-family: monospace; color: #e1e4e8; text-align: right;
+                  word-break: break-all; max-width: 150px; }
+    #graph-legend { flex: none; border-top: 1px solid #30363d; padding: 8px 10px;
+                    max-height: 190px; overflow-y: auto; }
+    #graph-legend h3 { font-size: 0.72rem; color: #8b949e; text-transform: uppercase;
+                       letter-spacing: .05em; margin-bottom: 6px; }
+    .legend-row { font-size: 0.7rem; display: flex; align-items: center; gap: 6px; padding: 2px 0; }
+    .legend-swatch { width: 10px; height: 10px; border-radius: 2px; flex: none; }
+    .legend-lbl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+                  color: #c9d1d9; font-family: monospace; }
+    .legend-note { font-size: 0.68rem; color: #6e7681; margin-top: 5px; }
+    .legend-encode { font-size: 0.68rem; color: #8b949e; padding: 1px 0; }
+
+    /* ── Hotspots panel ─────────────────────────────────────── */
+    #panel-hotspots { padding: 16px 20px; }
+    #panel-hotspots h3 { font-size: 0.78rem; color: #8b949e; text-transform: uppercase;
+                         letter-spacing: .05em; margin-bottom: 12px; }
+    #hotspots-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+    #hotspots-table th {
+      text-align: left; color: #6e7681; font-weight: 600;
+      text-transform: uppercase; font-size: 0.68rem; letter-spacing: .05em;
+      padding: 5px 10px; border-bottom: 1px solid #21262d; white-space: nowrap;
+    }
+    #hotspots-table td { padding: 6px 10px; border-bottom: 1px solid #21262d; vertical-align: middle; }
+    #hotspots-table tr:last-child td { border-bottom: none; }
+    #hotspots-table tr:hover td { background: #161b22; }
+    .hs-name { font-family: monospace; font-weight: 600; }
+    .hs-file { font-family: monospace; font-size: 0.72rem; color: #6e7681; }
+    .hs-num  { text-align: right; font-family: monospace; }
+    .bar { display: inline-block; height: 6px; border-radius: 3px; vertical-align: middle;
+           margin-left: 4px; }
+
+    /* ── Domains panel ──────────────────────────────────────── */
+    #panel-domains { padding: 16px 20px; }
+    #panel-domains h3 { font-size: 0.78rem; color: #8b949e; text-transform: uppercase;
+                        letter-spacing: .05em; margin-bottom: 12px; }
+    #domains-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+                    gap: 10px; }
+    .domain-card {
+      background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 12px 14px;
+    }
+    .domain-card-name { font-weight: 600; font-size: 0.88rem; margin-bottom: 6px; }
+    .domain-card-stats { display: flex; gap: 12px; font-size: 0.76rem; color: #8b949e; }
+    .domain-card-stats strong { color: #c9d1d9; }
+
+    /* ── Spec-links panel ───────────────────────────────────── */
+    #panel-spec-links { padding: 16px 20px; }
+    #panel-spec-links h3 { font-size: 0.78rem; color: #8b949e; text-transform: uppercase;
+                           letter-spacing: .05em; margin-bottom: 12px; }
+    #spec-links-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+    #spec-links-table th {
+      text-align: left; color: #6e7681; font-weight: 600;
+      text-transform: uppercase; font-size: 0.68rem; letter-spacing: .05em;
+      padding: 5px 10px; border-bottom: 1px solid #21262d;
+    }
+    #spec-links-table td { padding: 6px 10px; border-bottom: 1px solid #21262d; vertical-align: middle; }
+    #spec-links-table tr:last-child td { border-bottom: none; }
+    #spec-links-table tr:hover td { background: #161b22; }
+    .sl-fn   { font-family: monospace; font-weight: 600; font-size: 0.8rem; }
+    .sl-spec { font-family: monospace; font-size: 0.72rem; color: #6e7681; }
+    .conf-bar { display: inline-block; height: 5px; border-radius: 2px;
+                background: #58a6ff; vertical-align: middle; margin-left: 4px; }
+
+    /* ── Common states ──────────────────────────────────────── */
+    .loading-msg { color: #6e7681; padding: 24px; text-align: center; }
+    .error-msg   { color: #f78166; padding: 24px; text-align: center; }
+    .empty-msg   { color: #6e7681; padding: 24px; text-align: center; font-style: italic; }
   </style>
 </head>
 <body>
-  <!-- Header: title + You-Are-Here (T42) + live badge -->
-  <div id="header">
-    <h1>Anatomia -- Code Graph Viz</h1>
-    <select id="project-select" title="Project"></select>
-    <div id="where-widget">no trace data</div>
-    <div id="live-badge" class="offline">&#9679; offline</div>
-  </div>
+<div id="shell">
 
-  <!-- Main: graph + side metrics -->
+  <!-- ─── Top bar ──────────────────────────────────────────── -->
+  <header id="topbar">
+    <span id="topbar-logo">Anatomia</span>
+    <nav id="topbar-crumb"></nav>
+    <div id="topbar-actions"></div>
+  </header>
+
+  <!-- ─── Main content area ────────────────────────────────── -->
   <div id="main">
-    <div id="graph-panel">
-      <div id="graph"></div>
-      <div id="loading">Loading graph...</div>
-    </div>
-    <div id="side">
-      <h2>Complexity Metrics</h2>
-      <table id="metrics-table">
+
+    <!-- ═══ VIEW: Projects list ═══ -->
+    <div id="view-projects">
+      <h2>Registered Projects</h2>
+
+      <!-- Add-project toggle + form -->
+      <div style="margin-bottom:16px">
+        <button class="btn btn-primary" id="btn-show-add">+ Add Project</button>
+      </div>
+      <div id="add-form">
+        <div class="form-row">
+          <span class="form-label">Name</span>
+          <input type="text" id="add-name" placeholder="my-project" />
+        </div>
+        <div class="form-row">
+          <span class="form-label">Path</span>
+          <input type="text" id="add-path" placeholder="/absolute/path/to/repo" style="min-width:320px" />
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="btn btn-primary" id="btn-add-submit">Register &amp; Analyze</button>
+          <button class="btn" id="btn-add-cancel">Cancel</button>
+          <span id="add-form-error"></span>
+        </div>
+      </div>
+
+      <!-- Projects table -->
+      <div id="projects-empty" style="display:none">
+        No projects registered yet. Click "+ Add Project" to register one.
+      </div>
+      <table id="projects-table" style="display:none">
         <thead>
           <tr>
-            <th>Anchor</th>
-            <th>Fan-in</th>
-            <th>Fan-out</th>
-            <th>Cyclo</th>
-            <th>Coupling</th>
+            <th>Name / ID</th>
+            <th>Root Path</th>
+            <th>Counts</th>
+            <th>Actions</th>
           </tr>
         </thead>
-        <tbody id="metrics-body"></tbody>
+        <tbody id="projects-tbody"></tbody>
       </table>
     </div>
-  </div>
 
-  <!-- Timeline swimlane (T40) -->
-  <div id="timeline-panel">
-    <h2>Frame x Domain Timeline</h2>
-    <div id="timeline-scroll"></div>
-  </div>
+    <!-- ═══ VIEW: Per-project dashboard ═══ -->
+    <div id="view-dashboard" style="display:none;flex:1;flex-direction:column;overflow:hidden">
 
-  <script>
-    // Colour palette for domains
-    const PALETTE = [
-      '#58a6ff','#3fb950','#d29922','#f78166','#bc8cff',
-      '#39c5cf','#e3b341','#ff7b72','#7ee787','#ffa657',
-    ];
-    const domainColors = new Map();
-    let colorIdx = 0;
-    function domainColor(m) {
-      if (!domainColors.has(m)) {
-        domainColors.set(m, PALETTE[colorIdx % PALETTE.length]);
-        colorIdx++;
-      }
-      return domainColors.get(m);
+      <!-- Summary strip -->
+      <div id="dash-summary">
+        <div>
+          <div id="dash-proj-name"></div>
+          <div id="dash-proj-path"></div>
+        </div>
+        <div class="dash-stat"><strong id="d-files">—</strong> files</div>
+        <div class="dash-stat"><strong id="d-fns">—</strong> functions</div>
+        <div class="dash-stat"><strong id="d-nodes">—</strong> nodes</div>
+        <div class="dash-stat"><strong id="d-edges">—</strong> edges</div>
+        <div class="dash-stat"><strong id="d-domains">—</strong> domains</div>
+        <div class="dash-stat"><strong id="d-links">—</strong> spec links</div>
+        <button class="btn btn-sm" id="dash-reanalyze" style="margin-left:auto">Re-analyze</button>
+      </div>
+
+      <!-- Tab bar -->
+      <div id="dash-tabs">
+        <button class="tab-btn active" data-tab="graph">Graph</button>
+        <button class="tab-btn" data-tab="hotspots">Hotspots</button>
+        <button class="tab-btn" data-tab="domains">Domains</button>
+        <button class="tab-btn" data-tab="spec-links">Spec Links</button>
+      </div>
+
+      <!-- Tab panels -->
+      <div id="dash-panels" style="flex:1;overflow:hidden;position:relative">
+
+        <!-- ── Graph ── -->
+        <div class="tab-panel active" id="panel-graph">
+          <div id="graph-area">
+            <div id="graph-canvas"></div>
+            <div id="graph-loading">Loading graph&hellip;</div>
+            <div id="graph-filter-bar">
+              <label for="graph-group-filter"
+                     style="font-size:0.75rem;color:#8b949e">Group:</label>
+              <select id="graph-group-filter"><option value="">All groups</option></select>
+            </div>
+          </div>
+          <div id="graph-side">
+            <div id="graph-detail">
+              <h3>Node Detail</h3>
+              <div id="graph-placeholder">Click a node to see details.</div>
+              <div id="graph-detail-rows" style="display:none"></div>
+            </div>
+            <div id="graph-legend">
+              <h3>Legend</h3>
+              <div id="graph-legend-groups"></div>
+              <div class="legend-note" style="margin-top:6px">Node border = coupling</div>
+              <div class="legend-encode"><span style="color:#da3633">&#9632;</span> red &ge;10</div>
+              <div class="legend-encode"><span style="color:#d29922">&#9632;</span> orange &ge;4</div>
+              <div class="legend-encode"><span style="color:#238636">&#9632;</span> green &lt;4</div>
+              <div class="legend-note" style="margin-top:4px">Node size = cyclomatic complexity</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── Hotspots ── -->
+        <div class="tab-panel" id="panel-hotspots">
+          <div style="padding:16px 20px">
+            <h3 style="font-size:0.78rem;color:#8b949e;text-transform:uppercase;
+                       letter-spacing:.05em;margin-bottom:12px">
+              Top Functions by Coupling / Complexity
+            </h3>
+            <table id="hotspots-table">
+              <thead>
+                <tr>
+                  <th>#</th><th>Name</th><th>File : line</th>
+                  <th>Coupling</th><th>Cyclomatic</th>
+                  <th>Fan-in</th><th>Fan-out</th><th>Dom-overlap</th>
+                </tr>
+              </thead>
+              <tbody id="hotspots-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- ── Domains ── -->
+        <div class="tab-panel" id="panel-domains">
+          <div style="padding:16px 20px">
+            <h3 style="font-size:0.78rem;color:#8b949e;text-transform:uppercase;
+                       letter-spacing:.05em;margin-bottom:12px">Detected Domains</h3>
+            <div id="domains-list"></div>
+          </div>
+        </div>
+
+        <!-- ── Spec Links ── -->
+        <div class="tab-panel" id="panel-spec-links">
+          <div style="padding:16px 20px">
+            <h3 style="font-size:0.78rem;color:#8b949e;text-transform:uppercase;
+                       letter-spacing:.05em;margin-bottom:12px">Code &harr; Spec Links</h3>
+            <table id="spec-links-table">
+              <thead>
+                <tr>
+                  <th>Function</th><th>Spec Clause</th><th>File</th>
+                  <th>Evidence</th><th>Confidence</th><th>Ratified</th>
+                </tr>
+              </thead>
+              <tbody id="spec-links-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+      </div><!-- /#dash-panels -->
+    </div><!-- /#view-dashboard -->
+
+  </div><!-- /#main -->
+</div><!-- /#shell -->
+
+<script>
+(function () {
+  'use strict';
+
+  // ── Utilities ──────────────────────────────────────────────────────────────
+
+  function esc(s) {
+    return String(s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  async function apiFetch(path) {
+    var res = await fetch(path);
+    if (!res.ok) {
+      var b = await res.json().catch(function () { return {}; });
+      throw new Error(b.error || res.statusText);
+    }
+    return res.json();
+  }
+
+  function setText(id, val) {
+    var el = document.getElementById(id);
+    if (el) el.textContent = val;
+  }
+
+  // ── App state ──────────────────────────────────────────────────────────────
+
+  var state = {
+    view: 'projects',
+    projectId: null,
+    projectName: '',
+    projectPath: '',
+    activeTab: 'graph',
+    network: null,
+    rawVisData: null,
+    graphLoaded: false,
+  };
+
+  // ── Navigation ─────────────────────────────────────────────────────────────
+
+  function showView(view) {
+    var vp = document.getElementById('view-projects');
+    var vd = document.getElementById('view-dashboard');
+    if (view === 'projects') {
+      vp.style.display = '';
+      vd.style.display = 'none';
+    } else {
+      vp.style.display = 'none';
+      vd.style.display = 'flex';
+    }
+  }
+
+  function navProjects() {
+    state.view = 'projects';
+    state.projectId = null;
+    renderCrumb();
+    showView('projects');
+    loadProjects();
+  }
+
+  function navDashboard(id, name, path) {
+    state.view = 'dashboard';
+    state.projectId = id;
+    state.projectName = name;
+    state.projectPath = path;
+    state.graphLoaded = false;
+    state.rawVisData = null;
+    if (state.network) { state.network.destroy(); state.network = null; }
+    renderCrumb();
+    showView('dashboard');
+    // Reset to graph tab
+    activateTab('graph', false);
+    loadDashboard();
+  }
+
+  function renderCrumb() {
+    var crumb = document.getElementById('topbar-crumb');
+    if (state.view === 'projects') {
+      crumb.innerHTML = '<span style="color:#8b949e">Projects</span>';
+    } else {
+      crumb.innerHTML =
+        '<span class="crumb-link" id="crumb-back">Projects</span>' +
+        '<span class="crumb-sep">/</span>' +
+        '<span>' + esc(state.projectName || state.projectId) + '</span>';
+      var cb = document.getElementById('crumb-back');
+      if (cb) cb.onclick = navProjects;
+    }
+  }
+
+  // ── Projects list ──────────────────────────────────────────────────────────
+
+  async function loadProjects() {
+    var tbody  = document.getElementById('projects-tbody');
+    var empty  = document.getElementById('projects-empty');
+    var table  = document.getElementById('projects-table');
+    tbody.innerHTML = '<tr><td colspan="4" class="loading-msg">Loading&hellip;</td></tr>';
+    table.style.display = '';
+    empty.style.display = 'none';
+
+    var data;
+    try {
+      data = await apiFetch('/api/projects');
+    } catch (e) {
+      tbody.innerHTML = '<tr><td colspan="4" class="error-msg">' + esc(e.message) + '</td></tr>';
+      return;
     }
 
-    // Currently-selected project id (drives ?project= on data fetches).
-    let currentProject = null;
-
-    function projectQuery() {
-      return currentProject ? ('?project=' + encodeURIComponent(currentProject)) : '';
+    var projects = data.projects || [];
+    if (projects.length === 0) {
+      table.style.display = 'none';
+      empty.style.display = '';
+      return;
     }
 
-    // Static graph load (scoped to the selected project)
-    async function loadStaticData() {
-      const q = projectQuery();
-      const [graphRes, metricsRes] = await Promise.all([
-        fetch('/api/graph' + q),
-        fetch('/api/metrics' + q),
-      ]);
-      return {
-        graph: await graphRes.json(),
-        metrics: await metricsRes.json(),
-      };
-    }
+    table.style.display = '';
+    empty.style.display = 'none';
+    tbody.innerHTML = '';
 
-    // Populate the project dropdown from /api/projects.
-    async function loadProjects() {
-      try {
-        const res = await fetch('/api/projects');
-        if (!res.ok) return;
-        const data = await res.json();
-        const sel = document.getElementById('project-select');
-        sel.innerHTML = '';
-        (data.projects || []).forEach(function(p) {
-          const opt = document.createElement('option');
-          opt.value = p.id;
-          opt.textContent = p.name + ' (' + p.id + ')';
-          sel.appendChild(opt);
-        });
-        currentProject = data.selected || (data.projects && data.projects[0] && data.projects[0].id) || null;
-        if (currentProject) sel.value = currentProject;
-        sel.style.display = (data.projects && data.projects.length > 1) ? '' : 'none';
-        sel.onchange = function() {
-          currentProject = sel.value;
-          reloadGraph();
-        };
-      } catch (e) {
-        document.getElementById('project-select').style.display = 'none';
-      }
-    }
-
-    // Re-fetch and re-render the static graph for the current project.
-    async function reloadGraph() {
-      try {
-        const data = await loadStaticData();
-        renderMetrics(data.metrics);
-        renderGraph(data.graph, data.metrics);
-        document.getElementById('loading').style.display = 'none';
-      } catch (err) {
-        document.getElementById('loading').textContent = 'Error: ' + err.message;
-      }
-    }
-
-    function couplingClass(c) {
-      if (c >= 10) return 'high';
-      if (c >= 4)  return 'med';
-      return 'low';
-    }
-
-    function shortAnchor(id) {
-      return id.length > 12 ? id.slice(0, 12) + '...' : id;
-    }
-
-    function renderMetrics(metrics) {
-      const tbody = document.getElementById('metrics-body');
-      const sorted = [...metrics].sort((a, b) => b.coupling - a.coupling);
-      tbody.innerHTML = sorted.map(m =>
-        '<tr>' +
-        '<td title="' + m.anchor + '">' + shortAnchor(m.anchor) + '</td>' +
-        '<td>' + m.fanIn + '</td>' +
-        '<td>' + m.fanOut + '</td>' +
-        '<td>' + m.cyclomatic + '</td>' +
-        '<td><span class="badge ' + couplingClass(m.coupling) + '">' + m.coupling + '</span></td>' +
-        '</tr>'
-      ).join('');
-    }
-
-    // vis-network instance
-    let visNetwork = null;
-    let visNodes = null;
-    let visEdges = null;
-
-    function renderGraph(graphData, metrics) {
-      const couplingById = {};
-      metrics.forEach(function(m) { couplingById[m.anchor] = m.coupling; });
-
-      const nodeData = graphData.nodes.map(function(n) {
-        return {
-          id: n.id,
-          label: n.name,
-          title: n.kind + ' - ' + n.id + '\n' + n.sourceRange.filePath + ':' + n.sourceRange.start.line,
-          color: {
-            background: (couplingById[n.id] || 0) >= 10 ? '#da3633'
-                      : (couplingById[n.id] || 0) >= 4  ? '#d29922'
-                      : '#238636',
-            border: '#30363d',
-            highlight: { background: '#58a6ff', border: '#ffffff' },
-          },
-          font: { color: '#e1e4e8', size: 11 },
-        };
-      });
-
-      const edgeData = graphData.edges.map(function(e) {
-        return {
-          from: e.from,
-          to: e.to,
-          label: e.kind,
-          arrows: 'to',
-          font: { size: 9, color: '#8b949e' },
-          color: { color: '#30363d' },
-        };
-      });
-
-      const container = document.getElementById('graph');
-      visNodes = new vis.DataSet(nodeData);
-      visEdges = new vis.DataSet(edgeData);
-      visNetwork = new vis.Network(
-        container,
-        { nodes: visNodes, edges: visEdges },
-        {
-          layout: { improvedLayout: true },
-          physics: { stabilization: { iterations: 150 }, solver: 'forceAtlas2Based' },
-          interaction: { hover: true, tooltipDelay: 100 },
-          nodes: { shape: 'dot', size: 12 },
-        }
-      );
-    }
-
-    // T41: apply active overlay to graph
-    function applyActiveOverlay(overlay) {
-      if (!visNodes) return;
-      const litSet = new Set(overlay.litAnchors);
-      const litUpdates = [];
-      visNodes.getIds().forEach(function(id) {
-        if (litSet.has(id)) {
-          litUpdates.push({ id: id, color: { background: '#58a6ff', border: '#ffffff' } });
-        }
-      });
-      if (litUpdates.length > 0) visNodes.update(litUpdates);
-    }
-
-    // T40: render timeline swimlane
-    let lastFrameIds = new Set();
-    function renderTimeline(tl) {
-      const scroll = document.getElementById('timeline-scroll');
-      if (!tl.frames || tl.frames.length === 0) return;
-
-      const maxUs = Math.max.apply(null, tl.frames.map(function(f) { return f.totalUs; }).concat([1]));
-
-      const newIds = new Set(tl.frames.map(function(f) { return f.frameId; }));
-      let same = (newIds.size === lastFrameIds.size);
-      if (same) {
-        newIds.forEach(function(id) { if (!lastFrameIds.has(id)) same = false; });
-      }
-      if (same) return;
-      lastFrameIds = newIds;
-
-      scroll.innerHTML = tl.frames.map(function(f) {
-        const bars = f.bars.map(function(b) {
-          const pct = f.totalUs > 0 ? Math.max(1, Math.round((b.durationUs / maxUs) * 120)) : 4;
-          const color = domainColor(b.domain);
-          return '<div class="tl-bar" style="height:' + pct + 'px;background:' + color + ';" title="' + b.domain + ': ' + b.durationUs + 'us"></div>';
-        }).join('');
-        return '<div class="tl-frame">' + bars + '<div class="tl-frame-id">' + f.frameId + '</div></div>';
-      }).join('');
-    }
-
-    // T42: update where widget
-    function updateWhere(where) {
-      const el = document.getElementById('where-widget');
-      el.textContent = where.label || 'no trace data';
-    }
-
-    // Live badge
-    function setBadge(isLive) {
-      const el = document.getElementById('live-badge');
-      if (isLive) {
-        el.textContent = '笳・live';
-        el.classList.remove('offline');
-      } else {
-        el.textContent = '笳・offline';
-        el.classList.add('offline');
-      }
-    }
-
-    // Dynamic trace poll (T40/T41/T42)
-    async function pollTrace() {
-      try {
-        const [tlRes, activeRes, whereRes] = await Promise.all([
-          fetch('/api/trace/timeline?window=40'),
-          fetch('/api/trace/active'),
-          fetch('/api/trace/where'),
-        ]);
-        if (tlRes.ok) renderTimeline(await tlRes.json());
-        if (activeRes.ok) applyActiveOverlay(await activeRes.json());
-        if (whereRes.ok) {
-          const w = await whereRes.json();
-          updateWhere(w);
-          setBadge(w.label !== 'no trace data');
-        }
-      } catch (e) {
-        // ignore transient poll errors
-      }
-    }
-
-    // Boot: discover projects, then render the selected project graph.
-    loadProjects().then(reloadGraph).then(function() {
-      // Start dynamic trace polling every 500 ms
-      pollTrace();
-      setInterval(pollTrace, 500);
-    }).catch(function(err) {
-      document.getElementById('loading').textContent = 'Error: ' + err.message;
+    projects.forEach(function (p) {
+      var isSelected = p.id === data.selected;
+      var tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td><span class="proj-name" data-id="' + esc(p.id) + '"' +
+          ' data-name="' + esc(p.name) + '" data-path="' + esc(p.rootPath) + '">' +
+          (isSelected ? '<span style="color:#3fb950" title="selected">&#9679;</span> ' : '') +
+          esc(p.name) + '</span></td>' +
+        '<td><span class="proj-path">' + esc(p.rootPath) + '</span></td>' +
+        '<td><span class="proj-counts" id="cnt-' + esc(p.id) + '">—</span></td>' +
+        '<td><div class="proj-actions">' +
+          '<button class="btn btn-sm btn-open" data-id="' + esc(p.id) + '"' +
+            ' data-name="' + esc(p.name) + '" data-path="' + esc(p.rootPath) + '">Open</button>' +
+          '<button class="btn btn-sm btn-reanalyze" data-id="' + esc(p.id) + '">Re-analyze</button>' +
+          '<button class="btn btn-sm btn-danger btn-remove" data-id="' + esc(p.id) + '">Remove</button>' +
+        '</div></td>';
+      tbody.appendChild(tr);
+      fetchCounts(p.id);
     });
-  </script>
+  }
+
+  async function fetchCounts(id) {
+    try {
+      var s = await apiFetch('/api/projects/' + encodeURIComponent(id) + '/summary');
+      var el = document.getElementById('cnt-' + id);
+      if (el) el.textContent =
+        s.files + ' files · ' + s.functions + ' fns · ' +
+        s.nodes + ' nodes · ' + s.domains + ' domains';
+    } catch (_) {}
+  }
+
+  // Delegation for project table actions
+  document.getElementById('projects-tbody').addEventListener('click', function (e) {
+    var t = /** @type {HTMLElement} */ (e.target);
+    if (!t) return;
+    var id   = t.getAttribute('data-id');
+    var name = t.getAttribute('data-name');
+    var path = t.getAttribute('data-path');
+    if (t.classList.contains('proj-name') || t.classList.contains('btn-open')) {
+      navDashboard(id, name, path);
+    } else if (t.classList.contains('btn-reanalyze')) {
+      reanalyzeFromList(id, t);
+    } else if (t.classList.contains('btn-remove')) {
+      removeProject(id);
+    }
+  });
+
+  async function removeProject(id) {
+    if (!confirm('Remove project "' + id + '"?')) return;
+    try {
+      var res = await fetch('/api/projects/' + encodeURIComponent(id), { method: 'DELETE' });
+      if (!res.ok) { var b = await res.json(); throw new Error(b.error); }
+      loadProjects();
+    } catch (e) { alert('Remove failed: ' + e.message); }
+  }
+
+  async function reanalyzeFromList(id, btn) {
+    var orig = btn.textContent;
+    btn.textContent = 'Analyzing…'; btn.disabled = true;
+    try {
+      var res = await fetch('/api/projects/' + encodeURIComponent(id) + '/analyze', { method: 'POST' });
+      if (!res.ok) { var b = await res.json(); throw new Error(b.error); }
+      fetchCounts(id);
+    } catch (e) { alert('Analyze failed: ' + e.message); }
+    finally { btn.textContent = orig; btn.disabled = false; }
+  }
+
+  // ── Add-project form ───────────────────────────────────────────────────────
+
+  document.getElementById('btn-show-add').onclick = function () {
+    document.getElementById('add-form').classList.toggle('open');
+  };
+  document.getElementById('btn-add-cancel').onclick = function () {
+    document.getElementById('add-form').classList.remove('open');
+    document.getElementById('add-form-error').textContent = '';
+  };
+  document.getElementById('btn-add-submit').onclick = async function () {
+    var name     = document.getElementById('add-name').value.trim();
+    var rootPath = document.getElementById('add-path').value.trim();
+    var errEl    = document.getElementById('add-form-error');
+    errEl.textContent = '';
+    if (!name || !rootPath) { errEl.textContent = 'Name and path are required.'; return; }
+    var btn = document.getElementById('btn-add-submit');
+    btn.disabled = true; btn.textContent = 'Registering…';
+    try {
+      var res = await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name, rootPath: rootPath }),
+      });
+      var body = await res.json();
+      if (!res.ok) throw new Error(body.error || res.statusText);
+      document.getElementById('add-form').classList.remove('open');
+      document.getElementById('add-name').value = '';
+      document.getElementById('add-path').value = '';
+      loadProjects();
+    } catch (e) {
+      errEl.textContent = 'Error: ' + e.message;
+    } finally {
+      btn.disabled = false; btn.textContent = 'Register & Analyze';
+    }
+  };
+
+  // ── Dashboard ──────────────────────────────────────────────────────────────
+
+  async function loadDashboard() {
+    var id = state.projectId;
+    setText('dash-proj-name', state.projectName || id);
+    setText('dash-proj-path', state.projectPath || '');
+    ['d-files','d-fns','d-nodes','d-edges','d-domains','d-links'].forEach(function (k) {
+      setText(k, '…');
+    });
+    try {
+      var s = await apiFetch('/api/projects/' + encodeURIComponent(id) + '/summary');
+      setText('d-files', s.files);
+      setText('d-fns', s.functions);
+      setText('d-nodes', s.nodes);
+      setText('d-edges', s.edges);
+      setText('d-domains', s.domains);
+      setText('d-links', s.links);
+    } catch (e) {
+      setText('d-files', '?');
+    }
+    loadTabContent(state.activeTab);
+  }
+
+  // Tabs
+  document.querySelectorAll('.tab-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      activateTab(btn.getAttribute('data-tab'), true);
+    });
+  });
+
+  function activateTab(tab, loadContent) {
+    state.activeTab = tab;
+    document.querySelectorAll('.tab-btn').forEach(function (b) {
+      b.classList.toggle('active', b.getAttribute('data-tab') === tab);
+    });
+    document.querySelectorAll('#dash-panels .tab-panel').forEach(function (p) {
+      p.classList.remove('active');
+    });
+    var panel = document.getElementById('panel-' + tab);
+    if (panel) panel.classList.add('active');
+    if (loadContent !== false && state.view === 'dashboard') loadTabContent(tab);
+  }
+
+  function loadTabContent(tab) {
+    var id = state.projectId;
+    if (!id) return;
+    if (tab === 'graph')      loadGraph(id);
+    if (tab === 'hotspots')   loadHotspots(id);
+    if (tab === 'domains')    loadDomains(id);
+    if (tab === 'spec-links') loadSpecLinks(id);
+  }
+
+  // Re-analyze from dashboard header
+  document.getElementById('dash-reanalyze').onclick = async function () {
+    var btn = document.getElementById('dash-reanalyze');
+    btn.disabled = true; btn.textContent = 'Analyzing…';
+    var id = state.projectId;
+    try {
+      var res = await fetch('/api/projects/' + encodeURIComponent(id) + '/analyze', { method: 'POST' });
+      if (!res.ok) { var b = await res.json(); throw new Error(b.error); }
+      state.rawVisData = null;
+      state.graphLoaded = false;
+      if (state.network) { state.network.destroy(); state.network = null; }
+      loadDashboard();
+    } catch (e) { alert('Re-analyze failed: ' + e.message); }
+    finally { btn.disabled = false; btn.textContent = 'Re-analyze'; }
+  };
+
+  // ── Graph tab ──────────────────────────────────────────────────────────────
+
+  async function loadGraph(id) {
+    if (state.graphLoaded && state.rawVisData) return; // already rendered
+    state.graphLoaded = false;
+
+    var loadEl = document.getElementById('graph-loading');
+    loadEl.style.display = '';
+    loadEl.textContent = 'Loading graph data…';
+
+    // Tear down previous network
+    if (state.network) { state.network.destroy(); state.network = null; }
+
+    // Clear legend + filter
+    document.getElementById('graph-legend-groups').innerHTML = '';
+    var gf = document.getElementById('graph-group-filter');
+    while (gf.options.length > 1) gf.remove(1);
+
+    var data;
+    try {
+      data = await apiFetch('/api/projects/' + encodeURIComponent(id) + '/vis-data');
+      state.rawVisData = data;
+    } catch (e) {
+      loadEl.textContent = 'Error loading graph: ' + e.message;
+      return;
+    }
+
+    // Legend
+    data.legend.forEach(function (item) {
+      var div = document.createElement('div');
+      div.className = 'legend-row';
+      div.innerHTML =
+        '<div class="legend-swatch" style="background:' + item.color + '"></div>' +
+        '<span class="legend-lbl" title="' + esc(item.group) + '">' + esc(item.group) + '</span>';
+      document.getElementById('graph-legend-groups').appendChild(div);
+    });
+
+    // Group filter
+    data.groups.forEach(function (g) {
+      var opt = document.createElement('option');
+      opt.value = g; opt.textContent = g; gf.appendChild(opt);
+    });
+
+    // Node map for detail panel
+    var nodeById = {};
+    data.nodes.forEach(function (n) { nodeById[n.id] = n; });
+
+    // vis-network DataSets (strip _meta from the DataSet)
+    var dsNodes = new vis.DataSet(data.nodes.map(function (n) {
+      return { id: n.id, label: n.label, title: n.title,
+               color: n.color, size: n.size, font: n.font, group: n.group };
+    }));
+    var dsEdges = new vis.DataSet(data.edges);
+
+    loadEl.textContent = 'Rendering graph…';
+
+    var container = document.getElementById('graph-canvas');
+    var network = new vis.Network(container, { nodes: dsNodes, edges: dsEdges }, {
+      layout: { improvedLayout: true },
+      physics: {
+        solver: 'forceAtlas2Based',
+        forceAtlas2Based: { gravitationalConstant: -50, springLength: 100, damping: 0.5 },
+        stabilization: { iterations: 200, updateInterval: 25 },
+      },
+      interaction: { hover: true, tooltipDelay: 120, navigationButtons: true, keyboard: true },
+      nodes: { shape: 'dot', borderWidth: 2 },
+      edges: { smooth: { type: 'continuous', roundness: 0.3 } },
+    });
+    state.network = network;
+    state.graphLoaded = true;
+
+    network.once('stabilizationIterationsDone', function () {
+      loadEl.style.display = 'none';
+    });
+    setTimeout(function () { loadEl.style.display = 'none'; }, 8000);
+
+    // Node click → detail panel
+    network.on('click', function (params) {
+      var phEl  = document.getElementById('graph-placeholder');
+      var rowEl = document.getElementById('graph-detail-rows');
+      if (!params.nodes || params.nodes.length === 0) {
+        phEl.style.display = ''; rowEl.style.display = 'none'; return;
+      }
+      var n = nodeById[params.nodes[0]];
+      if (!n) return;
+      var m = n._meta;
+      var rows = [
+        ['Name', m.name], ['Kind', m.kind], ['File', m.file], ['Line', m.line],
+        ['Domain', m.domain || '—'], ['Coupling', m.coupling],
+        ['Fan-in', m.fanIn], ['Fan-out', m.fanOut], ['Cyclomatic', m.cyclomatic],
+        ['Dom. overlap', m.domainOverlap], ['Cross-dom. depth', m.crossDomainDepth],
+      ];
+      phEl.style.display = 'none';
+      rowEl.style.display = '';
+      rowEl.innerHTML = rows.map(function (r) {
+        return '<div class="detail-row"><span class="detail-label">' + esc(String(r[0])) +
+          '</span><span class="detail-val">' + esc(String(r[1])) + '</span></div>';
+      }).join('');
+    });
+
+    // Group filter
+    gf.onchange = function () {
+      var chosen = gf.value;
+      dsNodes.update((state.rawVisData ? state.rawVisData.nodes : []).map(function (n) {
+        return { id: n.id, hidden: chosen !== '' && n.group !== chosen };
+      }));
+    };
+  }
+
+  // ── Hotspots tab ───────────────────────────────────────────────────────────
+
+  async function loadHotspots(id) {
+    var tbody = document.getElementById('hotspots-tbody');
+    tbody.innerHTML = '<tr><td colspan="8" class="loading-msg">Loading…</td></tr>';
+    var data;
+    try {
+      data = await apiFetch('/api/projects/' + encodeURIComponent(id) + '/hotspots');
+    } catch (e) {
+      tbody.innerHTML = '<tr><td colspan="8" class="error-msg">' + esc(e.message) + '</td></tr>';
+      return;
+    }
+    if (!data.length) {
+      tbody.innerHTML = '<tr><td colspan="8" class="empty-msg">No hotspots found.</td></tr>';
+      return;
+    }
+    var maxC = Math.max.apply(null, data.map(function (h) { return h.coupling; })) || 1;
+    tbody.innerHTML = '';
+    data.forEach(function (h, i) {
+      var tr = document.createElement('tr');
+      var barW = Math.round((h.coupling / maxC) * 72);
+      tr.innerHTML =
+        '<td style="color:#6e7681">' + (i + 1) + '</td>' +
+        '<td><span class="hs-name">' + esc(h.name) + '</span></td>' +
+        '<td><span class="hs-file">' + esc(h.file) + ':' + h.line + '</span></td>' +
+        '<td class="hs-num">' + h.coupling +
+          '<span class="bar" style="width:' + barW + 'px;background:#da3633"></span></td>' +
+        '<td class="hs-num">' + h.cyclomatic + '</td>' +
+        '<td class="hs-num">' + h.fanIn + '</td>' +
+        '<td class="hs-num">' + h.fanOut + '</td>' +
+        '<td class="hs-num">' + h.domainOverlap + '</td>';
+      tbody.appendChild(tr);
+    });
+  }
+
+  // ── Domains tab ────────────────────────────────────────────────────────────
+
+  async function loadDomains(id) {
+    var listEl = document.getElementById('domains-list');
+    listEl.innerHTML = '<div class="loading-msg">Loading…</div>';
+    var data;
+    try {
+      data = await apiFetch('/api/projects/' + encodeURIComponent(id) + '/domains');
+    } catch (e) {
+      listEl.innerHTML = '<div class="error-msg">' + esc(e.message) + '</div>';
+      return;
+    }
+    if (!data.length) {
+      listEl.innerHTML = '<div class="empty-msg">No domains detected.</div>';
+      return;
+    }
+    listEl.innerHTML = '';
+    data.forEach(function (d) {
+      var card = document.createElement('div');
+      card.className = 'domain-card';
+      var badge = d.conforms
+        ? '<span class="badge badge-green">conforms</span>'
+        : '<span class="badge badge-red">' + d.violationCount + ' violations</span>';
+      card.innerHTML =
+        '<div class="domain-card-name">' + esc(d.domain) + ' ' + badge + '</div>' +
+        '<div class="domain-card-stats">' +
+          '<span><strong>' + d.implementorCount + '</strong> implementors</span>' +
+          '<span><strong>' + d.violationCount + '</strong> violations</span>' +
+        '</div>';
+      listEl.appendChild(card);
+    });
+  }
+
+  // ── Spec-links tab ─────────────────────────────────────────────────────────
+
+  async function loadSpecLinks(id) {
+    var tbody = document.getElementById('spec-links-tbody');
+    tbody.innerHTML = '<tr><td colspan="6" class="loading-msg">Loading…</td></tr>';
+    var data;
+    try {
+      data = await apiFetch('/api/projects/' + encodeURIComponent(id) + '/spec-links');
+    } catch (e) {
+      tbody.innerHTML = '<tr><td colspan="6" class="error-msg">' + esc(e.message) + '</td></tr>';
+      return;
+    }
+    if (!data.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="empty-msg">No spec links found.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = '';
+    data.forEach(function (lk) {
+      var tr = document.createElement('tr');
+      var pct = Math.round(lk.confidence * 100);
+      var ratBadge = lk.ratified
+        ? '<span class="badge badge-green">yes</span>'
+        : '<span style="color:#6e7681;font-size:0.75rem">no</span>';
+      tr.innerHTML =
+        '<td><span class="sl-fn">' + esc(lk.fromName) + '</span></td>' +
+        '<td><span class="sl-spec">' + esc(lk.clauseHeading) + '</span></td>' +
+        '<td><span class="sl-spec">' + esc(lk.clauseFile) + '</span></td>' +
+        '<td>' + esc(lk.evidence) + '</td>' +
+        '<td>' + pct + '%<span class="conf-bar" style="width:' + pct + 'px"></span></td>' +
+        '<td>' + ratBadge + '</td>';
+      tbody.appendChild(tr);
+    });
+  }
+
+  // ── Boot ───────────────────────────────────────────────────────────────────
+
+  renderCrumb();
+  loadProjects();
+
+})();
+</script>
 </body>
 </html>
