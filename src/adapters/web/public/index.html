@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -62,6 +62,7 @@
   <!-- Header: title + You-Are-Here (T42) + live badge -->
   <div id="header">
     <h1>Anatomia -- Code Graph Viz</h1>
+    <select id="project-select" title="Project"></select>
     <div id="where-widget">no trace data</div>
     <div id="live-badge" class="offline">&#9679; offline</div>
   </div>
@@ -111,16 +112,62 @@
       return domainColors.get(m);
     }
 
-    // Static graph load
+    // Currently-selected project id (drives ?project= on data fetches).
+    let currentProject = null;
+
+    function projectQuery() {
+      return currentProject ? ('?project=' + encodeURIComponent(currentProject)) : '';
+    }
+
+    // Static graph load (scoped to the selected project)
     async function loadStaticData() {
+      const q = projectQuery();
       const [graphRes, metricsRes] = await Promise.all([
-        fetch('/api/graph'),
-        fetch('/api/metrics'),
+        fetch('/api/graph' + q),
+        fetch('/api/metrics' + q),
       ]);
       return {
         graph: await graphRes.json(),
         metrics: await metricsRes.json(),
       };
+    }
+
+    // Populate the project dropdown from /api/projects.
+    async function loadProjects() {
+      try {
+        const res = await fetch('/api/projects');
+        if (!res.ok) return;
+        const data = await res.json();
+        const sel = document.getElementById('project-select');
+        sel.innerHTML = '';
+        (data.projects || []).forEach(function(p) {
+          const opt = document.createElement('option');
+          opt.value = p.id;
+          opt.textContent = p.name + ' (' + p.id + ')';
+          sel.appendChild(opt);
+        });
+        currentProject = data.selected || (data.projects && data.projects[0] && data.projects[0].id) || null;
+        if (currentProject) sel.value = currentProject;
+        sel.style.display = (data.projects && data.projects.length > 1) ? '' : 'none';
+        sel.onchange = function() {
+          currentProject = sel.value;
+          reloadGraph();
+        };
+      } catch (e) {
+        document.getElementById('project-select').style.display = 'none';
+      }
+    }
+
+    // Re-fetch and re-render the static graph for the current project.
+    async function reloadGraph() {
+      try {
+        const data = await loadStaticData();
+        renderMetrics(data.metrics);
+        renderGraph(data.graph, data.metrics);
+        document.getElementById('loading').style.display = 'none';
+      } catch (err) {
+        document.getElementById('loading').textContent = 'Error: ' + err.message;
+      }
     }
 
     function couplingClass(c) {
@@ -247,10 +294,10 @@
     function setBadge(isLive) {
       const el = document.getElementById('live-badge');
       if (isLive) {
-        el.textContent = '● live';
+        el.textContent = '笳・live';
         el.classList.remove('offline');
       } else {
-        el.textContent = '● offline';
+        el.textContent = '笳・offline';
         el.classList.add('offline');
       }
     }
@@ -275,12 +322,8 @@
       }
     }
 
-    // Boot
-    loadStaticData().then(function(data) {
-      renderMetrics(data.metrics);
-      renderGraph(data.graph, data.metrics);
-      document.getElementById('loading').style.display = 'none';
-
+    // Boot: discover projects, then render the selected project graph.
+    loadProjects().then(reloadGraph).then(function() {
       // Start dynamic trace polling every 500 ms
       pollTrace();
       setInterval(pollTrace, 500);

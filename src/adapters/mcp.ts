@@ -1,46 +1,92 @@
-/**
- * src/adapters/mcp.ts — T30: MCP server adapter.
+﻿/**
+ * src/adapters/mcp.ts -- T30 + multi-project: MCP server adapter.
  *
- * Exposes 4 Anatomia tools over the Model Context Protocol:
- *   anatomia.context  — assemble a ContextBundle for a task
- *   anatomia.verify   — run the 5-gate verify pipeline on a diff
- *   anatomia.where    — resolve landing point(s) for a task
- *   anatomia.impact   — BFS impact radius from an anchor
+ * Exposes the original 4 Anatomia tools plus 3 project-management tools:
+ *   anatomia.context          -- assemble a ContextBundle for a task
+ *   anatomia.verify           -- run the 5-gate verify pipeline on a diff
+ *   anatomia.where            -- resolve landing point(s) for a task
+ *   anatomia.impact           -- BFS impact radius from an anchor
+ *   anatomia.projects.list    -- list registered projects (+ selected id)
+ *   anatomia.projects.add     -- register a project (name + rootPath)
+ *   anatomia.projects.analyze -- analyze a project (cache-aware) and report stats
  *
- * SRP: MCP wiring only. All analysis via core.ts.
+ * Project-awareness: the original 4 tools take an optional `project` (id) arg.
+ * When a ProjectManager is wired, the tool operates on that project context
+ * (defaulting to the selected project). When constructed with a bare
+ * AnalysisContext (legacy / single-project), the `project` arg is ignored and
+ * behaviour is unchanged.
+ *
+ * SRP: MCP wiring only. Analysis via core.ts; project lifecycle via ProjectManager.
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import {
-  analyze,
   buildContextBundle,
   buildVerdict,
   getImpactRadius,
 } from "../core.js";
 import { resolveLanding } from "../supply/landing.js";
+import { ProjectManager } from "../project/manager.js";
 import type { AnalysisContext, Landing } from "../core.js";
 import type { ContextBundle, Verdict, AnchorId } from "../types.js";
+import type { Project } from "../project/types.js";
+
+// ---------------------------------------------------------------------------
+// Context resolution: either a fixed ctx (legacy) or a ProjectManager.
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolves the AnalysisContext a tool should operate on. A bare AnalysisContext
+ * yields a resolver that ignores `project` (single-project mode). A
+ * ProjectManager yields a resolver that analyzes the requested/selected project.
+ */
+export interface ContextSource {
+  resolve(project?: string): Promise<AnalysisContext>;
+  manager?: ProjectManager;
+}
+
+export function contextSourceFrom(src: AnalysisContext | ProjectManager): ContextSource {
+  if (src instanceof ProjectManager) {
+    return {
+      manager: src,
+      resolve: (project?: string) => src.getContext(project),
+    };
+  }
+  return { resolve: async () => src };
+}
 
 // ---------------------------------------------------------------------------
 // Plain handler functions (testable without MCP transport)
 // ---------------------------------------------------------------------------
 
 export interface ToolHandlers {
-  "anatomia.context"(args: { task: string }): Promise<ContextBundle>;
-  "anatomia.verify"(args: { diff: string }): Promise<Verdict>;
-  "anatomia.where"(args: { task: string }): Promise<{ landings: Landing[] }>;
-  "anatomia.impact"(args: { anchor: string }): Promise<{ anchors: string[] }>;
+  "anatomia.context"(args: { task: string; project?: string }): Promise<ContextBundle>;
+  "anatomia.verify"(args: { diff: string; project?: string }): Promise<Verdict>;
+  "anatomia.where"(args: { task: string; project?: string }): Promise<{ landings: Landing[] }>;
+  "anatomia.impact"(args: { anchor: string; project?: string }): Promise<{ anchors: string[] }>;
+  "anatomia.projects.list"(): Promise<{ projects: Project[]; selected: string | null }>;
+  "anatomia.projects.add"(args: {
+    name: string;
+    rootPath: string;
+  }): Promise<{ project: Project }>;
+  "anatomia.projects.analyze"(args: {
+    project?: string;
+  }): Promise<{ project: string; files: number; functions: number; cacheHit: boolean }>;
 }
 
-export function createHandlers(ctx: AnalysisContext): ToolHandlers {
+export function createHandlers(src: AnalysisContext | ProjectManager): ToolHandlers {
+  const source = contextSourceFrom(src);
+
   return {
-    async "anatomia.context"({ task }) {
+    async "anatomia.context"({ task, project }) {
+      const ctx = await source.resolve(project);
       return buildContextBundle(ctx, { task });
     },
 
-    async "anatomia.verify"({ diff }) {
+    async "anatomia.verify"({ diff, project }) {
+      const ctx = await source.resolve(project);
       return buildVerdict(ctx, diff);
     },
 
@@ -57,11 +103,41 @@ export function createHandlers(ctx: AnalysisContext): ToolHandlers {
       return { landings };
     },
 
-    async "anatomia.impact"({ anchor }) {
+    async "anatomia.impact"({ anchor, project }) {
+      const ctx = await source.resolve(project);
       const anchors = await getImpactRadius(ctx, anchor as AnchorId);
       return { anchors };
     },
+
+    async "anatomia.projects.list"() {
+      const mgr = requireManager(source);
+      return { projects: mgr.list(), selected: mgr.selected };
+    },
+
+    async "anatomia.projects.add"({ name, rootPath }) {
+      const mgr = requireManager(source);
+      const project = await mgr.addProject({ name, rootPath });
+      return { project };
+    },
+
+    async "anatomia.projects.analyze"({ project }) {
+      const mgr = requireManager(source);
+      const id = mgr.resolveId(project);
+      const before = mgr.cache.hits;
+      const ctx = await mgr.analyzeProject(id);
+      const cacheHit = mgr.cache.hits > before;
+      return { project: id, files: ctx.files.length, functions: ctx.functions.length, cacheHit };
+    },
   };
+}
+
+function requireManager(source: ContextSource): ProjectManager {
+  if (!source.manager) {
+    throw new Error(
+      "Project tools require a ProjectManager-backed server (single-project mode has no registry).",
+    );
+  }
+  return source.manager;
 }
 
 // ---------------------------------------------------------------------------
@@ -71,9 +147,11 @@ export function createHandlers(ctx: AnalysisContext): ToolHandlers {
 export class AnatomiaServer {
   readonly server: McpServer;
   private readonly handlers: ToolHandlers;
+  private readonly hasManager: boolean;
 
-  constructor(ctx: AnalysisContext) {
-    this.handlers = createHandlers(ctx);
+  constructor(src: AnalysisContext | ProjectManager) {
+    this.handlers = createHandlers(src);
+    this.hasManager = src instanceof ProjectManager;
     this.server = new McpServer({ name: "anatomia", version: "0.1.0" });
     this._registerTools();
   }
@@ -84,9 +162,12 @@ export class AnatomiaServer {
     this.server.tool(
       "anatomia.context",
       "Assemble a deterministic ContextBundle for an AI coding task.",
-      { task: z.string().describe("Free-text task description") },
-      async ({ task }) => {
-        const result = await h["anatomia.context"]({ task });
+      {
+        task: z.string().describe("Free-text task description"),
+        project: z.string().optional().describe("Project id (defaults to selected)"),
+      },
+      async ({ task, project }) => {
+        const result = await h["anatomia.context"]({ task, project });
         return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
       },
     );
@@ -94,9 +175,12 @@ export class AnatomiaServer {
     this.server.tool(
       "anatomia.verify",
       "Run the 5-gate architectural verify pipeline on a code diff.",
-      { diff: z.string().describe("C++/C# source diff to verify") },
-      async ({ diff }) => {
-        const result = await h["anatomia.verify"]({ diff });
+      {
+        diff: z.string().describe("C++/C#/TS source diff to verify"),
+        project: z.string().optional().describe("Project id (defaults to selected)"),
+      },
+      async ({ diff, project }) => {
+        const result = await h["anatomia.verify"]({ diff, project });
         return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
       },
     );
@@ -104,9 +188,12 @@ export class AnatomiaServer {
     this.server.tool(
       "anatomia.where",
       "Resolve the landing point(s) for a coding task.",
-      { task: z.string().describe("Task description to find landing for") },
-      async ({ task }) => {
-        const result = await h["anatomia.where"]({ task });
+      {
+        task: z.string().describe("Task description to find landing for"),
+        project: z.string().optional().describe("Project id (defaults to selected)"),
+      },
+      async ({ task, project }) => {
+        const result = await h["anatomia.where"]({ task, project });
         return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
       },
     );
@@ -114,9 +201,48 @@ export class AnatomiaServer {
     this.server.tool(
       "anatomia.impact",
       "Return BFS-reachable anchors from a given code anchor (impact radius).",
-      { anchor: z.string().describe("AnchorId to start BFS from") },
-      async ({ anchor }) => {
-        const result = await h["anatomia.impact"]({ anchor });
+      {
+        anchor: z.string().describe("AnchorId to start BFS from"),
+        project: z.string().optional().describe("Project id (defaults to selected)"),
+      },
+      async ({ anchor, project }) => {
+        const result = await h["anatomia.impact"]({ anchor, project });
+        return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
+      },
+    );
+
+    // Project-management tools are only registered when a registry is present.
+    if (!this.hasManager) return;
+
+    this.server.tool(
+      "anatomia.projects.list",
+      "List registered projects and the currently selected project id.",
+      {},
+      async () => {
+        const result = await h["anatomia.projects.list"]();
+        return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
+      },
+    );
+
+    this.server.tool(
+      "anatomia.projects.add",
+      "Register a project by name and root path.",
+      {
+        name: z.string().describe("Human-readable project name"),
+        rootPath: z.string().describe("Absolute path to the project root"),
+      },
+      async ({ name, rootPath }) => {
+        const result = await h["anatomia.projects.add"]({ name, rootPath });
+        return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
+      },
+    );
+
+    this.server.tool(
+      "anatomia.projects.analyze",
+      "Analyze a project (cache-aware) and report file/function counts.",
+      { project: z.string().optional().describe("Project id (defaults to selected)") },
+      async ({ project }) => {
+        const result = await h["anatomia.projects.analyze"]({ project });
         return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
       },
     );
@@ -128,8 +254,8 @@ export class AnatomiaServer {
   }
 }
 
-export function createServer(ctx: AnalysisContext): AnatomiaServer {
-  return new AnatomiaServer(ctx);
+export function createServer(src: AnalysisContext | ProjectManager): AnatomiaServer {
+  return new AnatomiaServer(src);
 }
 
 // ---------------------------------------------------------------------------
@@ -137,12 +263,17 @@ export function createServer(ctx: AnalysisContext): AnatomiaServer {
 // ---------------------------------------------------------------------------
 
 /**
- * Entry point for production use: analyze(repoPath) → connect via stdio.
- * repoPath defaults to process.cwd().
+ * Entry point for production use.
+ *
+ * With no persisted registry: register cwd as the default project so existing
+ * single-project usage keeps working, but with project tools available.
  */
 export async function main(repoPath = process.cwd()): Promise<void> {
-  const ctx = await analyze(repoPath);
-  const srv = createServer(ctx);
+  const mgr = await ProjectManager.load();
+  if (mgr.list().length === 0) {
+    await mgr.addProject({ name: "default", rootPath: repoPath });
+  }
+  const srv = createServer(mgr);
   const transport = new StdioServerTransport();
   await srv.connect(transport);
 }
