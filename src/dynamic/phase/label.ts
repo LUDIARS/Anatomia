@@ -11,7 +11,14 @@
  * (reusing domains/card.ts's LLMClient) — no hardcoded client, no I/O.
  */
 import type { LLMClient } from "../../domains/card.js";
+import { createMemoryStore, versionedKey, type CacheStore } from "../../cache/store.js";
 import type { Phase, PhaseModel } from "./discover.js";
+
+/**
+ * Prompt-template version. BUMP whenever assemblePhasePrompt changes, so a
+ * shared cache does not serve labels generated with an older prompt.
+ */
+export const PHASE_PROMPT_VERSION = "1";
 
 export interface PhaseLabel {
   phaseId: string;
@@ -19,14 +26,21 @@ export interface PhaseLabel {
   name: string;
   /** One- to two-sentence description of the situation. */
   description: string;
-  /** Content key = phaseId (the representative signature id). */
+  /** Cache key = versionedKey(phaseId, model id, prompt version). */
   cacheKey: string;
 }
 
-export type PhaseLabelCache = Map<string, PhaseLabel>;
+/** Content-addressed phase-label cache (in-memory or persistent file store). */
+export type PhaseLabelCache = CacheStore<PhaseLabel>;
 
 export function createPhaseLabelCache(): PhaseLabelCache {
-  return new Map<string, PhaseLabel>();
+  return createMemoryStore<PhaseLabel>();
+}
+
+/** Options for labelPhase / labelPhases. */
+export interface LabelOptions {
+  /** Model id that produced the label; folded into the cache key. Defaults to "default". */
+  modelId?: string;
 }
 
 /**
@@ -74,10 +88,11 @@ export async function labelPhase(
   phase: Phase,
   llm: LLMClient,
   cache?: PhaseLabelCache,
+  opts?: LabelOptions,
 ): Promise<PhaseLabel> {
-  const cacheKey = phase.id;
+  const cacheKey = versionedKey(phase.id, opts?.modelId ?? "default", PHASE_PROMPT_VERSION);
   if (cache) {
-    const hit = cache.get(cacheKey);
+    const hit = await cache.get(cacheKey);
     if (hit) return hit;
   }
 
@@ -92,7 +107,7 @@ export async function labelPhase(
     cacheKey,
   };
 
-  if (cache) cache.set(cacheKey, label);
+  if (cache) await cache.set(cacheKey, label);
   return label;
 }
 
@@ -101,10 +116,11 @@ export async function labelPhases(
   model: PhaseModel,
   llm: LLMClient,
   cache?: PhaseLabelCache,
+  opts?: LabelOptions,
 ): Promise<PhaseLabel[]> {
   const out: PhaseLabel[] = [];
   for (const phase of model.phases) {
-    out.push(await labelPhase(phase, llm, cache));
+    out.push(await labelPhase(phase, llm, cache, opts));
   }
   return out;
 }

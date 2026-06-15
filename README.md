@@ -52,6 +52,7 @@ duplication ゲートが「車輪の再発明」を実検出する。
 | `ANTHROPIC_API_KEY` | LLM 蒸留を有効化（既定モデル `claude-opus-4-8`） |
 | `ANATOMIA_LLM_MODEL` | LLM モデル上書き |
 | `ANATOMIA_EMBED_BASE_URL` / `_API_KEY` / `_MODEL` / `_DIM` | OpenAI 互換 embedder（ローカル Ollama 可） |
+| `ANATOMIA_CACHE_DIR` | 設定すると LLM 蒸留キャッシュ（ドメインカード）を**永続・共有**ストアに置く。content-addressed なので呼び出し/セッション/リポを跨いでヒットする。未設定はプロセス内メモリ（hermetic） |
 
 ---
 

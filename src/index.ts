@@ -45,6 +45,7 @@ export type {
 } from "./core.js";
 
 // Sub-module placeholders (implementations added by later tasks)
+export * from "./cache/index.js";
 export * from "./dag/index.js";
 export * from "./graph/index.js";
 export * from "./domains/index.js";

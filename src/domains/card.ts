@@ -18,9 +18,16 @@ import { createHash } from "node:crypto";
 import type { AnchorId } from "../types.js";
 import type { CodeGraphQuery } from "../graph/query.js";
 import type { DetectionResult } from "./detect.js";
+import { createMemoryStore, versionedKey, type CacheStore } from "../cache/store.js";
 
 /** Injected LLM interface: prompt -> completion text. Never hardcoded. */
 export type LLMClient = (prompt: string) => Promise<string>;
+
+/**
+ * Prompt-template version. BUMP whenever assemblePrompt changes, so a shared
+ * cache does not serve cards distilled with an older prompt.
+ */
+export const CARD_PROMPT_VERSION = "1";
 
 export interface DomainCard {
   domain: string;
@@ -29,16 +36,23 @@ export interface DomainCard {
   keyAnchors: AnchorId[];
   specRefs: string[];
   complexity: "low" | "medium" | "high";
-  /** Content key = merkleHash of implementor function hashes. */
+  /** Cache key = versionedKey(content hash, model id, prompt version). */
   cacheKey: string;
 }
 
-/** In-memory content-addressed card cache. */
-export type CardCache = Map<string, DomainCard>;
+/** Content-addressed card cache (in-memory or persistent file store). */
+export type CardCache = CacheStore<DomainCard>;
 
-/** Create an empty in-memory card cache. */
+/** Create an empty in-memory card cache (the hermetic default). */
 export function createCardCache(): CardCache {
-  return new Map<string, DomainCard>();
+  return createMemoryStore<DomainCard>();
+}
+
+/** Options for generateCard. */
+export interface CardGenOptions {
+  /** Model id that produced the card; folded into the cache key so a shared
+   *  store keeps per-model entries distinct. Defaults to "default". */
+  modelId?: string;
 }
 
 /**
@@ -117,9 +131,9 @@ function parseResponse(text: string): {
 /**
  * Generate (or fetch from cache) a domain card.
  *
- * Content-keyed cache: cacheKey = merkleHash(implementor anchors). On a cache
- * HIT the cached card is returned WITHOUT calling `llm`. Only a MISS calls
- * `llm`, then stores the result.
+ * Content-keyed cache: cacheKey = versionedKey(merkleHash(implementor anchors),
+ * modelId, CARD_PROMPT_VERSION). On a cache HIT the cached card is returned
+ * WITHOUT calling `llm`. Only a MISS calls `llm`, then stores the result.
  */
 export async function generateCard(
   domain: string,
@@ -127,11 +141,13 @@ export async function generateCard(
   graph: CodeGraphQuery,
   llm: LLMClient,
   cache?: CardCache,
+  opts?: CardGenOptions,
 ): Promise<DomainCard> {
-  const cacheKey = merkleHash(result.implementors);
+  const contentKey = merkleHash(result.implementors);
+  const cacheKey = versionedKey(contentKey, opts?.modelId ?? "default", CARD_PROMPT_VERSION);
 
   if (cache) {
-    const hit = cache.get(cacheKey);
+    const hit = await cache.get(cacheKey);
     if (hit) return hit; // cache hit: do NOT call llm
   }
 
@@ -149,6 +165,6 @@ export async function generateCard(
     cacheKey,
   };
 
-  if (cache) cache.set(cacheKey, card);
+  if (cache) await cache.set(cacheKey, card);
   return card;
 }

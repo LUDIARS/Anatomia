@@ -21,6 +21,12 @@ export interface Providers {
   llm: LLMClient;
   /** Text embedder for the duplication gate + semantic linker. */
   embed: EmbeddingClient;
+  /**
+   * Resolved LLM model id (e.g. "claude-opus-4-8", or "stub-llm" when offline).
+   * Folded into the shared cache key so cards/labels from different models stay
+   * distinct in a persistent store.
+   */
+  llmModelId: string;
   /** One-line human-readable description of what is wired (diagnostics). */
   describe(): string;
 }
