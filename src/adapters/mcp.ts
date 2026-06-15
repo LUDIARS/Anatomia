@@ -29,9 +29,12 @@ import {
 } from "../core.js";
 import { resolveLanding } from "../supply/landing.js";
 import { ProjectManager } from "../project/manager.js";
+import { resolveProviders } from "../providers/index.js";
+import { createCardCache } from "../domains/card.js";
 import type { AnalysisContext, Landing } from "../core.js";
 import type { ContextBundle, Verdict, AnchorId } from "../types.js";
 import type { Project } from "../project/types.js";
+import type { Providers } from "../providers/index.js";
 
 // ---------------------------------------------------------------------------
 // Context resolution: either a fixed ctx (legacy) or a ProjectManager.
@@ -76,8 +79,14 @@ export interface ToolHandlers {
   }): Promise<{ project: string; files: number; functions: number; cacheHit: boolean }>;
 }
 
-export function createHandlers(src: AnalysisContext | ProjectManager): ToolHandlers {
+export function createHandlers(
+  src: AnalysisContext | ProjectManager,
+  providers?: Providers,
+): ToolHandlers {
   const source = contextSourceFrom(src);
+  // Reused across verify calls so unchanged domains skip LLM card distillation.
+  const cardCache = createCardCache();
+  const verifyOpts = providers ? { providers, cardCache } : undefined;
 
   return {
     async "anatomia.context"({ task, project }) {
@@ -87,7 +96,7 @@ export function createHandlers(src: AnalysisContext | ProjectManager): ToolHandl
 
     async "anatomia.verify"({ diff, project }) {
       const ctx = await source.resolve(project);
-      return buildVerdict(ctx, diff);
+      return buildVerdict(ctx, diff, undefined, verifyOpts);
     },
 
     async "anatomia.where"({ task }) {
@@ -149,8 +158,8 @@ export class AnatomiaServer {
   private readonly handlers: ToolHandlers;
   private readonly hasManager: boolean;
 
-  constructor(src: AnalysisContext | ProjectManager) {
-    this.handlers = createHandlers(src);
+  constructor(src: AnalysisContext | ProjectManager, providers?: Providers) {
+    this.handlers = createHandlers(src, providers);
     this.hasManager = src instanceof ProjectManager;
     this.server = new McpServer({ name: "anatomia", version: "0.1.0" });
     this._registerTools();
@@ -254,8 +263,11 @@ export class AnatomiaServer {
   }
 }
 
-export function createServer(src: AnalysisContext | ProjectManager): AnatomiaServer {
-  return new AnatomiaServer(src);
+export function createServer(
+  src: AnalysisContext | ProjectManager,
+  providers?: Providers,
+): AnatomiaServer {
+  return new AnatomiaServer(src, providers);
 }
 
 // ---------------------------------------------------------------------------
@@ -268,12 +280,17 @@ export function createServer(src: AnalysisContext | ProjectManager): AnatomiaSer
  * With no persisted registry: register cwd as the default project so existing
  * single-project usage keeps working, but with project tools available.
  */
-export async function main(repoPath = process.cwd()): Promise<void> {
+export async function main(
+  repoPath = process.cwd(),
+  providers: Providers = resolveProviders(),
+): Promise<void> {
   const mgr = await ProjectManager.load();
   if (mgr.list().length === 0) {
     await mgr.addProject({ name: "default", rootPath: repoPath });
   }
-  const srv = createServer(mgr);
+  // Diagnostics to stderr (stdout is the MCP transport — must stay clean).
+  console.error(`[anatomia/mcp] providers: ${providers.describe()}`);
+  const srv = createServer(mgr, providers);
   const transport = new StdioServerTransport();
   await srv.connect(transport);
 }

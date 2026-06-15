@@ -22,6 +22,9 @@ import { verify, buildDefaultGates } from "./supply/verify.js";
 import { resolveLanding } from "./supply/landing.js";
 import { loadOntology } from "./domains/ontology.js";
 import { detectDomains } from "./domains/detect.js";
+import { generateCard, createCardCache } from "./domains/card.js";
+import type { CardCache, LLMClient } from "./domains/card.js";
+import type { Providers } from "./providers/index.js";
 import { parseSpecFiles } from "./spec/parse.js";
 import { findExplicitLinks } from "./spec/explicit.js";
 import { findStructuralLinks } from "./spec/structural.js";
@@ -342,10 +345,23 @@ export async function buildContextBundle(
  * the TS grammar (so TS-only syntax is handled, not mis-parsed as C++), a C++
  * diff with the cpp grammar, and a C# diff with the c_sharp grammar.
  */
+export interface VerifyOptions {
+  /**
+   * Production providers (real embedder + LLM). When present, the duplication
+   * gate runs against the real embedder and the existing domains are distilled
+   * into cards (via providers.llm) to compare against — so duplication is a
+   * meaningful flag rather than a always-pass mock.
+   */
+  providers?: Providers;
+  /** Reused card cache (content-keyed) so repeated verify calls skip the LLM. */
+  cardCache?: CardCache;
+}
+
 export async function buildVerdict(
   ctx: AnalysisContext,
   diff: string,
   targetPath?: string,
+  opts?: VerifyOptions,
 ): Promise<Verdict> {
   const source = sourceFromDiffInput(diff);
   const lang = langForDiff(diff, targetPath);
@@ -353,21 +369,50 @@ export async function buildVerdict(
   const fns = extractFunctions(tree, source, targetPath ?? "<diff>");
   for (const fn of fns) assignAnchorId(fn, normalize(fn.bodyAst));
 
-  // Mock embed: zero vectors → duplication gate always passes (no similarity).
-  const mockEmbed = async (texts: string[]): Promise<number[][]> =>
-    texts.map(() => [0]);
+  // Embedder + domain cards.
+  //   With providers: real embedder + LLM-distilled domain-card texts, so the
+  //     duplication gate actually flags reinvented domains (DESIGN §9.1 ③).
+  //   Without: zero-vector mock embed + no cards → duplication gate passes
+  //     (preserves the hermetic, API-free default used by tests/adapters).
+  let embed = opts?.providers?.embed;
+  let domainCards: { domain: string; text: string }[] | undefined;
+  if (opts?.providers) {
+    domainCards = await buildDomainCardTexts(ctx, opts.providers.llm, opts.cardCache);
+  } else {
+    embed = async (texts: string[]): Promise<number[][]> => texts.map(() => [0]);
+  }
 
   const diffInput: DiffInput = {
     changed: fns,
     graph: ctx.graph,
+    domainCards,
     // Real spec clauses + links so the spec_linkage gate has context to judge
     // whether the changed functions tie into any spec clause (orphan warning).
     specClauses: ctx.specClauses ?? [],
     links: ctx.links ?? [],
   };
 
-  const gates = buildDefaultGates({ embed: mockEmbed });
+  const gates = buildDefaultGates({ embed: embed! });
   return verify(diffInput, gates);
+}
+
+/**
+ * Distil each non-empty detected domain into a card and return its compare
+ * text (summary + rules) for the duplication gate. Content-keyed via the
+ * card cache, so unchanged domains do not re-invoke the LLM.
+ */
+async function buildDomainCardTexts(
+  ctx: AnalysisContext,
+  llm: LLMClient,
+  cache: CardCache = createCardCache(),
+): Promise<{ domain: string; text: string }[]> {
+  const out: { domain: string; text: string }[] = [];
+  for (const d of ctx.domains ?? []) {
+    if (d.implementors.length === 0) continue;
+    const card = await generateCard(d.domain, d, ctx.graph, llm, cache);
+    out.push({ domain: card.domain, text: [card.summary, ...card.rules].join("\n") });
+  }
+  return out;
 }
 
 function sourceFromDiffInput(input: string): string {

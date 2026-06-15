@@ -8,21 +8,31 @@ Web 管理パネル まで実装済 (**396 tests green**, `LUDIARS/Anatomia` pri
 
 ---
 
-## A. 重心の実現 — "AI が実際にクリーンに書く" を回す【最優先】
+## A. 重心の実現 — "AI が実際にクリーンに書く" を回す【最優先】✅ 実装済 (2026-06-15)
 
-1. **MCP を実 AI に接続** — Anatomia の存在意義。MCP サーバ (`anatomia.context/verify/where/impact`)
-   を Claude Code / Famulus / Concordia に繋ぎ、**supply→verify ループを実際に回す**。
-2. **実 LLM / embedder 配線**（現状は注入式 mock）:
-   - ドメインカード生成 (LLM 蒸留)
-   - 意味リンカ (T24, embedding)
-   - **duplication ゲート (embedding)** ← mock だと重複検出が常に pass = ザル
-   → Anthropic SDK / `@ludiars/llm-gateway` を本番注入。API キー設定。
+1. ~~**MCP を実 AI に接続**~~ ✅ stdio MCP サーバ起動口 `bin/anatomia-mcp.mjs` +
+   Claude Code 登録 `.mcp.json` + 手順 `docs/mcp-setup.md`。`main()` が `resolveProviders()`
+   で本番プロバイダを配線し、起動時に stderr へ wiring 診断を出力。Famulus/Concordia も同 stdio で接続可。
+2. ~~**実 LLM / embedder 配線**~~ ✅ `src/providers/`:
+   - `anthropic-llm.ts` — Anthropic SDK 蒸留 (default `claude-opus-4-8`、env で haiku 等に変更可)
+   - `openai-embedder.ts` — OpenAI 互換 `/v1/embeddings` (OpenAI / ローカル Ollama / Voyage)
+   - `hash-embedder.ts` — 決定的オフライン fallback (zero-vector より良い実類似シグナル、テスト/閉域用)
+   - `index.ts` `resolveProviders()` — env から解決、未設定なら stub LLM + hash embedder に graceful fallback
+   - `buildVerdict(ctx, diff, targetPath?, {providers, cardCache})` で **duplication ゲートが実 embedder +
+     LLM 蒸留カードで動く** (mock の「常に pass=ザル」を解消)。env 仕様は `docs/mcp-setup.md`。
 
-## B. 検出精度 — generic → 実用
+## B. 検出精度 — generic → 実用 【次の一手】
 
 3. **ゲーム別ドメインオントロジー plugin** — builtin は汎用で過剰マッチ
    (state-machine が全ノードに当たる)。AdventureCube/KS 用 (Skill/Action/Shield/Melee/beat 等) を
    `ANATOMIA_PLUGIN_DIR` に。loader は配線済・中身が空。**これが detection を意味あるものにする鍵**。
+   - ⚠️ **設計上の前提条件 (今回の調査で判明)**: 検出は `CodeNode.name` の namePattern で照合するが、
+     C++ のインラインメソッドはノード名がベア (`apply`/`fire`/`tick`)、クラス名が取れない。
+     かつ `NodeFilter` に **ディレクトリ/ファイルスコープが無い** ため、ドメインを `src/skill/activation/`
+     等に絞れず汎用パターンが過剰マッチする。→ B-3 を「意味ある」ものにするには **`NodeFilter` に
+     `pathPattern` を追加** (types.ts + predicate matcher + engine + detect) するのが先決。
+     AC の実不変条件 (例: `IAction` 派生は Enemy/Player を呼ばない passive data carrier、
+     `ISkillEffect` は戦闘を直接実行しない) を `forbiddenCall` + pathPattern で表現できる。
 
 ## C. 設計上の保留
 
