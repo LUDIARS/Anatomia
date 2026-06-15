@@ -1,4 +1,4 @@
-// Mini fixture mechanic: a tiny Skill -> Action chain for e2e wiring tests.
+// Mini fixture domain: a tiny Skill -> Action chain for e2e wiring tests.
 #pragma once
 #include <vector>
 

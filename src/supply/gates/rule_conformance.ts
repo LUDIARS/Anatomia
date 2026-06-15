@@ -1,7 +1,7 @@
 /**
  * T29 gate 1 — rule_conformance (BLOCK).
  *
- * The applicable rules (global ∪ mechanic) must have NO violations in the new
+ * The applicable rules (global ∪ domain) must have NO violations in the new
  * code. Reuses the G3 predicate engine (evaluatePredicate). A violation whose
  * anchors intersect the changed set fails the gate.
  *
@@ -9,7 +9,7 @@
  */
 
 import type { GateResult } from "../../types.js";
-import { evaluatePredicate } from "../../mechanics/engine.js";
+import { evaluatePredicate } from "../../domains/engine.js";
 import type { Gate, DiffInput } from "./types.js";
 import { changedAnchors } from "./types.js";
 

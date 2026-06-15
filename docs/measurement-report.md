@@ -3,7 +3,7 @@
 > Generated for **G9 (T43–T44)**: end-to-end wiring + integration measurement.
 > Subject repo: **AdventureCube** (`E:/Document/Ars/AdventureCube`).
 > Subset measured: `src/combat` + `src/skill` + `src/equipment`
-> (covers the AdventureCube core mechanics: Skill→ActiveObject→Action, combat,
+> (covers the AdventureCube core domains: Skill→ActiveObject→Action, combat,
 > equipment — DESIGN §7).
 >
 > Reproduce with: `npm run build && node scripts/measure.mjs`
@@ -22,7 +22,7 @@ Yes. `analyze(repoPath)` runs the whole chain end-to-end on the real subset
 without crashing:
 
 > discover `.cpp/.h/.cs` → parse → extract → normalize → hash → Merkle DAG →
-> code graph → mechanic detection → spec linking → supply/verify ready.
+> code graph → domain detection → spec linking → supply/verify ready.
 
 Un-parseable / unreadable files are **skipped with a warning** (recorded in
 `AnalysisContext.skipped`), not fatal.
@@ -37,7 +37,7 @@ Un-parseable / unreadable files are **skipped with a warning** (recorded in
 | Functions extracted + hashed | **358** |
 | Graph nodes | **310** |
 | Graph edges (calls/reads/writes) | **608** |
-| Mechanics detected (attempted) | **2** (builtin ontology) |
+| Domains detected (attempted) | **2** (builtin ontology) |
 
 **Note on nodes < functions (339 < 358):** the graph is keyed by Anchor ID, and
 **19 functions share an Anchor ID with another function** (same normalized body
@@ -47,14 +47,14 @@ The two former *semantic* collisions (`EffectCatalog::add` / `GradeTable::add`
 and the `replace` pair) are now correctly distinct after the §1(d) fix. The
 DAG correctly treats truly identical functions as one content-addressed node.
 
-### Mechanics detected (builtin ontology: `state-machine`, `hot-path-processor`)
+### Domains detected (builtin ontology: `state-machine`, `hot-path-processor`)
 
-| Mechanic | Implementors | Violations |
+| Domain | Implementors | Violations |
 |---|---|---|
 | `state-machine` | 310 | 0 |
 | `hot-path-processor` | 0 | 18 |
 
-The builtin mechanics are generic exemplars, not AdventureCube-specific. They
+The builtin domains are generic exemplars, not AdventureCube-specific. They
 **run** on real code and produce results, but their preset predicates are broad
 (`state-machine` matches almost everything via its loose `couplingCap`/state
 presets; `hot-path-processor` finds 18 coupling-cap violations). A real
@@ -237,7 +237,7 @@ checked out at the expected path, so the suite stays portable.
   comment, and local-rename edits (α-normalization holds on real code).
 - Body mutations are detected ~**99.7%** (the miss is an empty body — nothing to
   mutate).
-- Mechanic detection, spec linking, supply-bundle assembly, and 5-gate verify
+- Domain detection, spec linking, supply-bundle assembly, and 5-gate verify
   are **all wired into the chain** and survive real input.
 - Bundle assembly is **deterministic** (byte-identical), satisfying the cache
   premise (DESIGN §9).
@@ -249,7 +249,7 @@ checked out at the expected path, so the suite stays portable.
    hash. `assignAnchorId` now folds the normalized signature shape (parameter
    types + return type, names excluded) into the hash input. False-collision
    count on AdventureCube is now **0**; false-invalidation stays **0%**.
-2. **Builtin mechanics are generic.** `state-machine` over-matches and
+2. **Builtin domains are generic.** `state-machine` over-matches and
    `hot-path-processor` matches nothing real. A real AdventureCube ontology
    plugin (Skill/Action/Shield/Melee) is needed for meaningful detection — the
    loader (`ANATOMIA_PLUGIN_DIR`) is wired and ready, just not populated.
@@ -277,7 +277,7 @@ All gates of the pipeline are now connected through `analyze()` →
 |---|---|---|
 | G1 | parse → extract → normalize → hash → Merkle DAG | ✅ Phase 1 |
 | G2 | code graph + query layer | ✅ Phase 2–3 (`InMemoryCodeGraph`) |
-| G3 | mechanic detection (ontology) | ✅ Phase 4 (`detectMechanics`) |
+| G3 | domain detection (ontology) | ✅ Phase 4 (`detectDomains`) |
 | G4 | spec parse + explicit/structural links | ✅ Phase 5 (`parseSpecFiles` + linkers) |
 | G5 | supply bundle + 5-gate verify + impact | ✅ `buildContextBundle` / `buildVerdict` / `getImpactRadius` |
 | G6 | MCP / CLI / Web adapters | ✅ consume `analyze()` (existing tests green) |

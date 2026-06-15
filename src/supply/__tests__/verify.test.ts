@@ -76,13 +76,13 @@ describe("T29 rule_conformance gate", () => {
 });
 
 describe("T29 duplication gate", () => {
-  it("fails (block) when new code is too similar to an existing mechanic card", async () => {
+  it("fails (block) when new code is too similar to an existing domain card", async () => {
     const { graph, functions } = await buildFromSource(`void dashSkill() {}`);
     const newText = `${functions[0]!.name} ${functions[0]!.signature}`;
     const input: DiffInput = {
       changed: functions,
       graph,
-      mechanicCards: [{ mechanic: "DashSkill", text: newText }],
+      domainCards: [{ domain: "DashSkill", text: newText }],
     };
     const r = await duplicationGate(dupDeps).run(input);
     expect(r.pass).toBe(false);
@@ -94,7 +94,7 @@ describe("T29 duplication gate", () => {
     const input: DiffInput = {
       changed: functions,
       graph,
-      mechanicCards: [{ mechanic: "Totally", text: "zzz different content xyz" }],
+      domainCards: [{ domain: "Totally", text: "zzz different content xyz" }],
     };
     const r = await duplicationGate(dupDeps).run(input);
     expect(r.pass).toBe(true);
@@ -190,7 +190,7 @@ describe("T29 verify (orchestration)", () => {
       changed: functions,
       graph,
       rules: [blockingRule],
-      mechanicCards: [],
+      domainCards: [],
       links: functions.map((f) => ({
         from: f.id as AnchorId,
         to: "s",
@@ -207,7 +207,7 @@ describe("T29 verify (orchestration)", () => {
       changed: functions,
       graph,
       rules: [],
-      mechanicCards: [],
+      domainCards: [],
       links: [],
     };
     const v2 = await verify(warnOnly, buildDefaultGates(dupDeps));
@@ -219,7 +219,7 @@ describe("T29 verify (orchestration)", () => {
   it("runs all 5 gates and reports each", async () => {
     const { graph, functions } = await buildFromSource(`void solo() {}`);
     const v = await verify(
-      { changed: functions, graph, rules: [], mechanicCards: [], links: [] },
+      { changed: functions, graph, rules: [], domainCards: [], links: [] },
       buildDefaultGates(dupDeps),
     );
     expect(v.gates.map((g) => g.gate).sort()).toEqual(

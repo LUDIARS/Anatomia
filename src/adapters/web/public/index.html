@@ -91,24 +91,24 @@
 
   <!-- Timeline swimlane (T40) -->
   <div id="timeline-panel">
-    <h2>Frame x Mechanic Timeline</h2>
+    <h2>Frame x Domain Timeline</h2>
     <div id="timeline-scroll"></div>
   </div>
 
   <script>
-    // Colour palette for mechanics
+    // Colour palette for domains
     const PALETTE = [
       '#58a6ff','#3fb950','#d29922','#f78166','#bc8cff',
       '#39c5cf','#e3b341','#ff7b72','#7ee787','#ffa657',
     ];
-    const mechanicColors = new Map();
+    const domainColors = new Map();
     let colorIdx = 0;
-    function mechanicColor(m) {
-      if (!mechanicColors.has(m)) {
-        mechanicColors.set(m, PALETTE[colorIdx % PALETTE.length]);
+    function domainColor(m) {
+      if (!domainColors.has(m)) {
+        domainColors.set(m, PALETTE[colorIdx % PALETTE.length]);
         colorIdx++;
       }
-      return mechanicColors.get(m);
+      return domainColors.get(m);
     }
 
     // Static graph load
@@ -230,8 +230,8 @@
       scroll.innerHTML = tl.frames.map(function(f) {
         const bars = f.bars.map(function(b) {
           const pct = f.totalUs > 0 ? Math.max(1, Math.round((b.durationUs / maxUs) * 120)) : 4;
-          const color = mechanicColor(b.mechanic);
-          return '<div class="tl-bar" style="height:' + pct + 'px;background:' + color + ';" title="' + b.mechanic + ': ' + b.durationUs + 'us"></div>';
+          const color = domainColor(b.domain);
+          return '<div class="tl-bar" style="height:' + pct + 'px;background:' + color + ';" title="' + b.domain + ': ' + b.durationUs + 'us"></div>';
         }).join('');
         return '<div class="tl-frame">' + bars + '<div class="tl-frame-id">' + f.frameId + '</div></div>';
       }).join('');

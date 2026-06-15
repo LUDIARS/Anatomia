@@ -3,11 +3,11 @@
  *
  * Assembles the 6 elements of a clean-context bundle:
  *   landingAnchor, applicableRules, specClauses, exemplars, impactRadius,
- *   existingMechanics.
+ *   existingDomains.
  *
  * Determinism (the contract): same input -> byte-identical bundle. Guaranteed by
  *   1. stable sorting EVERY collection (rules by id, clauses by id, exemplars by
- *      anchor, impact by anchor, mechanics by name);
+ *      anchor, impact by anchor, domains by name);
  *   2. the landing anchor being a single content-addressed AnchorId (Merkle
  *      hash) chosen deterministically by the caller (T27);
  *   3. the bundle's own content key = merkleHash over the sorted landing anchors,
@@ -15,7 +15,7 @@
  *      Merkle ハッシュ").
  *
  * Order: immutable-first / mutable-last is enforced by `orderBundleSegments`,
- * mirroring @ludiars/llm-gateway `orderSegments` (immutable: mechanic summaries,
+ * mirroring @ludiars/llm-gateway `orderSegments` (immutable: domain summaries,
  * spec clauses, type/rule defs; mutable: the current query/landing). We keep the
  * structured ContextBundle (types.ts) and additionally expose a flat ordered
  * segment list for the gateway.
@@ -37,7 +37,7 @@ export interface BundleInputs {
   /** Landing anchors resolved by T27. The FIRST (after sort) becomes the
    *  bundle's landingAnchor; ALL are folded into the content key. */
   landingAnchors: AnchorId[];
-  /** global ∪ mechanic rules (G3). */
+  /** global ∪ domain rules (G3). */
   rules: Rule[];
   /** Spec clauses linked to the landing (G4). */
   specClauses: SpecClause[];
@@ -45,8 +45,8 @@ export interface BundleInputs {
   exemplars: FunctionNode[];
   /** KG-derived anchors that could be affected (impact radius). */
   impactRadius: AnchorId[];
-  /** Existing mechanics that subsume this task (duplication guard). */
-  existingMechanics: string[];
+  /** Existing domains that subsume this task (duplication guard). */
+  existingDomains: string[];
 }
 
 /** A content-addressed bundle: the ContextBundle plus its Merkle content key. */
@@ -97,7 +97,7 @@ export function assembleBundle(inputs: BundleInputs): AddressedBundle {
     (f) => f.id as string,
   );
   const impactRadius = [...new Set(inputs.impactRadius)].sort();
-  const existingMechanics = [...new Set(inputs.existingMechanics)].sort(cmpStr);
+  const existingDomains = [...new Set(inputs.existingDomains)].sort(cmpStr);
 
   const bundle: ContextBundle = {
     landingAnchor,
@@ -105,7 +105,7 @@ export function assembleBundle(inputs: BundleInputs): AddressedBundle {
     specClauses,
     exemplars,
     impactRadius,
-    existingMechanics,
+    existingDomains,
   };
 
   return { bundle, contentKey: bundleContentKey(landingAnchors) };
@@ -115,7 +115,7 @@ export function assembleBundle(inputs: BundleInputs): AddressedBundle {
 
 /** A flat text segment for the llm-gateway ordering convention. */
 export interface BundleSegment {
-  kind: "mechanics" | "rules" | "spec" | "exemplars" | "impact" | "landing";
+  kind: "domains" | "rules" | "spec" | "exemplars" | "impact" | "landing";
   /** True = stable across the repo (immutable); placed BEFORE mutable. */
   immutable: boolean;
   text: string;
@@ -131,11 +131,11 @@ export function orderBundleSegments(bundle: ContextBundle): BundleSegment[] {
 
   // ── Immutable tier (stable repo facts) ─────────────────────────────────────
   segs.push({
-    kind: "mechanics",
+    kind: "domains",
     immutable: true,
     text:
-      "Existing mechanics (do not reinvent): " +
-      (bundle.existingMechanics.join(", ") || "(none)"),
+      "Existing domains (do not reinvent): " +
+      (bundle.existingDomains.join(", ") || "(none)"),
   });
   segs.push({
     kind: "rules",

@@ -1,5 +1,5 @@
 /**
- * mechanics/ — Mechanic detection, rules engine, mechanic cards (G3).
+ * domains/ — Domain detection, rules engine, domain cards (G3).
  *
  * Pipeline:
  *   predicate.ts  (T14) — NodeFilter matching helpers
@@ -8,9 +8,9 @@
  *   matcher.ts    (T16) — structural template matcher (AST)
  *   template.ts   (T16) — TemplateRule -> TemplatePredicate + evaluation
  *   mining.ts     (T17) — reverse rule generation from an exemplar
- *   ontology.ts   (T18) — mechanic-ontology plugin loader + builtins
- *   detect.ts     (T19) — mechanic detection (conformance)
- *   card.ts       (T20) — content-keyed mechanic-card generation (injected LLM)
+ *   ontology.ts   (T18) — domain-ontology plugin loader + builtins
+ *   detect.ts     (T19) — domain detection (conformance)
+ *   card.ts       (T20) — content-keyed domain-card generation (injected LLM)
  */
 
 // T14 — predicate engine
@@ -48,11 +48,11 @@ export { mineRules } from "./mining.js";
 export type { CandidateRule, MiningOptions } from "./mining.js";
 
 // T18 — ontology loader
-export { loadOntology, BUILTIN_MECHANICS } from "./ontology.js";
-export type { MechanicDef, ConfiguredPreset, MechanicOntology } from "./ontology.js";
+export { loadOntology, BUILTIN_DOMAINS } from "./ontology.js";
+export type { DomainDef, ConfiguredPreset, DomainOntology } from "./ontology.js";
 
 // T19 — detection
-export { detectMechanic, detectMechanics } from "./detect.js";
+export { detectDomain, detectDomains } from "./detect.js";
 export type { DetectionResult } from "./detect.js";
 
 // T20 — card generation
@@ -62,4 +62,4 @@ export {
   assemblePrompt,
   merkleHash,
 } from "./card.js";
-export type { LLMClient, MechanicCard, CardCache } from "./card.js";
+export type { LLMClient, DomainCard, CardCache } from "./card.js";

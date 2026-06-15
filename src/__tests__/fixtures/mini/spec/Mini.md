@@ -1,4 +1,4 @@
-# Mini Mechanic Spec
+# Mini Domain Spec
 
 ## Skill
 
