@@ -7,6 +7,7 @@
  *
  *   - vis-network loaded from CDN (<script> tag)
  *   - all graph data (nodes, edges, metrics, domain membership) inlined as JSON
+ *     built by buildVisData() (shared with the live panel's /api/projects/:id/vis-data)
  *   - nodes coloured and sized by coupling and cyclomatic complexity
  *   - nodes grouped/clustered by file (module segment of the path)
  *   - click a node → detail panel (name, file, complexity, fan-in/out, domain)
@@ -14,14 +15,12 @@
  *   - legend explains colour + size encoding
  *   - group filter dropdown so large graphs remain readable
  *
- * SRP: builds the HTML string from an AnalysisContext only. CLI wires I/O.
+ * SRP: builds the HTML string from an AnalysisContext only. Data transformation
+ *      is delegated to vis-data.ts. CLI wires I/O.
  */
 
-import { basename, relative, dirname } from "node:path";
-import { computeMetrics } from "../../supply/metrics.js";
+import { buildVisData } from "./vis-data.js";
 import type { AnalysisContext } from "../../core.js";
-import type { NodeMetrics } from "../../supply/metrics.js";
-import type { CodeNode, Edge } from "../../types.js";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -33,55 +32,15 @@ export interface ExportOptions {
 }
 
 // ---------------------------------------------------------------------------
-// Colour palette (same as existing web UI)
+// Internal HTML escaping (build time, not browser)
 // ---------------------------------------------------------------------------
 
-const GROUP_PALETTE = [
-  "#58a6ff", "#3fb950", "#d29922", "#f78166", "#bc8cff",
-  "#39c5cf", "#e3b341", "#ff7b72", "#7ee787", "#ffa657",
-  "#79c0ff", "#56d364", "#e3b341", "#ffa28b", "#d2a8ff",
-];
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** Map each unique group name to a stable palette colour. */
-function buildGroupColorMap(groups: string[]): Record<string, string> {
-  const unique = [...new Set(groups)].sort();
-  const map: Record<string, string> = {};
-  unique.forEach((g, i) => {
-    map[g] = GROUP_PALETTE[i % GROUP_PALETTE.length];
-  });
-  return map;
-}
-
-/**
- * Derive a short "group" label from a file path (the file's basename without
- * extension, or the immediate directory name for index files).
- */
-function groupFor(filePath: string, repoPath: string): string {
-  try {
-    const rel = relative(repoPath, filePath).replace(/\\/g, "/");
-    // Use the first directory segment after the repo root, or the filename.
-    const parts = rel.split("/");
-    if (parts.length >= 2) {
-      // e.g. "src/adapters/cli.ts" → group "src/adapters"
-      return parts.slice(0, -1).join("/");
-    }
-    return basename(filePath, ".ts")
-      .replace(/\.tsx$/, "")
-      .replace(/\.cpp$/, "")
-      .replace(/\.h$/, "")
-      .replace(/\.cs$/, "");
-  } catch {
-    return dirname(filePath);
-  }
-}
-
-/** Derive node size from cyclomatic complexity (clamped to 8–32). */
-function sizeForCyclomatic(cyclomatic: number): number {
-  return Math.max(8, Math.min(32, 8 + cyclomatic * 2));
+function escHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 /** Escape a value for safe JSON embedding inside an HTML script block. */
@@ -96,159 +55,21 @@ function safeJson(value: unknown): string {
 /**
  * Build a self-contained interactive HTML graph from an AnalysisContext.
  *
- * Visual encoding:
- *   - Node **colour**  : group (file/directory) — each file group gets a
- *                        distinct colour from the palette; the legend lists them.
- *   - Node **size**    : cyclomatic complexity (larger = more complex).
- *   - Node **border**  : coupling level — red border for coupling ≥ 10,
- *                        orange for ≥ 4, green otherwise.
- *   - Edges            : colour-coded by kind (calls/reads/writes/depends/…).
+ * Graph data is built by buildVisData() — the same function that serves the
+ * live panel's /api/projects/:id/vis-data endpoint — so both the static export
+ * and the live panel use an identical visual encoding.
  */
 export async function exportGraphHtml(
   ctx: AnalysisContext,
   opts: ExportOptions = {},
 ): Promise<string> {
-  // --- Compute metrics ---
-  const membershipMap = new Map<string, import("../../types.js").AnchorId[]>();
-  for (const d of ctx.domains ?? []) {
-    membershipMap.set(d.domain, d.implementors);
-  }
-  const metrics: NodeMetrics[] = await computeMetrics(ctx.graph, membershipMap);
-  const metricsByAnchor = new Map(metrics.map((m) => [m.anchor, m]));
+  const data = await buildVisData(ctx, opts.title);
+  const { summary } = data;
+  const title = summary.title;
 
-  // --- Collect graph data ---
-  const nodes: CodeNode[] = await ctx.graph.allNodes();
+  // Inline all vis-network data as JSON
+  const dataJson = safeJson(data);
 
-  const edgeMap = new Map<string, Edge>();
-  for (const node of nodes) {
-    const edges = await ctx.graph.edgesFrom(node.id);
-    for (const e of edges) {
-      const key = `${e.from}|${e.to}|${e.kind}`;
-      if (!edgeMap.has(key)) edgeMap.set(key, e);
-    }
-  }
-  const edges = Array.from(edgeMap.values());
-
-  // --- Build domain lookup: anchor -> first domain name ---
-  const anchorDomain = new Map<string, string>();
-  for (const d of ctx.domains ?? []) {
-    for (const anchor of d.implementors) {
-      if (!anchorDomain.has(anchor)) anchorDomain.set(anchor, d.domain);
-    }
-  }
-
-  // --- Derive groups ---
-  const nodeGroup = new Map<string, string>();
-  for (const n of nodes) {
-    nodeGroup.set(n.id, groupFor(n.sourceRange.filePath, ctx.repoPath));
-  }
-  const allGroups = [...new Set(nodeGroup.values())].sort();
-  const groupColorMap = buildGroupColorMap(allGroups);
-
-  // --- Build vis-network node/edge data ---
-  const visNodes = nodes.map((n) => {
-    const m = metricsByAnchor.get(n.id);
-    const coupling = m?.coupling ?? 0;
-    const cyclomatic = m?.cyclomatic ?? 1;
-    const group = nodeGroup.get(n.id) ?? "unknown";
-    const groupColor = groupColorMap[group] ?? "#8b949e";
-
-    // Border colour signals coupling severity
-    const borderColor =
-      coupling >= 10 ? "#da3633" : coupling >= 4 ? "#d29922" : "#238636";
-
-    const relPath = (() => {
-      try { return relative(ctx.repoPath, n.sourceRange.filePath).replace(/\\/g, "/"); }
-      catch { return n.sourceRange.filePath; }
-    })();
-
-    const domain = anchorDomain.get(n.id) ?? null;
-
-    return {
-      id: n.id,
-      label: n.name,
-      title: [
-        n.name,
-        relPath + ":" + n.sourceRange.start.line,
-        "kind: " + n.kind,
-        "coupling: " + coupling,
-        "cyclomatic: " + cyclomatic,
-        "fan-in: " + (m?.fanIn ?? 0),
-        "fan-out: " + (m?.fanOut ?? 0),
-        domain ? "domain: " + domain : null,
-      ].filter(Boolean).join("\n"),
-      group,
-      color: {
-        background: groupColor,
-        border: borderColor,
-        highlight: { background: "#ffffff", border: "#58a6ff" },
-      },
-      size: sizeForCyclomatic(cyclomatic),
-      font: { color: "#e1e4e8", size: 10 },
-      // Extra data for detail panel (not used by vis-network itself)
-      _meta: {
-        name: n.name,
-        kind: n.kind,
-        file: relPath,
-        line: n.sourceRange.start.line,
-        domain,
-        coupling,
-        cyclomatic,
-        fanIn: m?.fanIn ?? 0,
-        fanOut: m?.fanOut ?? 0,
-        domainOverlap: m?.domainOverlap ?? 0,
-        crossDomainDepth: m?.crossDomainDepth ?? 0,
-      },
-    };
-  });
-
-  const EDGE_COLORS: Record<string, string> = {
-    calls:    "#58a6ff",
-    reads:    "#3fb950",
-    writes:   "#d29922",
-    depends:  "#bc8cff",
-    implements: "#39c5cf",
-    overrides: "#ffa657",
-    includes:  "#f78166",
-  };
-
-  const visEdges = edges.map((e) => ({
-    from: e.from,
-    to: e.to,
-    label: e.kind,
-    arrows: "to",
-    font: { size: 8, color: "#6e7681", strokeWidth: 0 },
-    color: { color: EDGE_COLORS[e.kind] ?? "#8b949e", opacity: 0.55 },
-    width: 1,
-  }));
-
-  // --- Summary counts ---
-  const title = opts.title ?? basename(ctx.repoPath);
-  const fileCount = ctx.files.length;
-  const funcCount = ctx.functions.length;
-  const nodeCount = nodes.length;
-  const edgeCount = edges.length;
-  const groupCount = allGroups.length;
-
-  // --- Build legend entries ---
-  const legendItems = allGroups.map((g) => ({
-    group: g,
-    color: groupColorMap[g],
-  }));
-
-  // --- Inline all data as JSON ---
-  const dataJson = safeJson({
-    nodes: visNodes,
-    edges: visEdges,
-    groups: allGroups,
-    groupColors: groupColorMap,
-    legend: legendItems,
-    summary: { title, fileCount, funcCount, nodeCount, edgeCount, groupCount },
-  });
-
-  // ---------------------------------------------------------------------------
-  // HTML template
-  // ---------------------------------------------------------------------------
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -465,16 +286,4 @@ export async function exportGraphHtml(
   </script>
 </body>
 </html>`;
-}
-
-// ---------------------------------------------------------------------------
-// Internal HTML escaping (build time, not browser)
-// ---------------------------------------------------------------------------
-
-function escHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
 }
