@@ -38,23 +38,28 @@ All six invariants are verified by the unit tests (`src/dag/__tests__/typescript
 | Return type change | DIFFERENT hash | ✓ confirmed |
 | Body logic change | DIFFERENT hash | ✓ confirmed |
 
-**Measurement script confound (honest disclosure):** The `self-analyze.mjs` measurement harness reports a 38% false-invalidation rate for comment insertion. Investigation revealed two bugs in the *measurement script* (not the pipeline):
+**Measured false-invalidation rate (AST-aware harness): 0%.** The measurement harness is now AST-aware (it locates the function body via the AST body subtree and re-identifies the function by name + occurrence, matching the `measure.mjs` approach for C++). On Anatomia's own TypeScript it reports:
 
-1. **Object-type return annotations**: TypeScript functions like `function f(): { a: number } {}` have their first `{` inside the return type annotation. The naive `str.replace('{', '...')` inserts the probe comment inside the type annotation, changing the parsed signature structure → different hash. This is a script measurement artifact.
+| Perturbation (measured by `self-analyze.mjs`) | Cases | Same hash | False-invalidations | Rate |
+|---|---|---|---|---|
+| Comment insertion (probe inside the real body) | 200 | 200 | **0** | **0%** |
 
-2. **Inner function confound**: When a snippet is re-parsed standalone, `extractFunctions(...)[0]` may return an inner arrow function rather than the outer method (since the outer method is no longer a class method in isolation). The hash belongs to a different function.
+The previously reported 38% was a *measurement-script* artifact, not a pipeline defect — two bugs in the naive harness, both now fixed:
 
-**True false-invalidation rate on Anatomia's TS: 0 / 0** (unit tests prove the invariants hold). The measurement harness needs AST-aware snippet extraction (matching the `measure.mjs` approach for C++) to produce meaningful numbers for TS.
+1. **Object-type return annotations** — `function f(): { a: number } {}` has its first `{` inside the return-type annotation; the old `str.replace('{', …)` landed the probe there. The harness now inserts the probe after the AST body block's opening brace.
+2. **Inner-function confound** — re-parsing a snippet standalone made `extractFunctions(...)[0]` return an inner arrow function; the harness now selects the function by name + source-order occurrence (`pickFunction`), so the OUTER function is the one measured.
+
+**True false-invalidation rate on Anatomia's TS: 0% (0 / 200 measured).** This corroborates the six hash invariants proved by the unit tests (`src/dag/__tests__/typescript.test.ts`) and the AST-aware helpers' own unit tests (`src/dag/__tests__/measure-ast.test.ts`).
 
 ### False-collision rate
 
 | Metric | Value |
 |--------|-------|
-| Hash buckets (distinct hashes) | 490 |
-| Total functions | 502 |
+| Hash buckets (distinct hashes) | 496 |
+| Total functions | 508 |
 | Colliding groups | **0** |
 | Colliding pairs | **0** |
-| Total distinct pairs | 125 751 |
+| Total distinct pairs | 128 778 |
 | False-collision rate | **0.00%** |
 
 No two distinct functions in Anatomia's production source share a hash. The per-file-path folding into the hash ensures that even structurally identical helper functions in different modules get distinct AnchorIds.
@@ -132,7 +137,7 @@ function hashCanonical(normalized: string): string {
 | `coupling_delta` | ✓ |
 | `convention_drift` | ✓ |
 
-Note: `buildVerdict()` currently parses diffs as C++; the verify was run on a raw snippet that is syntactically valid for the C++ parser (no TS-specific syntax). A proper TS verify path would require extending `buildVerdict()` to detect language from file extension — this is a documented limitation.
+Note: `buildVerdict()` is now **language-aware** (Fix A). It detects the diff's language from an explicit target path or the unified-diff `+++` header (reusing the same `langFor` extension→`Lang` map `analyze()` uses) and re-parses the changed code with the correct grammar — so this TypeScript snippet (passed with a `.ts` target) is parsed with the TS grammar, not mis-parsed as C++. TS-only syntax (type annotations, `interface`) is handled. C++ and C# diffs continue to parse with their own grammars.
 
 ---
 
@@ -146,4 +151,4 @@ The tree-sitter-typescript WASM grammar works out of the box via `tree-sitter-wa
 **What Anatomia learned about itself:**  
 The most significant self-finding is that `analyze()` in `core.ts` is both the most complex (883 AST nodes) and highest-coupling (fan-out 17) production function — confirming it is the architectural G1→G5 wiring hub. The SRP is otherwise well-preserved: all other production functions have low fan-out (≤6) and moderate complexity. The generic domain ontology produces low-signal results on a tool codebase, underscoring that Anatomia's value for game projects comes from a domain-specific ontology plugin, not the generic builtin rules.
 
-The `buildVerdict()` C++-only parser is a genuine gap: it should be language-aware to support TS supply/verify workflows end-to-end.
+The `buildVerdict()` parser is now language-aware (Fix A), closing the prior C++-only gap and supporting TS/C#/C++ supply/verify workflows end-to-end.
