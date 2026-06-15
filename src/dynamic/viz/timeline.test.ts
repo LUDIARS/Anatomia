@@ -2,20 +2,20 @@ import { describe, it, expect } from 'vitest';
 import { buildTimeline } from './timeline.js';
 import type { StitchedFrame } from '../stitch.js';
 
-const makeFrame = (id: number, mechanics: string[], times: Record<string,number>): StitchedFrame => ({
+const makeFrame = (id: number, domains: string[], times: Record<string,number>): StitchedFrame => ({
   frameId: id,
   frameBeginUs: id * 16000,
   frameEndUs: id * 16000 + 16000,
-  activeMechanics: mechanics,
+  activeDomains: domains,
   hotZone: null,
-  mechanicTimes: times,
+  domainTimes: times,
 });
 
 describe('buildTimeline', () => {
   it('returns empty timeline for empty input', () => {
     const result = buildTimeline([]);
     expect(result.frames).toHaveLength(0);
-    expect(result.mechanics).toHaveLength(0);
+    expect(result.domains).toHaveLength(0);
   });
 
   it('maps stitched frames to ordered bars', () => {
@@ -27,20 +27,20 @@ describe('buildTimeline', () => {
 
     expect(result.frames).toHaveLength(2);
     expect(result.frames[0]!.bars).toEqual([
-      { mechanic: 'Physics', durationUs: 5000 },
-      { mechanic: 'Render', durationUs: 8000 },
+      { domain: 'Physics', durationUs: 5000 },
+      { domain: 'Render', durationUs: 8000 },
     ]);
     expect(result.frames[0]!.totalUs).toBe(16000);
-    expect(result.frames[1]!.bars[0]!.mechanic).toBe('Input');
+    expect(result.frames[1]!.bars[0]!.domain).toBe('Input');
   });
 
-  it('collects unique mechanic names across window', () => {
+  it('collects unique domain names across window', () => {
     const frames = [
       makeFrame(1, ['A', 'B'], { A: 100, B: 200 }),
       makeFrame(2, ['B', 'C'], { B: 150, C: 300 }),
     ];
     const result = buildTimeline(frames);
-    expect(result.mechanics.sort()).toEqual(['A', 'B', 'C']);
+    expect(result.domains.sort()).toEqual(['A', 'B', 'C']);
   });
 
   it('respects the window parameter (last N frames)', () => {
@@ -55,7 +55,7 @@ describe('buildTimeline', () => {
     expect(result.frames[1]!.frameId).toBe(3);
   });
 
-  it('returns 0 duration bar when mechanic has no time recorded', () => {
+  it('returns 0 duration bar when domain has no time recorded', () => {
     const frames = [makeFrame(1, ['X'], {})];
     const result = buildTimeline(frames);
     expect(result.frames[0]!.bars[0]!.durationUs).toBe(0);

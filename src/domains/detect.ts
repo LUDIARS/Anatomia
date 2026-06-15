@@ -1,18 +1,18 @@
 /**
- * T19 — Mechanic detection (conformance).
+ * T19 — Domain detection (conformance).
  *
- * For each mechanic in an ontology, compile its presets + templates into
+ * For each domain in an ontology, compile its presets + templates into
  * predicates, evaluate them against the graph, and report which functions
- * implement the mechanic, the violations found, and whether it conforms.
+ * implement the domain, the violations found, and whether it conforms.
  *
  * SRP: this file orchestrates ontology -> predicates -> engine; it does not
  * define predicates (presets.ts), match templates (template.ts) or interpret
  * the ADT (engine.ts).
  *
- * "Implementors" = functions touched by the mechanic's rules: the set of nodes
- * matched by any NodeFilter appearing in the mechanic's compiled predicates,
+ * "Implementors" = functions touched by the domain's rules: the set of nodes
+ * matched by any NodeFilter appearing in the domain's compiled predicates,
  * unioned with the anchors that appear in template matches. "conforms" is true
- * when no `error`-severity violation is found for that mechanic.
+ * when no `error`-severity violation is found for that domain.
  */
 
 import type {
@@ -27,13 +27,13 @@ import { evaluatePredicate } from "./engine.js";
 import { buildPresetPredicate } from "./presets.js";
 import { evaluateTemplate, makeTemplateResolver } from "./template.js";
 import { matchesFilter } from "./predicate.js";
-import type { MechanicDef, MechanicOntology } from "./ontology.js";
+import type { DomainDef, DomainOntology } from "./ontology.js";
 
 export interface DetectionResult {
-  mechanic: string;
-  /** Functions that implement (are touched by) the mechanic. */
+  domain: string;
+  /** Functions that implement (are touched by) the domain. */
   implementors: AnchorId[];
-  /** All violations found for the mechanic. */
+  /** All violations found for the domain. */
   violations: Violation[];
   /** True iff no error-severity violation was found. */
   conforms: boolean;
@@ -64,16 +64,16 @@ function collectFilters(pred: Predicate, out: NodeFilter[]): void {
   }
 }
 
-/** Compile a mechanic def's preset rules into predicates. */
-function compilePresetPredicates(def: MechanicDef): Predicate[] {
+/** Compile a domain def's preset rules into predicates. */
+function compilePresetPredicates(def: DomainDef): Predicate[] {
   return def.presetRules.map((cfg) => buildPresetPredicate(cfg.preset, cfg.params));
 }
 
 /**
- * Detect a single mechanic against the graph + its backing functions.
+ * Detect a single domain against the graph + its backing functions.
  */
-export async function detectMechanic(
-  def: MechanicDef,
+export async function detectDomain(
+  def: DomainDef,
   graph: CodeGraphQuery,
   functions: FunctionNode[],
 ): Promise<DetectionResult> {
@@ -111,7 +111,7 @@ export async function detectMechanic(
     }
   }
 
-  // Add anchors that matched templates (positive) so template-only mechanics
+  // Add anchors that matched templates (positive) so template-only domains
   // still report implementors.
   for (const tpl of def.templateRules) {
     if (!tpl.positive) continue;
@@ -126,7 +126,7 @@ export async function detectMechanic(
 
   const conforms = !violations.some((v) => v.severity === "error");
   return {
-    mechanic: def.name,
+    domain: def.name,
     implementors: [...implementorSet],
     violations,
     conforms,
@@ -154,16 +154,16 @@ async function templateMatched(
 }
 
 /**
- * Detect all mechanics in an ontology.
+ * Detect all domains in an ontology.
  */
-export async function detectMechanics(
-  ontology: MechanicOntology,
+export async function detectDomains(
+  ontology: DomainOntology,
   graph: CodeGraphQuery,
   functions: FunctionNode[],
 ): Promise<DetectionResult[]> {
   const results: DetectionResult[] = [];
-  for (const def of ontology.mechanics.values()) {
-    results.push(await detectMechanic(def, graph, functions));
+  for (const def of ontology.domains.values()) {
+    results.push(await detectDomain(def, graph, functions));
   }
   return results;
 }

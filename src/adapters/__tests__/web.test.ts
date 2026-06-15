@@ -84,12 +84,12 @@ describe("GET /api/metrics", () => {
   });
 });
 
-describe("GET /api/mechanics", () => {
-  it("returns { mechanics, cards }", async () => {
-    const res = await app.fetch(new Request("http://localhost/api/mechanics"));
+describe("GET /api/domains", () => {
+  it("returns { domains, cards }", async () => {
+    const res = await app.fetch(new Request("http://localhost/api/domains"));
     expect(res.status).toBe(200);
-    const body = await res.json() as { mechanics: unknown[]; cards: unknown[] };
-    expect(Array.isArray(body.mechanics)).toBe(true);
+    const body = await res.json() as { domains: unknown[]; cards: unknown[] };
+    expect(Array.isArray(body.domains)).toBe(true);
     expect(Array.isArray(body.cards)).toBe(true);
   });
 });

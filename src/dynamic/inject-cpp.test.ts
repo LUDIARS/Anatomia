@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { AnchorId } from '../types.js';
 import { generateCppHeader, generateCppPatches } from './inject-cpp.js';
-import type { MechanicEntryPoint } from './inject-cpp.js';
+import type { DomainEntryPoint } from './inject-cpp.js';
 
 describe('generateCppHeader', () => {
   it('enabled=true contains ANATOMIA_ZONE macro and struct', () => {
@@ -32,7 +32,7 @@ describe('generateCppHeader', () => {
 
 describe('generateCppPatches', () => {
   it('returns one patch per entry point', () => {
-    const eps: MechanicEntryPoint[] = [
+    const eps: DomainEntryPoint[] = [
       { filePath: 'src/game.cpp', line: 42, anchorId: 'abc123' as AnchorId, name: 'UpdateGame' },
       { filePath: 'src/render.cpp', line: 100, anchorId: 'def456' as AnchorId, name: 'RenderFrame' },
     ];
@@ -41,7 +41,7 @@ describe('generateCppPatches', () => {
   });
 
   it('patch contains ANATOMIA_ZONE call with correct name and anchorId', () => {
-    const eps: MechanicEntryPoint[] = [
+    const eps: DomainEntryPoint[] = [
       { filePath: 'src/game.cpp', line: 42, anchorId: 'abc123' as AnchorId, name: 'UpdateGame' },
     ];
     const patches = generateCppPatches(eps);

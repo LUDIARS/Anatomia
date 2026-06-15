@@ -39,7 +39,7 @@ describe("anatomia.context", () => {
     expect(result).toHaveProperty("specClauses");
     expect(result).toHaveProperty("exemplars");
     expect(result).toHaveProperty("impactRadius");
-    expect(result).toHaveProperty("existingMechanics");
+    expect(result).toHaveProperty("existingDomains");
     expect(Array.isArray(result.applicableRules)).toBe(true);
     expect(Array.isArray(result.specClauses)).toBe(true);
     expect(Array.isArray(result.exemplars)).toBe(true);
@@ -83,7 +83,7 @@ describe("anatomia.verify", () => {
 describe("anatomia.where", () => {
   it("returns landings array", async () => {
     const handlers = createHandlers(ctx);
-    const result = await handlers["anatomia.where"]({ task: "add a jump mechanic" });
+    const result = await handlers["anatomia.where"]({ task: "add a jump domain" });
     expect(result).toHaveProperty("landings");
     expect(Array.isArray(result.landings)).toBe(true);
     expect(result.landings.length).toBeGreaterThan(0);
@@ -93,7 +93,7 @@ describe("anatomia.where", () => {
     const handlers = createHandlers(ctx);
     const { landings } = await handlers["anatomia.where"]({ task: "movement" });
     for (const l of landings) {
-      expect(l).toHaveProperty("mechanic");
+      expect(l).toHaveProperty("domain");
       expect(l).toHaveProperty("anchor");
       expect(l).toHaveProperty("layer");
       expect(l).toHaveProperty("confidence");

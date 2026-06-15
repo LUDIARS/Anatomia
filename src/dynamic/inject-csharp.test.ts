@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { AnchorId } from '../types.js';
 import { generateCSharpStub, generateCSharpPatches } from './inject-csharp.js';
-import type { MechanicEntryPoint } from './inject-cpp.js';
+import type { DomainEntryPoint } from './inject-cpp.js';
 
 describe('generateCSharpStub', () => {
   it('enabled=true contains IDisposable and AnatomiaZone', () => {
@@ -33,7 +33,7 @@ describe('generateCSharpStub', () => {
 
 describe('generateCSharpPatches', () => {
   it('returns one patch per entry point', () => {
-    const eps: MechanicEntryPoint[] = [
+    const eps: DomainEntryPoint[] = [
       { filePath: 'Assets/Scripts/Game.cs', line: 20, anchorId: 'abc' as AnchorId, name: 'Update' },
       { filePath: 'Assets/Scripts/Render.cs', line: 55, anchorId: 'def' as AnchorId, name: 'Render' },
     ];
@@ -42,7 +42,7 @@ describe('generateCSharpPatches', () => {
   });
 
   it('patch contains AnatomiaZone with correct name and anchorId', () => {
-    const eps: MechanicEntryPoint[] = [
+    const eps: DomainEntryPoint[] = [
       { filePath: 'Assets/Scripts/Game.cs', line: 20, anchorId: 'myanchor' as AnchorId, name: 'Update' },
     ];
     const patches = generateCSharpPatches(eps);

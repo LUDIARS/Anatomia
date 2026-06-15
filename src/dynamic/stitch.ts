@@ -1,12 +1,12 @@
 /**
- * T38 — Join decoded frames with mechanic cards.
+ * T38 — Join decoded frames with domain cards.
  */
 import type { DecodedFrame } from './protocol.js';
-import type { MechanicCard } from '../mechanics/card.js';
+import type { DomainCard } from '../domains/card.js';
 
 export interface HotZone {
   anchorId: string;
-  mechanic: string;
+  domain: string;
   accumulatedUs: number;
 }
 
@@ -14,29 +14,29 @@ export interface StitchedFrame {
   frameId: number;
   frameBeginUs: number;
   frameEndUs: number;
-  activeMechanics: string[];
+  activeDomains: string[];
   hotZone: HotZone | null;
-  mechanicTimes: Record<string, number>;
+  domainTimes: Record<string, number>;
 }
 
-export function stitchFrame(frame: DecodedFrame, cards: MechanicCard[]): StitchedFrame {
-  const mechanicTimes: Record<string, number> = {};
-  const activeMechanicsOrdered: string[] = [];
-  const seenMechanics = new Set<string>();
+export function stitchFrame(frame: DecodedFrame, cards: DomainCard[]): StitchedFrame {
+  const domainTimes: Record<string, number> = {};
+  const activeDomainsOrdered: string[] = [];
+  const seenDomains = new Set<string>();
 
   // For each anchorId in activeZoneSet (in order), find which card it belongs to
   for (const anchorId of frame.activeZoneSet) {
     const card = cards.find((c) => c.keyAnchors.includes(anchorId as Parameters<typeof c.keyAnchors.includes>[0]));
     if (!card) continue;
 
-    if (!seenMechanics.has(card.mechanic)) {
-      seenMechanics.add(card.mechanic);
-      activeMechanicsOrdered.push(card.mechanic);
+    if (!seenDomains.has(card.domain)) {
+      seenDomains.add(card.domain);
+      activeDomainsOrdered.push(card.domain);
     }
 
-    // Accumulate zone time into mechanic total
+    // Accumulate zone time into domain total
     const zoneTime = frame.zoneTimes[anchorId] ?? 0;
-    mechanicTimes[card.mechanic] = (mechanicTimes[card.mechanic] ?? 0) + zoneTime;
+    domainTimes[card.domain] = (domainTimes[card.domain] ?? 0) + zoneTime;
   }
 
   // hotZone: anchorId with max zone time (among all anchors in activeZoneSet)
@@ -49,7 +49,7 @@ export function stitchFrame(frame: DecodedFrame, cards: MechanicCard[]): Stitche
       maxTime = t;
       hotZone = {
         anchorId,
-        mechanic: card ? card.mechanic : '',
+        domain: card ? card.domain : '',
         accumulatedUs: t,
       };
     }
@@ -59,8 +59,8 @@ export function stitchFrame(frame: DecodedFrame, cards: MechanicCard[]): Stitche
     frameId: frame.frameId,
     frameBeginUs: frame.frameBeginUs,
     frameEndUs: frame.frameEndUs,
-    activeMechanics: activeMechanicsOrdered,
+    activeDomains: activeDomainsOrdered,
     hotZone,
-    mechanicTimes,
+    domainTimes,
   };
 }

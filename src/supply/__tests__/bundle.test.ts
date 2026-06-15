@@ -44,7 +44,7 @@ function makeInputs(): BundleInputs {
     specClauses: [clause("s2"), clause("s1")],
     exemplars: [fn("f2", "Beta"), fn("f1", "Alpha")],
     impactRadius: [a("z"), a("x"), a("y")],
-    existingMechanics: ["combat", "ai", "combat" /* dup */],
+    existingDomains: ["combat", "ai", "combat" /* dup */],
   };
 }
 
@@ -56,7 +56,7 @@ describe("T28 assembleBundle", () => {
     expect(bundle.specClauses.length).toBe(2);
     expect(bundle.exemplars.length).toBe(2);
     expect(bundle.impactRadius.length).toBe(3);
-    expect(bundle.existingMechanics.length).toBe(2); // deduped
+    expect(bundle.existingDomains.length).toBe(2); // deduped
   });
 
   it("sorts every collection and dedups", () => {
@@ -65,7 +65,7 @@ describe("T28 assembleBundle", () => {
     expect(bundle.specClauses.map((c) => c.id)).toEqual(["s1", "s2"]);
     expect(bundle.exemplars.map((f) => f.id)).toEqual([a("f1"), a("f2")]);
     expect(bundle.impactRadius).toEqual([a("x"), a("y"), a("z")]);
-    expect(bundle.existingMechanics).toEqual(["ai", "combat"]);
+    expect(bundle.existingDomains).toEqual(["ai", "combat"]);
     // landingAnchor = lowest sorted anchor.
     expect(bundle.landingAnchor).toBe(a("a"));
   });
@@ -88,7 +88,7 @@ describe("T28 assembleBundle", () => {
       specClauses: [clause("s1"), clause("s2")],
       exemplars: [fn("f1", "Alpha"), fn("f2", "Beta")],
       impactRadius: [a("x"), a("y"), a("z")],
-      existingMechanics: ["ai", "combat"],
+      existingDomains: ["ai", "combat"],
     };
     const shuffled = makeInputs();
     expect(JSON.stringify(assembleBundle(ordered).bundle)).toBe(

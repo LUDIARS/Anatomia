@@ -8,7 +8,7 @@
  *      (c) body mutations (add statement / swap operator) → updated
  *      (d) collisions  — no two distinct real functions share a hash
  *   2. Coverage      — files parsed/skipped, functions, graph nodes/edges,
- *                      mechanics detected, spec links
+ *                      domains detected, spec links
  *   3. Bundle determinism — assemble twice → identical
  *   4. Verify on a real synthetic diff → Verdict
  *
@@ -281,7 +281,7 @@ async function main() {
     examples: collisionGroups,
   };
 
-  // ── analyze() coverage + mechanics + spec ─────────────────────────────────
+  // ── analyze() coverage + domains + spec ─────────────────────────────────
   // Run analyze on each root and aggregate (analyze scans a single tree).
   let aFns = 0, aNodes = 0, aEdges = 0, aSpecClauses = 0, aLinks = 0, aSkipped = 0;
   const mechAgg = new Map();
@@ -299,11 +299,11 @@ async function main() {
     aSpecClauses += (ctx.specClauses ?? []).length;
     aLinks += (ctx.links ?? []).length;
     aSkipped += (ctx.skipped ?? []).length;
-    for (const m of ctx.mechanics ?? []) {
-      const prev = mechAgg.get(m.mechanic) ?? { implementors: 0, violations: 0 };
+    for (const m of ctx.domains ?? []) {
+      const prev = mechAgg.get(m.domain) ?? { implementors: 0, violations: 0 };
       prev.implementors += m.implementors.length;
       prev.violations += m.violations.length;
-      mechAgg.set(m.mechanic, prev);
+      mechAgg.set(m.domain, prev);
     }
   }
   out.analyzeAggregate = {
@@ -313,7 +313,7 @@ async function main() {
     specClauses: aSpecClauses,
     links: aLinks,
     skipped: aSkipped,
-    mechanics: [...mechAgg.entries()].map(([k, v]) => ({ mechanic: k, ...v })),
+    domains: [...mechAgg.entries()].map(([k, v]) => ({ domain: k, ...v })),
   };
 
   // ── Spec linking against the full repo spec/ (cross-tree) ─────────────────

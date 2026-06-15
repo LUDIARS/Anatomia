@@ -11,7 +11,7 @@
 
 import type { EdgeKind, NodeFilter, Predicate } from "../types.js";
 
-/** Stable preset identifiers (used by mechanic ontology configs, T18). */
+/** Stable preset identifiers (used by domain ontology configs, T18). */
 export type PresetId =
   | "layerDependencyDirection"
   | "stateAccessPath"
@@ -73,7 +73,7 @@ export function layerDependencyDirection(params: {
  * state, except we cannot subtract. So we approximate with And/Not:
  *   violation = exists edge (caller -> state) where caller is NOT allowed.
  * We encode "caller is not allowed" by forbidding edges from a broad filter and
- * relying on the allowed pattern being applied at the mechanic layer. To keep
+ * relying on the allowed pattern being applied at the domain layer. To keep
  * this preset self-contained and precise, we emit an EdgeForbidden from a
  * caller filter that matches everything, wrapped so the engine reports the
  * concrete offending edges; the allowed callers are excluded by a negative

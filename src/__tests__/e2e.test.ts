@@ -29,7 +29,7 @@ import {
 const here = dirname(fileURLToPath(import.meta.url));
 const FIXTURE = join(here, "fixtures", "mini");
 
-// A subset of AdventureCube covering its core mechanics (Skill→Action, combat,
+// A subset of AdventureCube covering its core domains (Skill→Action, combat,
 // equipment). Skipped automatically when the repo is not checked out here.
 const AC_SUBSET = "E:/Document/Ars/AdventureCube/src/combat";
 
@@ -47,9 +47,9 @@ describe("analyze() — mini fixture (always runs)", () => {
     const nodes = await ctx.graph.allNodes();
     expect(nodes.length).toBeGreaterThan(0);
 
-    // Mechanic detection attempted (G3) — builtin ontology always loads.
-    expect(Array.isArray(ctx.mechanics)).toBe(true);
-    expect(ctx.mechanics!.length).toBeGreaterThan(0);
+    // Domain detection attempted (G3) — builtin ontology always loads.
+    expect(Array.isArray(ctx.domains)).toBe(true);
+    expect(ctx.domains!.length).toBeGreaterThan(0);
 
     // Spec linking (G4) — the fixture ships a spec/Mini.md.
     expect(ctx.specClauses!.length).toBeGreaterThan(0);
@@ -103,7 +103,7 @@ const acDescribe = existsSync(AC_SUBSET) ? describe : describe.skip;
 
 acDescribe("analyze() — AdventureCube subset (real C++)", () => {
   it(
-    "completes on real C++ and produces a non-empty graph + mechanic detection",
+    "completes on real C++ and produces a non-empty graph + domain detection",
     async () => {
       const ctx = await analyze(AC_SUBSET, { quiet: true });
 
@@ -114,10 +114,10 @@ acDescribe("analyze() — AdventureCube subset (real C++)", () => {
       const nodes = await ctx.graph.allNodes();
       expect(nodes.length).toBeGreaterThan(0);
 
-      // Mechanic detection was attempted on real code (results may include
-      // zero-implementor mechanics — that is a valid outcome, not a crash).
-      expect(Array.isArray(ctx.mechanics)).toBe(true);
-      expect(ctx.mechanics!.length).toBeGreaterThan(0);
+      // Domain detection was attempted on real code (results may include
+      // zero-implementor domains — that is a valid outcome, not a crash).
+      expect(Array.isArray(ctx.domains)).toBe(true);
+      expect(ctx.domains!.length).toBeGreaterThan(0);
     },
     60_000,
   );

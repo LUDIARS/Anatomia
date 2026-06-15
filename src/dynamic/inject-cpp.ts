@@ -40,7 +40,7 @@ namespace anatomia {
   }
 }
 
-export interface MechanicEntryPoint {
+export interface DomainEntryPoint {
   filePath: string;
   line: number;
   anchorId: AnchorId;
@@ -53,7 +53,7 @@ export interface InjectionPatch {
   code: string;
 }
 
-export function generateCppPatches(entryPoints: MechanicEntryPoint[]): InjectionPatch[] {
+export function generateCppPatches(entryPoints: DomainEntryPoint[]): InjectionPatch[] {
   return entryPoints.map((ep) => ({
     filePath: ep.filePath,
     line: ep.line,
