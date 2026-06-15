@@ -1,0 +1,134 @@
+/**
+ * src/project/manager.ts — Project manager: registry + cache + analyze().
+ *
+ * SRP: orchestrate the lifecycle of analyzed projects. Holds a ProjectRegistry
+ * (identity/CRUD), an AnalysisCache (incremental reuse), and lazily runs
+ * core.analyze() per project. Does NOT do identity math (registry.ts) or cache
+ * mechanics (cache.ts) itself.
+ *
+ * Re-analyzing an unchanged project reuses the cache (fingerprint match) so the
+ * expensive parse/hash/graph work is skipped — assertable via `cache.hits`.
+ */
+
+import { analyze } from "../core.js";
+import type { AnalysisContext, AnalyzeOptions } from "../core.js";
+import { ProjectRegistry } from "./registry.js";
+import { AnalysisCache, computeFingerprint } from "./cache.js";
+import { loadRegistry, saveRegistry } from "./store.js";
+import type { Project, ProjectInput } from "./types.js";
+
+export interface ProjectManagerOptions {
+  /** Anatomia home dir (projects.json + cache/). Default: ANATOMIA_HOME or <cwd>/.anatomia. */
+  homeDir?: string;
+  /** Forwarded to analyze() (quiet / pluginDir). */
+  analyzeOptions?: AnalyzeOptions;
+}
+
+export class ProjectManager {
+  readonly registry: ProjectRegistry;
+  readonly cache: AnalysisCache;
+  private readonly homeDir?: string;
+  private readonly analyzeOptions: AnalyzeOptions;
+
+  constructor(registry?: ProjectRegistry, options: ProjectManagerOptions = {}) {
+    this.registry = registry ?? new ProjectRegistry();
+    this.homeDir = options.homeDir;
+    this.analyzeOptions = options.analyzeOptions ?? {};
+    this.cache = new AnalysisCache(this.homeDir);
+  }
+
+  /** Build a manager with the registry loaded from disk (projects.json). */
+  static async load(options: ProjectManagerOptions = {}): Promise<ProjectManager> {
+    const registry = await loadRegistry(options.homeDir);
+    return new ProjectManager(registry, options);
+  }
+
+  /** Persist the registry to disk. */
+  async save(): Promise<string> {
+    return saveRegistry(this.registry, this.homeDir);
+  }
+
+  // ── registry passthrough ───────────────────────────────────────────────
+
+  /** Register a project and persist the registry. */
+  async addProject(input: ProjectInput): Promise<Project> {
+    const p = this.registry.add(input);
+    await this.save();
+    return p;
+  }
+
+  /** Remove a project, drop its cache entry, and persist. */
+  async removeProject(id: string): Promise<boolean> {
+    const ok = this.registry.remove(id);
+    if (ok) {
+      this.cache.invalidate(id);
+      await this.save();
+    }
+    return ok;
+  }
+
+  list(): Project[] {
+    return this.registry.list();
+  }
+
+  get(id: string): Project | undefined {
+    return this.registry.get(id);
+  }
+
+  /** Currently selected/default project id (or null). */
+  get selected(): string | null {
+    return this.registry.selected;
+  }
+
+  /** Select the default project. */
+  select(id: string): void {
+    this.registry.select(id);
+  }
+
+  /**
+   * Resolve a project id, defaulting to the selected one. Throws if neither the
+   * given id nor a selection resolves to a registered project.
+   */
+  resolveId(id?: string): string {
+    const target = id ?? this.registry.selected;
+    if (!target) {
+      throw new Error("ProjectManager: no project specified and none selected");
+    }
+    if (!this.registry.has(target)) {
+      throw new Error(`ProjectManager: unknown project "${target}"`);
+    }
+    return target;
+  }
+
+  // ── analysis ───────────────────────────────────────────────────────────
+
+  /**
+   * Analyze a project, reusing the incremental cache when the source tree is
+   * unchanged (fingerprint match → analyze() is skipped). Returns the context.
+   */
+  async analyzeProject(id?: string): Promise<AnalysisContext> {
+    const projectId = this.resolveId(id);
+    const project = this.registry.get(projectId)!;
+
+    const fingerprint = await computeFingerprint(project.rootPath);
+    const cached = this.cache.getIfFresh(projectId, fingerprint);
+    if (cached) return cached;
+
+    const opts: AnalyzeOptions = {
+      ...this.analyzeOptions,
+      pluginDir: project.ontologyDir ?? this.analyzeOptions.pluginDir,
+    };
+    const ctx = await analyze(project.rootPath, opts);
+    await this.cache.put(projectId, fingerprint, ctx);
+    return ctx;
+  }
+
+  /**
+   * Get the analyzed context for a project, analyzing on first request and
+   * reusing the cache thereafter. Equivalent to analyzeProject() but reads more
+   * naturally at call sites that just want "the context for this project".
+   */
+  async getContext(id?: string): Promise<AnalysisContext> {
+    return this.analyzeProject(id);
+  }
+}
