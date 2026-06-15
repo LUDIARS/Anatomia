@@ -115,6 +115,40 @@ function langFor(filePath: string): Lang {
   return "cpp";
 }
 
+/**
+ * Detect the language of a diff for the verify path.
+ *
+ * Priority: explicit `targetPath` → the unified-diff `+++ b/<path>` header →
+ * default C++ (so raw, path-less snippets behave as before). Reuses `langFor`
+ * (the same extension→Lang map `analyze()` uses) so the verify path and the
+ * analysis path agree on grammar selection.
+ */
+function langForDiff(diff: string, targetPath?: string): Lang {
+  if (targetPath) return langFor(targetPath);
+  const headerPath = diffTargetPath(diff);
+  if (headerPath) return langFor(headerPath);
+  return "cpp";
+}
+
+/**
+ * Extract the post-image file path from a unified diff's `+++ b/<path>` header.
+ * Returns null when the input is not a unified diff or has no `+++` line.
+ */
+function diffTargetPath(diff: string): string | null {
+  for (const line of diff.split(/\r?\n/)) {
+    if (!line.startsWith("+++ ")) continue;
+    let p = line.slice(4).trim();
+    // Strip a trailing tab-separated timestamp some diff tools append.
+    const tab = p.indexOf("\t");
+    if (tab >= 0) p = p.slice(0, tab);
+    if (p === "/dev/null") return null;
+    // Drop the conventional `b/` (or `a/`) prefix.
+    p = p.replace(/^[ab]\//, "");
+    if (p.length > 0) return p;
+  }
+  return null;
+}
+
 /** Path segments that should be excluded from TypeScript source collection. */
 const TS_EXCLUDE_SEGMENTS = new Set(["node_modules", "dist", ".git"]);
 
@@ -296,13 +330,27 @@ export async function buildContextBundle(
 // ---------------------------------------------------------------------------
 
 /**
- * Parse `diff` as C++ source, then run the 5-gate verify pipeline.
- * Uses a zero-vector mock embed client (no real LLM calls from adapters).
+ * Parse `diff` with the correct grammar for its language, then run the 5-gate
+ * verify pipeline. Uses a zero-vector mock embed client (no real LLM calls).
+ *
+ * Language is detected (in priority order):
+ *   1. an explicit `targetPath` (the file the diff applies to), via `langFor`;
+ *   2. the unified-diff `+++ b/<path>.<ext>` header, via `langFor`;
+ *   3. defaulting to C++ (preserves prior behaviour for raw, path-less snippets).
+ *
+ * This makes the verify path language-aware: a TypeScript diff is parsed with
+ * the TS grammar (so TS-only syntax is handled, not mis-parsed as C++), a C++
+ * diff with the cpp grammar, and a C# diff with the c_sharp grammar.
  */
-export async function buildVerdict(ctx: AnalysisContext, diff: string): Promise<Verdict> {
+export async function buildVerdict(
+  ctx: AnalysisContext,
+  diff: string,
+  targetPath?: string,
+): Promise<Verdict> {
   const source = sourceFromDiffInput(diff);
-  const tree = await parse(source, "cpp");
-  const fns = extractFunctions(tree, source, "<diff>");
+  const lang = langForDiff(diff, targetPath);
+  const tree = await parse(source, lang);
+  const fns = extractFunctions(tree, source, targetPath ?? "<diff>");
   for (const fn of fns) assignAnchorId(fn, normalize(fn.bodyAst));
 
   // Mock embed: zero vectors → duplication gate always passes (no similarity).
