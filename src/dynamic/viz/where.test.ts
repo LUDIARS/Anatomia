@@ -41,9 +41,18 @@ describe('buildWhere', () => {
     expect(result.label).toBe('frame 3 -> domain=Combat / function=abc123def456');
   });
 
-  it('phase is always null (SS5.5 deferred)', () => {
+  it('phase is null when no phase is supplied', () => {
     const result = buildWhere(1, ['x'], []);
     expect(result.phase).toBeNull();
+  });
+
+  it('folds a supplied phase into the label and field (SS5.5)', () => {
+    const cards = [card('Combat', ['abc123def456'])];
+    const result = buildWhere(3, ['abc123def456'], cards, 'phase-deadbeef-xyz');
+    expect(result.phase).toBe('phase-deadbeef-xyz');
+    expect(result.label).toBe(
+      'frame 3 -> domain=Combat / function=abc123def456 / phase=phase-deadbe',
+    );
   });
 
   it('function part truncated to 12 chars in label when longer', () => {

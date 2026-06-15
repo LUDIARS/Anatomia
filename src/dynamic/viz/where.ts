@@ -1,9 +1,11 @@
 /**
  * T42 -- You-are-here cursor shaper.
- * buildWhere(frameId, activeZones, cards) -> WhereLabel
+ * buildWhere(frameId, activeZones, cards, phase?) -> WhereLabel
  *
- * Phase learning is DEFERRED per DESIGN SS5.5.
- * This shaper goes only to domain/function level.
+ * Goes to domain/function level from the active zone stack. The optional
+ * `phase` (resolved by the T49 classifier from the learned PhaseModel, §5.5)
+ * is folded in when supplied; omitting it keeps the cursor at domain/function
+ * level with phase=null (backward compatible).
  */
 import type { DomainCard } from '../../domains/card.js';
 import type { AnchorId } from '../../types.js';
@@ -14,12 +16,13 @@ export interface WhereLabel {
   domain: string | null;
   /** Innermost active anchor ID, or null if no zones active. */
   functionAnchorId: string | null;
-  /** Human-readable: "frame N -> domain=... / function=..." */
+  /** Human-readable: "frame N -> domain=... / function=... [/ phase=...]" */
   label: string;
   /**
-   * Phase is intentionally null -- deferred per DESIGN SS5.5.
+   * Learned phase id (T49 classifier), or null when no PhaseModel/phase was
+   * supplied. Truncated for display in `label`.
    */
-  phase: null;
+  phase: string | null;
 }
 
 /**
@@ -28,11 +31,13 @@ export interface WhereLabel {
  * @param frameId      Current frame counter.
  * @param activeZones  Ordered active anchor IDs (innermost zone last, LIFO).
  * @param cards        Known domain cards for anchor->domain resolution.
+ * @param phase        Resolved phase id (T49), or null (default) for none.
  */
 export function buildWhere(
   frameId: number,
   activeZones: string[],
   cards: DomainCard[],
+  phase: string | null = null,
 ): WhereLabel {
   // Innermost zone = last element (LIFO zone-stack convention from ringbuffer)
   const innermostAnchor: string | null = activeZones.at(-1) ?? null;
@@ -54,13 +59,14 @@ export function buildWhere(
 
   const domainPart = domain !== null ? `domain=${domain}` : 'domain=?';
   const functionPart = fnDisplay !== null ? `function=${fnDisplay}` : 'function=?';
-  const label = `frame ${frameId} -> ${domainPart} / ${functionPart}`;
+  const phasePart = phase !== null ? ` / phase=${phase.slice(0, 12)}` : '';
+  const label = `frame ${frameId} -> ${domainPart} / ${functionPart}${phasePart}`;
 
   return {
     frameId,
     domain,
     functionAnchorId: innermostAnchor,
     label,
-    phase: null,
+    phase,
   };
 }

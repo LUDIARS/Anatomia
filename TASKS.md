@@ -118,7 +118,7 @@
 - **T40 フレーム×ドメインタイムライン** — 各フレームの System/ドメインを順序・時間付きで表示。受入: タイムライン描画。
 - **T41 光るグラフ** — 静的 DAG/KG を現在 active な Anchor で点灯。受入: ライブで点灯。
 - **T42 You are here カーソル** — 現在フレーム + active zone を「局面=…/ドメイン=…/関数=…」で表示
-  (局面は §5.5 保留のため当面はドメイン/関数まで)。受入: 現在地ライブ表示。
+  (局面は G10 の classifier 出力を任意で受ける。未供給時はドメイン/関数まで)。受入: 現在地ライブ表示。
 
 ## G9. 配線 + 結合テスト
 
@@ -126,6 +126,19 @@
   1 本に配線。受入: 1 リポ (AdventureCube) を入力に context/verify が end-to-end で動く。
 - **T44 結合テスト + 計測レポート** — e2e のテスト + 計測 (ハッシュ命中率/ルール取りこぼし率/束決定性/
   verify 精度)。受入: 全 feature が結合状態でテスト green + 計測値レポート。
+
+## G10. 局面の学習 (§5.5、手法確定: ドメインセット署名 + FSM)
+
+- **T45 局面署名** — フレーム → `{アクティブドメイン集合(+top-k) + hot ドメイン}` を content-addressed
+  に離散化 (トレース圧縮)。受入: 同一トレースは決定的に同一 id・順序非依存。
+- **T46 局面発見** — 録画フレーム群 → 署名頻度集計 + 任意 Jaccard merge → 安定 phase id・per-frame 割当
+  (PhaseModel)。受入: 決定的・merge しきい値が効く。
+- **T47 FSM induction** — phase id 列 → 遷移カウント/確率 + dwell + 未到達 (dead) 状態。受入: 観測 FSM を出す。
+- **T48 局面ラベル** — 各局面を LLM 1-shot で命名、署名キーで content-keyed cache (card.ts と対称)。
+  受入: cache HIT で LLM 非呼び出し。
+- **T49 局面分類 (オンライン)** — 現フレーム(+窓多数決) → phase id。`viz/where.ts` の `phase` を埋める。
+  受入: 既知フレーム→学習 phase、未知→null (任意 nearest fallback)。
+- 残: 実ゲーム (KS/AC) のトレース録画経路の配線 (§5.2 マーカー注入 → RecordedTraceSource 供給)。
 
 ---
 
