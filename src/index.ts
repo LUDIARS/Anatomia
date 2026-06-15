@@ -47,7 +47,7 @@ export type {
 // Sub-module placeholders (implementations added by later tasks)
 export * from "./dag/index.js";
 export * from "./graph/index.js";
-export * from "./mechanics/index.js";
+export * from "./domains/index.js";
 export * from "./spec/index.js";
 export * from "./supply/index.js";
 export * from "./adapters/index.js";

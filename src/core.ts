@@ -20,14 +20,14 @@ import { InMemoryCodeGraph } from "./graph/in-memory.js";
 import { assembleBundle } from "./supply/bundle.js";
 import { verify, buildDefaultGates } from "./supply/verify.js";
 import { resolveLanding } from "./supply/landing.js";
-import { loadOntology } from "./mechanics/ontology.js";
-import { detectMechanics } from "./mechanics/detect.js";
+import { loadOntology } from "./domains/ontology.js";
+import { detectDomains } from "./domains/detect.js";
 import { parseSpecFiles } from "./spec/parse.js";
 import { findExplicitLinks } from "./spec/explicit.js";
 import { findStructuralLinks } from "./spec/structural.js";
 import type { AnchorId, ContextBundle, FileNode, FunctionNode, Link, SpecClause, Verdict } from "./types.js";
-import type { Landing, LandingTask, MechanicDetector, LayerRules, SiblingLookup } from "./supply/landing.js";
-import type { DetectionResult } from "./mechanics/detect.js";
+import type { Landing, LandingTask, DomainDetector, LayerRules, SiblingLookup } from "./supply/landing.js";
+import type { DetectionResult } from "./domains/detect.js";
 import type { DiffInput } from "./supply/gates/types.js";
 import type { Lang } from "./types.js";
 
@@ -50,22 +50,22 @@ export interface AnalysisContext {
   specClauses?: SpecClause[];
   /** Explicit + structural code↔spec links (G4). */
   links?: Link[];
-  /** Mechanic-detection results from the builtin ontology + plugins (G3). */
-  mechanics?: DetectionResult[];
+  /** Domain-detection results from the builtin ontology + plugins (G3). */
+  domains?: DetectionResult[];
   /** Files that could not be read or parsed (skipped, with reason). */
   skipped?: { filePath: string; reason: string }[];
 }
 
 export interface BundleRequest {
   task: string;
-  mechanicHints?: string[];
+  domainHints?: string[];
 }
 
 /** Options for analyze(). */
 export interface AnalyzeOptions {
   /** Suppress per-file skip warnings (default: warn to console). */
   quiet?: boolean;
-  /** Explicit mechanic-ontology plugin dir (else ANATOMIA_PLUGIN_DIR). */
+  /** Explicit domain-ontology plugin dir (else ANATOMIA_PLUGIN_DIR). */
   pluginDir?: string;
 }
 
@@ -120,7 +120,7 @@ function langFor(filePath: string): Lang {
 /**
  * Run the whole G1→G5 chain on a real repo:
  *   discover .cpp/.h/.cs → parse → extract → normalize → hash → Merkle DAG →
- *   code graph → mechanic detection → spec linking → (supply/verify ready).
+ *   code graph → domain detection → spec linking → (supply/verify ready).
  *
  * Un-parseable / unreadable files are skipped with a warning (the analysis does
  * not crash); they are recorded in `skipped`. The parser WASM is cached globally.
@@ -174,14 +174,14 @@ export async function analyze(
   const codeGraph = buildGraph(files, edgeInfo);
   const graph = new InMemoryCodeGraph(codeGraph);
 
-  // Phase 4 — mechanic detection (G3). Builtin ontology + optional plugins.
-  let mechanics: DetectionResult[] = [];
+  // Phase 4 — domain detection (G3). Builtin ontology + optional plugins.
+  let domains: DetectionResult[] = [];
   try {
     const ontology = await loadOntology(options.pluginDir);
-    mechanics = await detectMechanics(ontology, graph, allFunctions);
+    domains = await detectDomains(ontology, graph, allFunctions);
   } catch (err) {
     if (!options.quiet) {
-      console.warn(`[anatomia/analyze] mechanic detection failed: ${String(err)}`);
+      console.warn(`[anatomia/analyze] domain detection failed: ${String(err)}`);
     }
   }
 
@@ -212,7 +212,7 @@ export async function analyze(
     functions: allFunctions,
     specClauses,
     links,
-    mechanics,
+    domains,
     skipped,
   };
 }
@@ -223,7 +223,7 @@ export async function analyze(
 
 /**
  * Assemble a minimal but real-shaped ContextBundle for the given task.
- * Full G3-G5 mechanic resolution is not wired here; adapters use what is
+ * Full G3-G5 domain resolution is not wired here; adapters use what is
  * available in the AnalysisContext.
  */
 export async function buildContextBundle(
@@ -233,14 +233,14 @@ export async function buildContextBundle(
   // Up to 5 hashed exemplars from the context (source-order first).
   const exemplars = ctx.functions.filter((f) => f.id !== null).slice(0, 5);
 
-  // Stub injections for landing resolution (no real mechanic db in adapters).
-  const stubDetector: MechanicDetector = async (task: LandingTask) =>
-    task.mechanicHints ?? ["general"];
+  // Stub injections for landing resolution (no real domain db in adapters).
+  const stubDetector: DomainDetector = async (task: LandingTask) =>
+    task.domainHints ?? ["general"];
   const stubLayerRules: LayerRules = { layerFor: () => null };
   const stubSiblings: SiblingLookup = async () => [];
 
   const landings = await resolveLanding(
-    { description: req.task, mechanicHints: req.mechanicHints },
+    { description: req.task, domainHints: req.domainHints },
     stubDetector,
     stubLayerRules,
     stubSiblings,
@@ -250,11 +250,11 @@ export async function buildContextBundle(
     .map((l) => l.anchor)
     .filter((a): a is AnchorId => a !== null);
 
-  // Existing mechanics that actually have implementors in this repo feed the
+  // Existing domains that actually have implementors in this repo feed the
   // duplication-avoidance segment of the bundle (DESIGN §9.1 ①).
-  const existingMechanics = (ctx.mechanics ?? [])
+  const existingDomains = (ctx.domains ?? [])
     .filter((m) => m.implementors.length > 0)
-    .map((m) => m.mechanic);
+    .map((m) => m.domain);
 
   const { bundle } = assembleBundle({
     landingAnchors,
@@ -262,7 +262,7 @@ export async function buildContextBundle(
     specClauses: ctx.specClauses ?? [],
     exemplars,
     impactRadius: [],
-    existingMechanics,
+    existingDomains,
   });
 
   return bundle;

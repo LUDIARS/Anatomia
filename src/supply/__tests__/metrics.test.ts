@@ -54,7 +54,7 @@ describe("T26 computeMetrics", () => {
     expect(state.sharedStateFanIn).toBe(3);
   });
 
-  it("counts mechanic overlap (mechanics touching one entity)", async () => {
+  it("counts domain overlap (domains touching one entity)", async () => {
     const g = makeGraph(["e1", "e2"], []);
     const membership = new Map<string, AnchorId[]>([
       ["combat", [a("e1")]],
@@ -64,11 +64,11 @@ describe("T26 computeMetrics", () => {
     const metrics = await computeMetrics(g, membership);
     const e1 = metrics.find((m) => m.anchor === a("e1"))!;
     const e2 = metrics.find((m) => m.anchor === a("e2"))!;
-    expect(e1.mechanicOverlap).toBe(2); // combat + ui
-    expect(e2.mechanicOverlap).toBe(1);
+    expect(e1.domainOverlap).toBe(2); // combat + ui
+    expect(e2.domainOverlap).toBe(1);
   });
 
-  it("computes cross-mechanic dependency depth", async () => {
+  it("computes cross-domain dependency depth", async () => {
     // chain f1 -> f2 -> f3, where f1 in 'A', f2/f3 in 'B' => boundary at f1->f2.
     const edges: Edge[] = [
       { from: a("f1"), to: a("f2"), kind: "calls" },
@@ -81,8 +81,8 @@ describe("T26 computeMetrics", () => {
     ]);
     const metrics = await computeMetrics(g, membership);
     const f1 = metrics.find((m) => m.anchor === a("f1"))!;
-    // f1->f2 crosses (depth 1), f2->f3 same mechanic (still counts toward chain) => depth 2.
-    expect(f1.crossMechanicDepth).toBe(2);
+    // f1->f2 crosses (depth 1), f2->f3 same domain (still counts toward chain) => depth 2.
+    expect(f1.crossDomainDepth).toBe(2);
   });
 
   it("computes auxiliary fan-in/out/coupling and cyclomatic", async () => {
@@ -122,9 +122,9 @@ describe("T26 thresholds", () => {
     void metrics;
     const fake = [0, 1, 2, 3, 4, 5, 6, 7, 8, 100].map((v) => ({
       anchor: a(`x${v}`),
-      mechanicOverlap: 0,
+      domainOverlap: 0,
       sharedStateFanIn: 0,
-      crossMechanicDepth: 0,
+      crossDomainDepth: 0,
       cyclomatic: 0,
       fanIn: 0,
       fanOut: 0,

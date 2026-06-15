@@ -2,7 +2,7 @@
  * Plugin directory resolver (T01 scaffold stub).
  *
  * Reads ANATOMIA_PLUGIN_DIR from the environment and returns the resolved
- * absolute path.  Actual plugin loading (T18) will import mechanic-ontology
+ * absolute path.  Actual plugin loading (T18) will import domain-ontology
  * packages from this directory at runtime.
  *
  * SRP: this file only resolves the directory — no loading logic here.

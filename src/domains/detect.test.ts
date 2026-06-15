@@ -1,5 +1,5 @@
 /**
- * T19 — Tests for mechanic detection (detect.ts).
+ * T19 — Tests for domain detection (detect.ts).
  */
 
 import { describe, it, expect, beforeAll } from "vitest";
@@ -10,8 +10,8 @@ import { assignAnchorId } from "../dag/hash.js";
 import { buildFileNode } from "../dag/merkle.js";
 import { buildGraph, extractEdgeInfo } from "../graph/build.js";
 import { InMemoryCodeGraph } from "../graph/in-memory.js";
-import { detectMechanic, detectMechanics } from "./detect.js";
-import type { MechanicDef, MechanicOntology } from "./ontology.js";
+import { detectDomain, detectDomains } from "./detect.js";
+import type { DomainDef, DomainOntology } from "./ontology.js";
 import type { FunctionNode, FileNode } from "../types.js";
 
 // A function that does a forbidden direct mutate, and one that is clean.
@@ -36,7 +36,7 @@ beforeAll(async () => {
   for (const fn of file.functions) idOf[fn.name] = fn.id!;
 });
 
-const MECH: MechanicDef = {
+const MECH: DomainDef = {
   name: "no-direct-mutate",
   description: "State must not be mutated directly.",
   presetRules: [],
@@ -51,35 +51,35 @@ const MECH: MechanicDef = {
   ],
 };
 
-describe("T19 detectMechanic", () => {
+describe("T19 detectDomain", () => {
   it("flags the illegalWrite function as a violation", async () => {
-    const result = await detectMechanic(MECH, q, functions);
-    expect(result.mechanic).toBe("no-direct-mutate");
+    const result = await detectDomain(MECH, q, functions);
+    expect(result.domain).toBe("no-direct-mutate");
     expect(result.conforms).toBe(false);
     const offending = result.violations.map((v) => v.anchors).flat();
     expect(offending).toContain(idOf["illegalWrite"]);
   });
 
   it("a clean ontology conforms (no violations)", async () => {
-    const clean: MechanicDef = {
+    const clean: DomainDef = {
       name: "clean",
       description: "no rules that fail here",
       presetRules: [{ preset: "couplingCap", params: { targetPattern: ".*", maxFanOut: 100 } }],
       templateRules: [],
     };
-    const result = await detectMechanic(clean, q, functions);
+    const result = await detectDomain(clean, q, functions);
     expect(result.conforms).toBe(true);
     expect(result.violations).toHaveLength(0);
   });
 });
 
-describe("T19 detectMechanics (ontology-wide)", () => {
-  it("runs every mechanic in the ontology", async () => {
-    const onto: MechanicOntology = {
-      mechanics: new Map([["no-direct-mutate", MECH]]),
+describe("T19 detectDomains (ontology-wide)", () => {
+  it("runs every domain in the ontology", async () => {
+    const onto: DomainOntology = {
+      domains: new Map([["no-direct-mutate", MECH]]),
     };
-    const results = await detectMechanics(onto, q, functions);
+    const results = await detectDomains(onto, q, functions);
     expect(results.length).toBe(1);
-    expect(results[0]!.mechanic).toBe("no-direct-mutate");
+    expect(results[0]!.domain).toBe("no-direct-mutate");
   });
 });

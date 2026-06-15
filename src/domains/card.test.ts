@@ -1,5 +1,5 @@
 /**
- * T20 — Tests for mechanic-card generation + content-keyed caching (card.ts).
+ * T20 — Tests for domain-card generation + content-keyed caching (card.ts).
  *
  * Uses a MOCK LLMClient that counts calls to prove the cache:
  *   - same content (same implementors) => llm called exactly ONCE across two
@@ -56,7 +56,7 @@ function mockLLM(): { llm: LLMClient; calls: () => number } {
 
 function result(impls: string[]): DetectionResult {
   return {
-    mechanic: "m",
+    domain: "m",
     implementors: impls as AnchorId[],
     violations: [],
     conforms: true,
