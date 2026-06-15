@@ -19,7 +19,7 @@ import type { CodeGraphQuery } from "../../graph/query.js";
 import type { EmbeddingClient } from "../../spec/semantic.js";
 import type { Link } from "../../types.js";
 import type { Thresholds } from "../thresholds.js";
-import type { MechanicMembership } from "../metrics.js";
+import type { DomainMembership } from "../metrics.js";
 
 /**
  * The change under review. `changed` are the new/added FunctionNodes (already
@@ -34,12 +34,12 @@ export interface DiffInput {
   graph: CodeGraphQuery;
   /** Pre-change code graph, for delta gates (coupling_delta). Optional. */
   baseGraph?: CodeGraphQuery;
-  /** Rules in effect (global ∪ mechanic), for rule_conformance. */
+  /** Rules in effect (global ∪ domain), for rule_conformance. */
   rules?: Rule[];
-  /** Mechanic membership (G3), for duplication + coupling delta context. */
-  membership?: MechanicMembership;
-  /** Existing mechanic cards' text (for duplication embedding compare). */
-  mechanicCards?: { mechanic: string; text: string }[];
+  /** Domain membership (G3), for duplication + coupling delta context. */
+  membership?: DomainMembership;
+  /** Existing domain cards' text (for duplication embedding compare). */
+  domainCards?: { domain: string; text: string }[];
   /** Spec clauses + existing links (G4), for spec_linkage. */
   specClauses?: SpecClause[];
   links?: Link[];

@@ -90,8 +90,8 @@ export interface CodeNode {
   sourceRange: SourceRange;
   /**
    * Optional classification tags (e.g. "hotPath", "alloc", layer names).
-   * Used by the mechanics rule engine's NodeFilter (G3, DESIGN §4.3).
-   * Tagging is supplied externally (mechanic ontology / heuristics); the static
+   * Used by the domains rule engine's NodeFilter (G3, DESIGN §4.3).
+   * Tagging is supplied externally (domain ontology / heuristics); the static
    * DAG layer does not assign tags.
    */
   tags?: string[];
@@ -108,7 +108,7 @@ export interface Edge {
 // ---------------------------------------------------------------------------
 
 export type RuleSeverity = "block" | "warn";
-export type RuleScope = "global" | "mechanic";
+export type RuleScope = "global" | "domain";
 
 /**
  * Severity attached to a concrete violation (distinct from a Rule's
@@ -133,7 +133,7 @@ export interface NodeFilter {
 
 /**
  * Concrete, serializable predicate representation (discriminated union).
- * Evaluated by evaluatePredicate() in mechanics/engine.ts (T14).
+ * Evaluated by evaluatePredicate() in domains/engine.ts (T14).
  *
  * This replaces the scaffold's opaque `Rule.predicate: unknown`.
  */
@@ -219,7 +219,7 @@ export interface Link {
 export interface ContextBundle {
   /** Target anchor where new code should land. */
   landingAnchor: AnchorId | null;
-  /** Rules that apply: global ∪ mechanic-specific. */
+  /** Rules that apply: global ∪ domain-specific. */
   applicableRules: Rule[];
   /** Spec clauses linked to the landing anchor. */
   specClauses: SpecClause[];
@@ -227,8 +227,8 @@ export interface ContextBundle {
   exemplars: FunctionNode[];
   /** KG-derived set of anchors that could be affected by changes here. */
   impactRadius: AnchorId[];
-  /** Existing mechanics that subsume this task (duplication guard). */
-  existingMechanics: string[];
+  /** Existing domains that subsume this task (duplication guard). */
+  existingDomains: string[];
 }
 
 /** A gate within the verify step. */

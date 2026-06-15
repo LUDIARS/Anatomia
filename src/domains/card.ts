@@ -1,7 +1,7 @@
 /**
- * T20 — Mechanic-card generation with content-keyed caching.
+ * T20 — Domain-card generation with content-keyed caching.
  *
- * A MechanicCard is the LLM-distilled canonical summary of a mechanic (DESIGN
+ * A DomainCard is the LLM-distilled canonical summary of a domain (DESIGN
  * §4.4): what it is, its rules, key anchors, spec refs, complexity. It is the
  * unit of caching + delivery.
  *
@@ -22,8 +22,8 @@ import type { DetectionResult } from "./detect.js";
 /** Injected LLM interface: prompt -> completion text. Never hardcoded. */
 export type LLMClient = (prompt: string) => Promise<string>;
 
-export interface MechanicCard {
-  mechanic: string;
+export interface DomainCard {
+  domain: string;
   summary: string;
   rules: string[];
   keyAnchors: AnchorId[];
@@ -34,11 +34,11 @@ export interface MechanicCard {
 }
 
 /** In-memory content-addressed card cache. */
-export type CardCache = Map<string, MechanicCard>;
+export type CardCache = Map<string, DomainCard>;
 
 /** Create an empty in-memory card cache. */
 export function createCardCache(): CardCache {
-  return new Map<string, MechanicCard>();
+  return new Map<string, DomainCard>();
 }
 
 /**
@@ -51,17 +51,17 @@ export function merkleHash(anchors: AnchorId[]): string {
 }
 
 /**
- * Assemble the LLM prompt for a mechanic card from the detection result.
+ * Assemble the LLM prompt for a domain card from the detection result.
  * Deterministic (stable ordering) so identical inputs produce identical prompts.
  */
 export async function assemblePrompt(
-  mechanic: string,
+  domain: string,
   result: DetectionResult,
   graph: CodeGraphQuery,
 ): Promise<string> {
   const implementors = [...result.implementors].sort();
   const lines: string[] = [];
-  lines.push(`Mechanic: ${mechanic}`);
+  lines.push(`Domain: ${domain}`);
   lines.push(`Implementing functions (${implementors.length}):`);
   for (const id of implementors) {
     const node = await graph.getNode(id);
@@ -115,19 +115,19 @@ function parseResponse(text: string): {
 }
 
 /**
- * Generate (or fetch from cache) a mechanic card.
+ * Generate (or fetch from cache) a domain card.
  *
  * Content-keyed cache: cacheKey = merkleHash(implementor anchors). On a cache
  * HIT the cached card is returned WITHOUT calling `llm`. Only a MISS calls
  * `llm`, then stores the result.
  */
 export async function generateCard(
-  mechanic: string,
+  domain: string,
   result: DetectionResult,
   graph: CodeGraphQuery,
   llm: LLMClient,
   cache?: CardCache,
-): Promise<MechanicCard> {
+): Promise<DomainCard> {
   const cacheKey = merkleHash(result.implementors);
 
   if (cache) {
@@ -135,12 +135,12 @@ export async function generateCard(
     if (hit) return hit; // cache hit: do NOT call llm
   }
 
-  const prompt = await assemblePrompt(mechanic, result, graph);
+  const prompt = await assemblePrompt(domain, result, graph);
   const response = await llm(prompt); // cache miss: call llm exactly once
   const parsed = parseResponse(response);
 
-  const card: MechanicCard = {
-    mechanic,
+  const card: DomainCard = {
+    domain,
     summary: parsed.summary,
     rules: parsed.rules,
     keyAnchors: [...result.implementors].sort(),

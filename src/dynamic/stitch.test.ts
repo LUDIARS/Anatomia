@@ -1,23 +1,23 @@
 import { describe, it, expect } from 'vitest';
 import type { AnchorId } from '../types.js';
 import type { DecodedFrame } from './protocol.js';
-import type { MechanicCard } from '../mechanics/card.js';
+import type { DomainCard } from '../domains/card.js';
 import { stitchFrame } from './stitch.js';
 
-function makeCard(mechanic: string, anchors: string[]): MechanicCard {
+function makeCard(domain: string, anchors: string[]): DomainCard {
   return {
-    mechanic,
-    summary: `${mechanic} summary`,
+    domain,
+    summary: `${domain} summary`,
     rules: [],
     keyAnchors: anchors as AnchorId[],
     specRefs: [],
     complexity: 'medium',
-    cacheKey: mechanic,
+    cacheKey: domain,
   };
 }
 
 describe('stitchFrame', () => {
-  it('correctly identifies active mechanics', () => {
+  it('correctly identifies active domains', () => {
     const frame: DecodedFrame = {
       frameId: 1,
       frameBeginUs: 0,
@@ -25,17 +25,17 @@ describe('stitchFrame', () => {
       activeZoneSet: ['anchor-movement', 'anchor-combat'],
       zoneTimes: { 'anchor-movement': 300, 'anchor-combat': 500 },
     };
-    const cards: MechanicCard[] = [
+    const cards: DomainCard[] = [
       makeCard('Movement', ['anchor-movement']),
       makeCard('Combat', ['anchor-combat']),
     ];
 
     const result = stitchFrame(frame, cards);
-    expect(result.activeMechanics).toContain('Movement');
-    expect(result.activeMechanics).toContain('Combat');
+    expect(result.activeDomains).toContain('Movement');
+    expect(result.activeDomains).toContain('Combat');
   });
 
-  it('preserves first-seen order of activeMechanics', () => {
+  it('preserves first-seen order of activeDomains', () => {
     const frame: DecodedFrame = {
       frameId: 1,
       frameBeginUs: 0,
@@ -43,18 +43,18 @@ describe('stitchFrame', () => {
       activeZoneSet: ['anchor-movement', 'anchor-combat'],
       zoneTimes: { 'anchor-movement': 300, 'anchor-combat': 500 },
     };
-    const cards: MechanicCard[] = [
+    const cards: DomainCard[] = [
       makeCard('Movement', ['anchor-movement']),
       makeCard('Combat', ['anchor-combat']),
     ];
 
     const result = stitchFrame(frame, cards);
     // Movement should come before Combat (first seen)
-    expect(result.activeMechanics[0]).toBe('Movement');
-    expect(result.activeMechanics[1]).toBe('Combat');
+    expect(result.activeDomains[0]).toBe('Movement');
+    expect(result.activeDomains[1]).toBe('Combat');
   });
 
-  it('deduplicates mechanics when multiple anchors belong to same mechanic', () => {
+  it('deduplicates domains when multiple anchors belong to same domain', () => {
     const frame: DecodedFrame = {
       frameId: 1,
       frameBeginUs: 0,
@@ -62,16 +62,16 @@ describe('stitchFrame', () => {
       activeZoneSet: ['anchor-a1', 'anchor-a2'],
       zoneTimes: { 'anchor-a1': 200, 'anchor-a2': 100 },
     };
-    const cards: MechanicCard[] = [
+    const cards: DomainCard[] = [
       makeCard('Movement', ['anchor-a1', 'anchor-a2']),
     ];
 
     const result = stitchFrame(frame, cards);
-    expect(result.activeMechanics).toHaveLength(1);
-    expect(result.activeMechanics[0]).toBe('Movement');
+    expect(result.activeDomains).toHaveLength(1);
+    expect(result.activeDomains[0]).toBe('Movement');
   });
 
-  it('accumulates mechanic times from multiple anchors', () => {
+  it('accumulates domain times from multiple anchors', () => {
     const frame: DecodedFrame = {
       frameId: 1,
       frameBeginUs: 0,
@@ -79,12 +79,12 @@ describe('stitchFrame', () => {
       activeZoneSet: ['anchor-a1', 'anchor-a2'],
       zoneTimes: { 'anchor-a1': 200, 'anchor-a2': 150 },
     };
-    const cards: MechanicCard[] = [
+    const cards: DomainCard[] = [
       makeCard('Movement', ['anchor-a1', 'anchor-a2']),
     ];
 
     const result = stitchFrame(frame, cards);
-    expect(result.mechanicTimes['Movement']).toBe(350);
+    expect(result.domainTimes['Movement']).toBe(350);
   });
 
   it('hotZone points to anchor with max zone time', () => {
@@ -95,7 +95,7 @@ describe('stitchFrame', () => {
       activeZoneSet: ['anchor-movement', 'anchor-combat'],
       zoneTimes: { 'anchor-movement': 300, 'anchor-combat': 700 },
     };
-    const cards: MechanicCard[] = [
+    const cards: DomainCard[] = [
       makeCard('Movement', ['anchor-movement']),
       makeCard('Combat', ['anchor-combat']),
     ];
@@ -103,7 +103,7 @@ describe('stitchFrame', () => {
     const result = stitchFrame(frame, cards);
     expect(result.hotZone).not.toBeNull();
     expect(result.hotZone!.anchorId).toBe('anchor-combat');
-    expect(result.hotZone!.mechanic).toBe('Combat');
+    expect(result.hotZone!.domain).toBe('Combat');
     expect(result.hotZone!.accumulatedUs).toBe(700);
   });
 
@@ -128,11 +128,11 @@ describe('stitchFrame', () => {
       zoneTimes: { 'unknown-anchor': 100 },
     };
     const result = stitchFrame(frame, []);
-    expect(result.activeMechanics).toHaveLength(0);
-    expect(result.mechanicTimes).toEqual({});
+    expect(result.activeDomains).toHaveLength(0);
+    expect(result.domainTimes).toEqual({});
     // hotZone still picks the max-time anchor even without a card match
     expect(result.hotZone).not.toBeNull();
     expect(result.hotZone!.anchorId).toBe('unknown-anchor');
-    expect(result.hotZone!.mechanic).toBe('');
+    expect(result.hotZone!.domain).toBe('');
   });
 });

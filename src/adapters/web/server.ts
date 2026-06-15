@@ -4,7 +4,7 @@
  * Static routes (T32):
  *   GET /api/graph    -- { nodes: CodeNode[], edges: Edge[] }
  *   GET /api/metrics  -- NodeMetrics[]
- *   GET /api/mechanics -- { mechanics: string[], cards: [] }
+ *   GET /api/domains -- { domains: string[], cards: [] }
  *   GET /             -- serves index.html
  *
  * Dynamic trace routes (G8):
@@ -94,14 +94,14 @@ export function createApp(ctx: AnalysisContext, traceSource?: TraceSource): Hono
 
   // GET /api/metrics
   app.get("/api/metrics", async (c) => {
-    // Empty mechanic membership -- adapters don't carry G3 mechanic data.
+    // Empty domain membership -- adapters don't carry G3 domain data.
     const metrics = await computeMetrics(ctx.graph, new Map());
     return c.json(metrics);
   });
 
-  // GET /api/mechanics
-  app.get("/api/mechanics", (c) => {
-    return c.json({ mechanics: [] as string[], cards: [] as unknown[] });
+  // GET /api/domains
+  app.get("/api/domains", (c) => {
+    return c.json({ domains: [] as string[], cards: [] as unknown[] });
   });
 
   // GET /api/trace/timeline -- T40
@@ -123,10 +123,10 @@ export function createApp(ctx: AnalysisContext, traceSource?: TraceSource): Hono
   app.get("/api/trace/where", (c) => {
     const current = trace.currentFrame();
     if (!current) {
-      return c.json({ frameId: 0, mechanic: null, functionAnchorId: null, label: "no trace data", phase: null });
+      return c.json({ frameId: 0, domain: null, functionAnchorId: null, label: "no trace data", phase: null });
     }
     // Cards are not held in AnalysisContext (G3 not wired to web adapter).
-    // Pass empty cards -- mechanic field will be null without card data.
+    // Pass empty cards -- domain field will be null without card data.
     const result = buildWhere(current.frameId, trace.currentActiveZoneSet(), []);
     return c.json(result);
   });

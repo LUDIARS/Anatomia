@@ -1,12 +1,12 @@
 /**
- * T18 — Mechanic-ontology plugin loader.
+ * T18 — Domain-ontology plugin loader.
  *
- * A mechanic ontology is a set of MechanicDefs. Each def names a mechanic and
+ * A domain ontology is a set of DomainDefs. Each def names a domain and
  * carries its preset configurations + template rules (+ optional card template).
- * Defs are loaded from BUILTIN_MECHANICS plus any .json / .mjs files in the
+ * Defs are loaded from BUILTIN_DOMAINS plus any .json / .mjs files in the
  * plugin directory (ANATOMIA_PLUGIN_DIR or an explicit dir).
  *
- * SRP: this file ONLY loads + validates mechanic defs into a MechanicOntology;
+ * SRP: this file ONLY loads + validates domain defs into a DomainOntology;
  * compiling defs to predicates is detect.ts's job (T19).
  *
  * Reuses plugins/loader.ts (resolvePluginDir) for the env-var convention.
@@ -25,8 +25,8 @@ export interface ConfiguredPreset {
   params: Record<string, unknown>;
 }
 
-/** A named mechanic definition (the unit a plugin contributes). */
-export interface MechanicDef {
+/** A named domain definition (the unit a plugin contributes). */
+export interface DomainDef {
   name: string;
   description: string;
   presetRules: ConfiguredPreset[];
@@ -35,20 +35,20 @@ export interface MechanicDef {
   cardTemplate?: string;
 }
 
-/** The loaded ontology = all known mechanic defs, keyed by name. */
-export interface MechanicOntology {
-  mechanics: Map<string, MechanicDef>;
+/** The loaded ontology = all known domain defs, keyed by name. */
+export interface DomainOntology {
+  domains: Map<string, DomainDef>;
 }
 
-// ── Builtin mechanics ───────────────────────────────────────────────────────
+// ── Builtin domains ───────────────────────────────────────────────────────
 
 /**
- * Two example builtin mechanics:
+ * Two example builtin domains:
  *   - state-machine: state nodes only mutated via transition functions; no
  *     cycles among states beyond declared transitions.
  *   - hot-path-processor: hot functions must not allocate and keep low coupling.
  */
-export const BUILTIN_MECHANICS: MechanicDef[] = [
+export const BUILTIN_DOMAINS: DomainDef[] = [
   {
     name: "state-machine",
     description:
@@ -90,7 +90,7 @@ export const BUILTIN_MECHANICS: MechanicDef[] = [
 // ── Loading ─────────────────────────────────────────────────────────────────
 
 /** Minimal structural validation of a loaded def. */
-function isMechanicDef(x: unknown): x is MechanicDef {
+function isDomainDef(x: unknown): x is DomainDef {
   if (!x || typeof x !== "object") return false;
   const d = x as Record<string, unknown>;
   return (
@@ -101,15 +101,15 @@ function isMechanicDef(x: unknown): x is MechanicDef {
   );
 }
 
-/** Load all MechanicDefs from a directory (.json and .mjs files). */
-async function loadFromDir(dir: string): Promise<MechanicDef[]> {
+/** Load all DomainDefs from a directory (.json and .mjs files). */
+async function loadFromDir(dir: string): Promise<DomainDef[]> {
   let entries: string[];
   try {
     entries = await readdir(dir);
   } catch {
     return []; // missing dir = no plugins
   }
-  const defs: MechanicDef[] = [];
+  const defs: DomainDef[] = [];
   for (const entry of entries) {
     const ext = extname(entry).toLowerCase();
     const full = join(dir, entry);
@@ -119,16 +119,16 @@ async function loadFromDir(dir: string): Promise<MechanicDef[]> {
       const parsed = JSON.parse(raw);
       const list = Array.isArray(parsed) ? parsed : [parsed];
       for (const d of list) {
-        if (isMechanicDef(d)) defs.push(d);
-        else throw new Error(`invalid MechanicDef in ${full}`);
+        if (isDomainDef(d)) defs.push(d);
+        else throw new Error(`invalid DomainDef in ${full}`);
       }
     } else if (ext === ".mjs" || ext === ".js") {
       const mod = await import(pathToFileURL(full).href);
-      const exported = mod.default ?? mod.mechanic ?? mod.mechanics;
+      const exported = mod.default ?? mod.domain ?? mod.domains;
       const list = Array.isArray(exported) ? exported : [exported];
       for (const d of list) {
-        if (isMechanicDef(d)) defs.push(d);
-        else throw new Error(`invalid MechanicDef export in ${full}`);
+        if (isDomainDef(d)) defs.push(d);
+        else throw new Error(`invalid DomainDef export in ${full}`);
       }
     }
   }
@@ -136,19 +136,19 @@ async function loadFromDir(dir: string): Promise<MechanicDef[]> {
 }
 
 /**
- * Load the mechanic ontology: builtins + plugin dir defs.
+ * Load the domain ontology: builtins + plugin dir defs.
  *
  * @param pluginDir explicit dir; if omitted, ANATOMIA_PLUGIN_DIR is used.
  *                  Plugin defs override builtins of the same name.
  */
-export async function loadOntology(pluginDir?: string): Promise<MechanicOntology> {
-  const mechanics = new Map<string, MechanicDef>();
-  for (const d of BUILTIN_MECHANICS) mechanics.set(d.name, d);
+export async function loadOntology(pluginDir?: string): Promise<DomainOntology> {
+  const domains = new Map<string, DomainDef>();
+  for (const d of BUILTIN_DOMAINS) domains.set(d.name, d);
 
   const dir = pluginDir ? resolve(pluginDir) : resolvePluginDir();
   if (dir) {
     const pluginDefs = await loadFromDir(dir);
-    for (const d of pluginDefs) mechanics.set(d.name, d); // override by name
+    for (const d of pluginDefs) domains.set(d.name, d); // override by name
   }
-  return { mechanics };
+  return { domains };
 }

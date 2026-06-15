@@ -2,9 +2,9 @@
  * T35 — C# scope marker codegen.
  */
 import type { AnchorId } from '../types.js';
-import type { MechanicEntryPoint, InjectionPatch } from './inject-cpp.js';
+import type { DomainEntryPoint, InjectionPatch } from './inject-cpp.js';
 
-export type { MechanicEntryPoint, InjectionPatch };
+export type { DomainEntryPoint, InjectionPatch };
 
 export function generateCSharpStub(enabled: boolean): string {
   if (enabled) {
@@ -55,7 +55,7 @@ namespace Anatomia
   }
 }
 
-export function generateCSharpPatches(entryPoints: MechanicEntryPoint[]): InjectionPatch[] {
+export function generateCSharpPatches(entryPoints: DomainEntryPoint[]): InjectionPatch[] {
   return entryPoints.map((ep) => ({
     filePath: ep.filePath,
     line: ep.line,

@@ -136,7 +136,7 @@ describe("runCli context", () => {
     const args: CliArgs = {
       subcommand: "context",
       repoPath: tmpDir,
-      task: "add a skill mechanic",
+      task: "add a skill domain",
     };
     const { exitCode, output } = await runCli(args);
     expect(exitCode).toBe(0);

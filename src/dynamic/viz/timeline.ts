@@ -1,11 +1,11 @@
 /**
- * T40 -- Frame x mechanic timeline shaper.
+ * T40 -- Frame x domain timeline shaper.
  * buildTimeline(stitchedFrames, window) -> TimelineData
  */
 import type { StitchedFrame } from '../stitch.js';
 
 export interface TimelineBar {
-  mechanic: string;
+  domain: string;
   durationUs: number;
 }
 
@@ -13,7 +13,7 @@ export interface TimelineFrame {
   frameId: number;
   frameBeginUs: number;
   frameEndUs: number;
-  /** Ordered bars (same order as activeMechanics in the stitched frame). */
+  /** Ordered bars (same order as activeDomains in the stitched frame). */
   bars: TimelineBar[];
   /** Total frame wall-clock duration in us. */
   totalUs: number;
@@ -21,8 +21,8 @@ export interface TimelineFrame {
 
 export interface TimelineData {
   frames: TimelineFrame[];
-  /** All unique mechanic names that appear in this window. */
-  mechanics: string[];
+  /** All unique domain names that appear in this window. */
+  domains: string[];
 }
 
 /**
@@ -40,12 +40,12 @@ export function buildTimeline(
       ? stitchedFrames.slice(-window)
       : stitchedFrames;
 
-  const mechanicSet = new Set<string>();
+  const domainSet = new Set<string>();
 
   const frames: TimelineFrame[] = source.map((sf) => {
-    const bars: TimelineBar[] = sf.activeMechanics.map((m) => {
-      mechanicSet.add(m);
-      return { mechanic: m, durationUs: sf.mechanicTimes[m] ?? 0 };
+    const bars: TimelineBar[] = sf.activeDomains.map((m) => {
+      domainSet.add(m);
+      return { domain: m, durationUs: sf.domainTimes[m] ?? 0 };
     });
     return {
       frameId: sf.frameId,
@@ -56,5 +56,5 @@ export function buildTimeline(
     };
   });
 
-  return { frames, mechanics: Array.from(mechanicSet) };
+  return { frames, domains: Array.from(domainSet) };
 }

@@ -3,18 +3,18 @@
  * buildWhere(frameId, activeZones, cards) -> WhereLabel
  *
  * Phase learning is DEFERRED per DESIGN SS5.5.
- * This shaper goes only to mechanic/function level.
+ * This shaper goes only to domain/function level.
  */
-import type { MechanicCard } from '../../mechanics/card.js';
+import type { DomainCard } from '../../domains/card.js';
 import type { AnchorId } from '../../types.js';
 
 export interface WhereLabel {
   frameId: number;
-  /** Mechanic of the innermost active anchor, or null if not found. */
-  mechanic: string | null;
+  /** Domain of the innermost active anchor, or null if not found. */
+  domain: string | null;
   /** Innermost active anchor ID, or null if no zones active. */
   functionAnchorId: string | null;
-  /** Human-readable: "frame N -> mechanic=... / function=..." */
+  /** Human-readable: "frame N -> domain=... / function=..." */
   label: string;
   /**
    * Phase is intentionally null -- deferred per DESIGN SS5.5.
@@ -27,21 +27,21 @@ export interface WhereLabel {
  *
  * @param frameId      Current frame counter.
  * @param activeZones  Ordered active anchor IDs (innermost zone last, LIFO).
- * @param cards        Known mechanic cards for anchor->mechanic resolution.
+ * @param cards        Known domain cards for anchor->domain resolution.
  */
 export function buildWhere(
   frameId: number,
   activeZones: string[],
-  cards: MechanicCard[],
+  cards: DomainCard[],
 ): WhereLabel {
   // Innermost zone = last element (LIFO zone-stack convention from ringbuffer)
   const innermostAnchor: string | null = activeZones.at(-1) ?? null;
 
-  let mechanic: string | null = null;
+  let domain: string | null = null;
   if (innermostAnchor !== null) {
     for (const card of cards) {
       if (card.keyAnchors.includes(innermostAnchor as AnchorId)) {
-        mechanic = card.mechanic;
+        domain = card.domain;
         break;
       }
     }
@@ -52,13 +52,13 @@ export function buildWhere(
     ? innermostAnchor.slice(0, 12)
     : null;
 
-  const mechanicPart = mechanic !== null ? `mechanic=${mechanic}` : 'mechanic=?';
+  const domainPart = domain !== null ? `domain=${domain}` : 'domain=?';
   const functionPart = fnDisplay !== null ? `function=${fnDisplay}` : 'function=?';
-  const label = `frame ${frameId} -> ${mechanicPart} / ${functionPart}`;
+  const label = `frame ${frameId} -> ${domainPart} / ${functionPart}`;
 
   return {
     frameId,
-    mechanic,
+    domain,
     functionAnchorId: innermostAnchor,
     label,
     phase: null,
