@@ -21,6 +21,7 @@ import { extractFunctions } from "../dist/dag/extract.js";
 import { normalize } from "../dist/dag/normalize.js";
 import { assignAnchorId } from "../dist/dag/hash.js";
 import { analyze, buildVerdict } from "../dist/core.js";
+import { insertBodyComment, hashNamedSnippet } from "../dist/dag/measure.js";
 
 const __dir = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dir, "..");
@@ -57,27 +58,8 @@ async function collectTs(dir) {
 }
 
 // ---------------------------------------------------------------------------
-// Hash helper — filePath must match the original to get comparable hashes,
-// since assignAnchorId folds the file path into the hash input.
-// ---------------------------------------------------------------------------
-
-async function hashSnippet(text, lang = "typescript", filePath = "<snippet>") {
-  const tree = await parse(text, lang);
-  const fns = extractFunctions(tree, text, filePath);
-  if (fns.length === 0) return null;
-  const fn = fns[0];
-  return assignAnchorId(fn, normalize(fn.bodyAst));
-}
-
-// ---------------------------------------------------------------------------
 // Perturbation helpers (same-meaning → should keep hash)
 // ---------------------------------------------------------------------------
-
-function insertComment(t) {
-  const idx = t.indexOf("{");
-  if (idx < 0) return null;
-  return t.slice(0, idx + 1) + " /* anatomia-probe */ " + t.slice(idx + 1);
-}
 
 function stripTsTypes(t) {
   // Very naive: remove `: Type` annotations — this changes types so hash should differ.
@@ -114,7 +96,7 @@ async function main() {
   // ── Phase 2: parse + extract + hash (manual, so we can collect per-fn data) ─
   const parsed = [];
   const skipped = [];
-  const records = []; // { name, file, relFile, hash, normLen, complexity }
+  const records = []; // { name, occurrence, file, relFile, hash, normLen, complexity }
 
   for (const filePath of allFiles) {
     let src;
@@ -135,12 +117,22 @@ async function main() {
     }
     parsed.push(filePath);
     const fns = extractFunctions(tree, src, filePath);
-    for (const fn of fns) {
+    // Source-order rank among same-named functions in this file (matches the
+    // ordering pickFunction uses in dag/measure), so duplicate / <anonymous>
+    // names are disambiguated when the perturbation re-selects the function.
+    const ordered = fns.slice().sort((a, b) =>
+      a.sourceRange.start.line - b.sourceRange.start.line ||
+      a.sourceRange.start.column - b.sourceRange.start.column);
+    const nameSeen = new Map();
+    for (const fn of ordered) {
       try {
+        const occurrence = nameSeen.get(fn.name) ?? 0;
+        nameSeen.set(fn.name, occurrence + 1);
         const norm = normalize(fn.bodyAst);
         const h = assignAnchorId(fn, norm);
         records.push({
           name: fn.name,
+          occurrence,
           file: filePath.replace(/\\/g, "/"),
           relFile: relative(REPO_ROOT, filePath).replace(/\\/g, "/"),
           hash: h,
@@ -164,48 +156,36 @@ async function main() {
   }
 
   // ── Phase 3: hash measurement (same-meaning perturbations) ───────────────
-  // We run on raw source snippets — re-read the file, find the first function per file.
+  // AST-aware comment insertion: parse the FULL file, locate the target
+  // function by name, insert a comment probe INSIDE its body (via the AST body
+  // subtree's byte range — not a naive first-`{` scan that lands in an
+  // object-type return annotation), then re-hash the SAME named function from
+  // the perturbed full file. A comment is a same-meaning edit → the hash MUST
+  // stay equal to rec.hash (which was computed on the same file path).
   let commentOk = 0, commentBad = 0, commentSkip = 0;
   let commentExamples = [];
 
+  // Cache one perturbed-source build per file (insert one probe per record's
+  // function so each function is exercised independently).
   for (const rec of records.slice(0, Math.min(records.length, 200))) {
-    // We need the source text for the function. Use re-parse approach on the file.
     let src;
     try {
       src = await readFile(rec.file, "utf8");
     } catch { commentSkip++; continue; }
     const ext = extname(rec.file).toLowerCase();
     const lang = ext === ".tsx" ? "tsx" : "typescript";
-    let tree;
-    try { tree = await parse(src, lang); } catch { commentSkip++; continue; }
-    const fns = extractFunctions(tree, src, rec.file);
-    const fn = fns.find((f) => f.name === rec.name);
-    if (!fn) { commentSkip++; continue; }
 
-    // Slice out the full text for this function definition.
-    const { start, end } = fn.sourceRange;
-    const lines = src.split(/\r?\n/);
-    let defLines = [];
-    for (let i = start.line; i <= end.line; i++) {
-      if (i === start.line && i === end.line) {
-        defLines.push(lines[i].slice(start.column, end.column));
-      } else if (i === start.line) {
-        defLines.push(lines[i].slice(start.column));
-      } else if (i === end.line) {
-        defLines.push(lines[i].slice(0, end.column));
-      } else {
-        defLines.push(lines[i]);
-      }
-    }
-    const def = defLines.join("\n");
-
-    // Insert comment — should NOT change hash.
-    // IMPORTANT: pass the real filePath so assignAnchorId produces the same
-    // hash domain as the stored rec.hash (file path is folded into the hash).
-    const withComment = insertComment(def);
+    // Insert the probe into the named function's body within the full file.
+    let withComment;
+    try {
+      withComment = await insertBodyComment(src, lang, rec.name, rec.occurrence);
+    } catch { withComment = null; }
     if (!withComment) { commentSkip++; continue; }
+
+    // Re-hash the SAME named function from the perturbed full file, using the
+    // real file path so the AnchorId hash domain matches rec.hash.
     let h2;
-    try { h2 = await hashSnippet(withComment, lang, rec.file); } catch { commentSkip++; continue; }
+    try { h2 = await hashNamedSnippet(withComment, lang, rec.name, rec.file, rec.occurrence); } catch { h2 = null; }
     if (h2 === null) { commentSkip++; continue; }
     if (h2 === rec.hash) {
       commentOk++;
@@ -317,20 +297,20 @@ async function main() {
 
   // ── Phase 6: synthetic verify ──────────────────────────────────────────────
   // Inject a trivial TypeScript function as a "diff" and verify against the
-  // TS context. Note: buildVerdict() currently parses as C++; we call the
-  // pipeline manually for TS.
+  // buildVerdict() is now language-aware: passing a .ts target makes it parse
+  // the snippet with the TypeScript grammar (Fix A).
   const syntheticTs = `
     function hashCanonical(normalized: string): string {
       const digest = crypto.createHash("sha256").update(normalized).digest("hex");
       return digest.slice(0, 16);
     }
   `;
-  // Use the C++ buildVerdict path (it parses as C++ — will work on a simple snippet
-  // that looks like a function).
+  // Pass an explicit .ts target so the language-aware verify path uses the TS
+  // grammar (handles TS-only syntax such as type annotations).
   let verifyResult = null;
   try {
-    // Feed as raw source (not a diff). buildVerdict falls back to treating non-diff input as-is.
-    const v = await buildVerdict(ctx, syntheticTs);
+    // Feed as raw source (not a diff); the .ts target selects the TS grammar.
+    const v = await buildVerdict(ctx, syntheticTs, "src/synthetic.ts");
     verifyResult = {
       pass: v.pass,
       gates: v.gates.map((g) => ({ gate: g.gate, pass: g.pass })),

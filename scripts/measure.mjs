@@ -32,6 +32,7 @@ import { analyze, buildContextBundle, buildVerdict } from "../dist/core.js";
 import { parseSpecFiles } from "../dist/spec/parse.js";
 import { findExplicitLinks } from "../dist/spec/explicit.js";
 import { findStructuralLinks } from "../dist/spec/structural.js";
+import { insertBodyComment, hashNamedSnippet } from "../dist/dag/measure.js";
 
 /** Optional repo whose spec/ dir is linked against the analyzed code. */
 const SPEC_REPO = process.env.ANATOMIA_SPEC_REPO || "E:/Document/Ars/AdventureCube";
@@ -63,13 +64,14 @@ async function collect(dir, exts) {
   return out;
 }
 
-/** Hash the FIRST top-level function found in a snippet (null if none). */
-async function hashSnippet(text) {
-  const tree = await parse(text, "cpp");
-  const fns = extractFunctions(tree, text, "<p>");
-  if (fns.length === 0) return null;
-  const fn = fns[0];
-  return assignAnchorId(fn, normalize(fn.bodyAst));
+/**
+ * Hash the named function (or outermost) found in a snippet, IN CONTEXT.
+ * AST-aware + filePath-aware: delegates to the shared hashNamedSnippet so the
+ * AnchorId hash domain — which folds the file path AND the enclosing scope from
+ * normalizeSignatureShape — matches the stored record hash.
+ */
+async function hashSnippet(text, filePath = "<p>", name, occurrence) {
+  return hashNamedSnippet(text, "cpp", name, filePath, occurrence);
 }
 
 const normWs = (s) => s.replace(/\s+/g, " ").trim();
@@ -84,17 +86,38 @@ function sliceDef(src, range) {
   return seg.join("\n");
 }
 
+/** Convert a {line,column} position into a byte offset into `src`. */
+function posToOffset(src, pos) {
+  // Walk the real bytes so CRLF (2-byte) and LF (1-byte) terminators are both
+  // counted correctly — tree-sitter positions are byte/char offsets into src.
+  let off = 0, line = 0;
+  while (line < pos.line && off < src.length) {
+    const ch = src.charCodeAt(off);
+    if (ch === 10) line++;            // 
+
+    off++;
+  }
+  return off + pos.column;
+}
+
+/**
+ * Replace the [startOff,endOff) slice of `src` with `newDef`, returning the
+ * reconstructed FULL file. Hashing the named function from this reconstruction
+ * preserves the enclosing namespace/class scope (which normalizeSignatureShape
+ * folds into the AnchorId); a standalone slice would lose that scope and never
+ * match the in-file hash.
+ */
+function spliceFullFile(src, startOff, endOff, newDef) {
+  return src.slice(0, startOff) + newDef + src.slice(endOff);
+}
+
 // --- Perturbation transforms (same-meaning: must keep the hash) --------------
 function reformat(t) {
   // NOTE: this naive transform also collapses whitespace INSIDE string literals,
   // which legitimately changes meaning. The report separates those out.
   return t.replace(/[ \t]+/g, " ").replace(/\n[ \t]*/g, "\n  ").replace(/\n{2,}/g, "\n");
 }
-function insertComment(t) {
-  const idx = t.indexOf("{");
-  if (idx < 0) return t + " // tail";
-  return t.slice(0, idx + 1) + " /* injected */\n  // line comment\n" + t.slice(idx + 1);
-}
+// (insert-comments now uses the AST-aware insertBodyComment from dag/measure)
 
 /**
  * AST-aware local rename: parse `t`, find a TRUE local variable (the identifier
@@ -170,7 +193,7 @@ async function main() {
 
   let parsed = 0;
   const skipped = [];
-  const recs = []; // { name, file, def, hash, body }
+  const recs = []; // { name, file, def, hash, body, src, startOff, endOff }
   for (const f of files) {
     let src;
     try {
@@ -188,14 +211,24 @@ async function main() {
     }
     parsed++;
     const fns = extractFunctions(tree, src, f);
-    for (const fn of fns) {
+    // Source-order rank among same-named functions in this file (matches the
+    // ordering pickFunction uses), so duplicate names are disambiguated.
+    const ordered = fns.slice().sort((a, b) =>
+      a.sourceRange.start.line - b.sourceRange.start.line ||
+      a.sourceRange.start.column - b.sourceRange.start.column);
+    const nameSeen = new Map();
+    for (const fn of ordered) {
+      const occurrence = nameSeen.get(fn.name) ?? 0;
+      nameSeen.set(fn.name, occurrence + 1);
       let h;
       try {
         h = assignAnchorId(fn, normalize(fn.bodyAst));
       } catch {
         continue;
       }
-      recs.push({ name: fn.name, file: f, def: sliceDef(src, fn.sourceRange), hash: h, body: fn.bodyAst.text });
+      const startOff = posToOffset(src, fn.sourceRange.start);
+      const endOff = posToOffset(src, fn.sourceRange.end);
+      recs.push({ name: fn.name, file: f, def: sliceDef(src, fn.sourceRange), hash: h, body: fn.bodyAst.text, src, startOff, endOff, occurrence });
     }
   }
 
@@ -203,14 +236,18 @@ async function main() {
   out.coverage = { filesTotal: files.length, parsed, skipped: skipped.length, functions: recs.length };
 
   // ── (a) stability ─────────────────────────────────────────────────────────
+  // Re-hash each function IN CONTEXT (named function within its full file) so the
+  // enclosing namespace/class scope folded into the AnchorId is preserved.
   let aOk = 0;
   for (const r of recs) {
-    const h = await hashSnippet(r.def);
+    const h = await hashSnippet(r.src, r.file, r.name, r.occurrence);
     if (h === r.hash) aOk++;
   }
   out.stability = { ok: aOk, total: recs.length };
 
   // ── (b) same-meaning perturbations ────────────────────────────────────────
+  // Each transform rewrites the function's DEF text; we splice it back into the
+  // full file and re-hash the SAME named function in context (scope preserved).
   async function runSame(name, transform, classify) {
     let ok = 0, bad = 0, skip = 0, badArtifact = 0;
     const ex = [];
@@ -218,8 +255,9 @@ async function main() {
       let tt;
       try { tt = await transform(r.def); } catch { tt = null; }
       if (tt === null) { skip++; continue; }
+      const full = spliceFullFile(r.src, r.startOff, r.endOff, tt);
       let h;
-      try { h = await hashSnippet(tt); } catch { h = null; }
+      try { h = await hashSnippet(full, r.file, r.name, r.occurrence); } catch { h = null; }
       if (h === null) { skip++; continue; }
       if (h === r.hash) ok++;
       else {
@@ -232,7 +270,9 @@ async function main() {
   }
   out.sameMeaning = [
     await runSame("reformat-whitespace", reformat, hasMultiSpaceInString),
-    await runSame("insert-comments", insertComment, null),
+    // AST-aware body comment probe (lands inside the real body, not in an
+    // object-type return annotation), spliced back + re-hashed in context.
+    await runSame("insert-comments", (t) => insertBodyComment(t, "cpp"), null),
     await runSame("rename-locals", renameLocals, null),
   ];
 
@@ -244,8 +284,9 @@ async function main() {
       let tt;
       try { tt = transform(r.def); } catch { tt = null; }
       if (tt === null || tt === r.def) { skip++; continue; }
+      const full = spliceFullFile(r.src, r.startOff, r.endOff, tt);
       let h;
-      try { h = await hashSnippet(tt); } catch { h = null; }
+      try { h = await hashSnippet(full, r.file, r.name, r.occurrence); } catch { h = null; }
       if (h === null) { skip++; continue; }
       if (h !== r.hash) detected++;
       else { missed++; if (ex.length < 5) ex.push(basename(r.file) + ":" + r.name); }
