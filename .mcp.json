@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "anatomia": {
+      "command": "node",
+      "args": ["bin/anatomia-mcp.mjs"],
+      "env": {
+        "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY}",
+        "ANATOMIA_LLM_MODEL": "${ANATOMIA_LLM_MODEL}",
+        "ANATOMIA_EMBED_BASE_URL": "${ANATOMIA_EMBED_BASE_URL}",
+        "ANATOMIA_EMBED_API_KEY": "${ANATOMIA_EMBED_API_KEY}",
+        "ANATOMIA_EMBED_MODEL": "${ANATOMIA_EMBED_MODEL}"
+      }
+    }
+  }
+}
