@@ -7,13 +7,18 @@
  *   - different content => llm called again.
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   generateCard,
   createCardCache,
   merkleHash,
   type LLMClient,
+  type DomainCard,
 } from "./card.js";
+import { createFileStore } from "../cache/file-store.js";
 import type { DetectionResult } from "./detect.js";
 import type { AnchorId, CodeNode } from "../types.js";
 import type { CodeGraphQuery } from "../graph/query.js";
@@ -111,5 +116,36 @@ describe("T20 generateCard — content-keyed caching", () => {
     const graph = stubGraph();
     const card = await generateCard("m", result(["bbbb", "aaaa"]), graph, llm);
     expect(card.keyAnchors).toEqual(["aaaa", "bbbb"]);
+  });
+});
+
+describe("generateCard — shared persistent store + model versioning", () => {
+  let dir: string;
+  afterEach(async () => {
+    if (dir) await rm(dir, { recursive: true, force: true });
+  });
+
+  it("a FileStore shared across two cache instances yields a HIT (no 2nd LLM call)", async () => {
+    dir = await mkdtemp(join(tmpdir(), "anatomia-card-"));
+    const graph = stubGraph();
+    const r = result(["aaaa", "bbbb"]);
+
+    const { llm, calls } = mockLLM();
+    await generateCard("m", r, graph, llm, createFileStore<DomainCard>(dir), { modelId: "model-x" });
+    // Fresh store instance on the same dir = a different "process".
+    await generateCard("m", r, graph, llm, createFileStore<DomainCard>(dir), { modelId: "model-x" });
+    expect(calls()).toBe(1); // second is a persistent cache HIT
+  });
+
+  it("different model ids do NOT collide in the shared store", async () => {
+    dir = await mkdtemp(join(tmpdir(), "anatomia-card-"));
+    const graph = stubGraph();
+    const r = result(["aaaa", "bbbb"]);
+    const store = createFileStore<DomainCard>(dir);
+
+    const { llm, calls } = mockLLM();
+    await generateCard("m", r, graph, llm, store, { modelId: "model-a" });
+    await generateCard("m", r, graph, llm, store, { modelId: "model-b" });
+    expect(calls()).toBe(2); // different model => different key => MISS
   });
 });

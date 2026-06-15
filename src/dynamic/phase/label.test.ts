@@ -19,7 +19,9 @@ describe("labelPhase", () => {
     const label = await labelPhase(phase("p1", ["Skill", "Effect"]), llm);
     expect(label.name).toBe("Combat");
     expect(label.description).toBe("Skill and Effect are hot.");
-    expect(label.cacheKey).toBe("p1");
+    expect(label.phaseId).toBe("p1");
+    // cacheKey is versionedKey(phaseId, modelId, prompt version) — a sha256 hex.
+    expect(label.cacheKey).toMatch(/^[0-9a-f]{64}$/);
   });
 
   it("cache HIT does not call the LLM; MISS calls exactly once", async () => {

@@ -81,9 +81,12 @@ export function resolveProviders(config: ProviderConfig = envConfig()): Provider
     ? createOpenAiEmbedder({ baseUrl: config.embedBaseUrl!, model: embedModel, apiKey: config.embedApiKey })
     : createHashEmbedder(embedDim);
 
+  const llmModelId = llmReal ? (config.llmModel ?? DEFAULT_LLM_MODEL) : "stub-llm";
+
   return {
     llm,
     embed,
+    llmModelId,
     describe() {
       const llmDesc = llmReal ? `anthropic(${config.llmModel ?? DEFAULT_LLM_MODEL})` : "stub-llm";
       const embedDesc = embedReal

@@ -47,6 +47,13 @@ Web 管理パネル まで実装済 (**396 tests green**, `LUDIARS/Anatomia` pri
    code=`src/` / spec=`spec/` の一般形に、外部 spec ディレクトリ指定オプションを。
 7. **Web パネル運用** — loopback 前提なら現状可。公開するなら認証 (他 LUDIARS 同様 loopback 限定が素直)。
 
+## D-2. 共有 LLM キャッシュ — リモートバックエンド (A-3 follow-up)
+
+A-3 で card/label を **content-addressed の async `CacheStore`** に統一済 (`src/cache/`、
+キーは `versionedKey(内容ハッシュ, モデル id, プロンプト版)`)。in-memory / FileStore (`ANATOMIA_CACHE_DIR`)
+まで実装。残: **org 共有リモートバックエンド** (hash キーの blob store / S3 等) を `CacheStore` 実装として
+足せば monorepo 横断で命中率最大化。保管先 (場所・認証) が決まり次第。
+
 ## E. リポ整備
 
 8. **CLAUDE.md + README** — LUDIARS 慣習。AI/人間向けの使い方・アーキ・規約。

@@ -29,6 +29,7 @@ describe("anatomia.verify — provider wiring", () => {
       llm: async () =>
         JSON.stringify({ summary: "s", rules: [], specRefs: [], complexity: "low" }),
       embed: async (texts) => texts.map(() => [1, 0, 0]),
+      llmModelId: "fake-model",
       describe: () => "fake",
     };
 

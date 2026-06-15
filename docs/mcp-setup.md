@@ -29,6 +29,7 @@ wired to **stderr** on boot:
 | `ANATOMIA_EMBED_API_KEY` | Bearer key for the embeddings endpoint (omit for keyless local servers). |
 | `ANATOMIA_EMBED_MODEL` | Embeddings model id. Default `text-embedding-3-small`. |
 | `ANATOMIA_EMBED_DIM` | Hash-embedder dimension (offline fallback). Default `256`. |
+| `ANATOMIA_CACHE_DIR` | Persist the domain-card LLM cache to this dir (content-addressed, keyed by content + model + prompt version) so cards are reused across MCP invocations / sessions / repos. **Unset → in-memory** (per-process). |
 
 The embedder is what makes the **duplication gate** real: with the zero-vector
 mock (or no embedder) it always passes — "ザル". A real embedder (or at least

@@ -89,8 +89,11 @@ echo $?    # 0=PASS / 1=block ゲート失敗
 | `ANTHROPIC_API_KEY` | LLM 蒸留を有効化（既定モデル `claude-opus-4-8`） |
 | `ANATOMIA_LLM_MODEL` | LLM モデル上書き |
 | `ANATOMIA_EMBED_BASE_URL` / `_API_KEY` / `_MODEL` / `_DIM` | OpenAI 互換 embedder（ローカル Ollama 可） |
+| `ANATOMIA_CACHE_DIR` | LLM 蒸留キャッシュ（ドメインカード）を永続・共有ストアに置く。content-addressed＋model/prompt バージョンキーなので、呼び出し/セッション/リポを跨いでヒットする。未設定はプロセス内メモリ |
 
 未設定項目は stub + hash に graceful fallback する（テストは hermetic に保たれる）。
+キャッシュキーは `versionedKey(内容ハッシュ, モデル id, プロンプトテンプレ版)`：モデルやプロンプトを
+変えると別キーになり stale を返さない（`src/cache/`）。
 
 ---
 
