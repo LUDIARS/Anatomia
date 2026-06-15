@@ -2,24 +2,26 @@
  * src/adapters/cli.ts -- T31 + multi-project: CLI gate adapter.
  *
  * Subcommands:
- *   verify  -- run the 5-gate verify pipeline; exit 1 if any block gate fails
- *   context -- assemble a ContextBundle; exit 0
- *   where   -- resolve landing points; exit 0
- *   project -- registry management:
- *                project add <name> <path>   register a project
- *                project list                list registered projects
- *                project remove <id>         remove a project
- *                project analyze <id>        analyze a project (cache-aware)
+ *   verify        -- run the 5-gate verify pipeline; exit 1 if any block gate fails
+ *   context       -- assemble a ContextBundle; exit 0
+ *   where         -- resolve landing points; exit 0
+ *   export-graph  -- export a self-contained interactive HTML graph; -o <file>
+ *   project       -- registry management:
+ *                      project add <name> <path>   register a project
+ *                      project list                list registered projects
+ *                      project remove <id>         remove a project
+ *                      project analyze <id>        analyze a project (cache-aware)
  *
- * `verify` / `context` / `where` accept `--project <id>` to target a registered
- * project (the registered rootPath overrides --repo). Without --project the
- * legacy single-project behaviour (analyze the --repo / cwd path) is preserved.
+ * `verify` / `context` / `where` / `export-graph` accept `--project <id>` to
+ * target a registered project (the registered rootPath overrides --repo).
+ * Without --project the legacy single-project behaviour (analyze the --repo /
+ * cwd path) is preserved.
  *
  * SRP: CLI arg parsing + output formatting only. Analysis via core.ts; project
- * lifecycle via ProjectManager.
+ * lifecycle via ProjectManager; HTML building via export.ts.
  */
 
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { resolve as resolvePath } from "node:path";
 import {
   analyze,
@@ -28,6 +30,7 @@ import {
 } from "../core.js";
 import { resolveLanding } from "../supply/landing.js";
 import { ProjectManager } from "../project/manager.js";
+import { exportGraphHtml } from "./web/export.js";
 import type { AnalysisContext } from "../core.js";
 import type { Verdict } from "../types.js";
 
@@ -38,7 +41,7 @@ import type { Verdict } from "../types.js";
 export type ProjectAction = "add" | "list" | "remove" | "analyze";
 
 export interface CliArgs {
-  subcommand: "verify" | "context" | "where" | "project";
+  subcommand: "verify" | "context" | "where" | "project" | "export-graph";
   repoPath: string;
   /** For verify: path to diff file, or "-" to read stdin. */
   diff?: string;
@@ -48,6 +51,8 @@ export interface CliArgs {
   json?: boolean;
   /** --project <id>: target a registered project. */
   project?: string;
+  /** For export-graph: output file path. */
+  output?: string;
   /** project subcommand details. */
   projectAction?: ProjectAction;
   /** positional args for the project subcommand (name/path/id). */
@@ -66,10 +71,11 @@ export function parseArgs(argv: string[]): CliArgs {
     subcommand !== "verify" &&
     subcommand !== "context" &&
     subcommand !== "where" &&
-    subcommand !== "project"
+    subcommand !== "project" &&
+    subcommand !== "export-graph"
   ) {
     throw new Error(
-      `Unknown subcommand "${subcommand ?? ""}". Expected: verify | context | where | project`,
+      `Unknown subcommand "${subcommand ?? ""}". Expected: verify | context | where | project | export-graph`,
     );
   }
 
@@ -83,6 +89,7 @@ export function parseArgs(argv: string[]): CliArgs {
   let task: string | undefined;
   let json = false;
   let project: string | undefined;
+  let output: string | undefined;
 
   for (let i = 0; i < args.length; i++) {
     const flag = args[i];
@@ -96,10 +103,21 @@ export function parseArgs(argv: string[]): CliArgs {
       json = true;
     } else if (flag === "--project" || flag === "-p") {
       project = args[++i];
+    } else if (flag === "--output" || flag === "-o") {
+      output = args[++i];
+    } else if (subcommand === "export-graph" && !flag.startsWith("-")) {
+      // Positional: export-graph <project-id-or-path>
+      // If it looks like a path (contains / or \) use it as repoPath,
+      // otherwise treat as project id.
+      if (flag.includes("/") || flag.includes("\\") || flag.startsWith(".")) {
+        repoPath = resolvePath(flag);
+      } else {
+        project = flag;
+      }
     }
   }
 
-  return { subcommand, repoPath, diff, task, json, project };
+  return { subcommand, repoPath, diff, task, json, project, output };
 }
 
 function parseProjectArgs(args: string[]): CliArgs {
@@ -196,6 +214,17 @@ export async function runCli(
       stubSiblings,
     );
     return { exitCode: 0, output: JSON.stringify({ landings }, null, 2) };
+  }
+
+  if (args.subcommand === "export-graph") {
+    const outputPath = args.output ?? "graph.html";
+    const html = await exportGraphHtml(ctx, { title: undefined });
+    await writeFile(outputPath, html, "utf8");
+    const nodeCount = ctx.functions.length;
+    return {
+      exitCode: 0,
+      output: `exported graph to ${outputPath} (${ctx.files.length} files, ${nodeCount} functions)`,
+    };
   }
 
   return { exitCode: 1, output: "Unknown subcommand" };
