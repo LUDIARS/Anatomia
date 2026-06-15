@@ -377,7 +377,12 @@ export async function buildVerdict(
   let embed = opts?.providers?.embed;
   let domainCards: { domain: string; text: string }[] | undefined;
   if (opts?.providers) {
-    domainCards = await buildDomainCardTexts(ctx, opts.providers.llm, opts.cardCache);
+    domainCards = await buildDomainCardTexts(
+      ctx,
+      opts.providers.llm,
+      opts.cardCache,
+      opts.providers.llmModelId,
+    );
   } else {
     embed = async (texts: string[]): Promise<number[][]> => texts.map(() => [0]);
   }
@@ -405,11 +410,12 @@ async function buildDomainCardTexts(
   ctx: AnalysisContext,
   llm: LLMClient,
   cache: CardCache = createCardCache(),
+  modelId?: string,
 ): Promise<{ domain: string; text: string }[]> {
   const out: { domain: string; text: string }[] = [];
   for (const d of ctx.domains ?? []) {
     if (d.implementors.length === 0) continue;
-    const card = await generateCard(d.domain, d, ctx.graph, llm, cache);
+    const card = await generateCard(d.domain, d, ctx.graph, llm, cache, { modelId });
     out.push({ domain: card.domain, text: [card.summary, ...card.rules].join("\n") });
   }
   return out;

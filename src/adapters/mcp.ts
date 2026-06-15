@@ -31,6 +31,8 @@ import { resolveLanding } from "../supply/landing.js";
 import { ProjectManager } from "../project/manager.js";
 import { resolveProviders } from "../providers/index.js";
 import { createCardCache } from "../domains/card.js";
+import type { CardCache, DomainCard } from "../domains/card.js";
+import { createFileStore } from "../cache/file-store.js";
 import type { AnalysisContext, Landing } from "../core.js";
 import type { ContextBundle, Verdict, AnchorId } from "../types.js";
 import type { Project } from "../project/types.js";
@@ -79,13 +81,24 @@ export interface ToolHandlers {
   }): Promise<{ project: string; files: number; functions: number; cacheHit: boolean }>;
 }
 
+/**
+ * Resolve the card cache: a persistent file store under ANATOMIA_CACHE_DIR when
+ * set (shared across invocations / sessions / repos), else in-memory.
+ */
+function resolveCardCache(): CardCache {
+  const dir = process.env["ANATOMIA_CACHE_DIR"];
+  return dir ? createFileStore<DomainCard>(dir) : createCardCache();
+}
+
 export function createHandlers(
   src: AnalysisContext | ProjectManager,
   providers?: Providers,
 ): ToolHandlers {
   const source = contextSourceFrom(src);
   // Reused across verify calls so unchanged domains skip LLM card distillation.
-  const cardCache = createCardCache();
+  // ANATOMIA_CACHE_DIR opts into a persistent, content-addressed store shared
+  // across MCP invocations / sessions / repos; unset = hermetic in-memory.
+  const cardCache = resolveCardCache();
   const verifyOpts = providers ? { providers, cardCache } : undefined;
 
   return {
