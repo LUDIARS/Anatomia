@@ -273,6 +273,16 @@
         </thead>
         <tbody id="projects-tbody"></tbody>
       </table>
+
+      <!-- ═══ Global LLM cache hit-rate (A-3 measurement) ═══ -->
+      <section id="cache-card" style="margin-top:1.75rem;border:1px solid #30363d;border-radius:8px;padding:1rem 1.25rem;background:#0d1117">
+        <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.6rem">
+          <h2 style="margin:0;font-size:1rem">LLM Cache Hit Rate</h2>
+          <span id="cache-rate-badge" style="font-weight:600"></span>
+          <button class="btn btn-sm" id="cache-refresh" style="margin-left:auto">Refresh</button>
+        </div>
+        <div id="cache-body" style="font-size:0.85rem;color:#8b949e">Loading&hellip;</div>
+      </section>
     </div>
 
     <!-- ═══ VIEW: Per-project dashboard ═══ -->
@@ -891,6 +901,50 @@
   renderCrumb();
   loadProjects();
 
+})();
+</script>
+
+<!-- ═══ Global LLM cache stats widget (A-3) — self-contained, independent of the
+     main panel IIFE so it can evolve without touching project/graph logic ═══ -->
+<script>
+(function () {
+  var bodyEl = document.getElementById('cache-body');
+  var badgeEl = document.getElementById('cache-rate-badge');
+  if (!bodyEl) return;
+  function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+  function pct(r){return (r*100).toFixed(1)+'%';}
+  function row(label, t){
+    return '<tr><td style="padding:2px 14px 2px 0;color:#c9d1d9">'+esc(label)+'</td>'+
+      '<td style="text-align:right;color:#8b949e">'+t.hits+'/'+t.gets+'</td>'+
+      '<td style="text-align:right;padding-left:14px;color:#c9d1d9">'+pct(t.hitRate)+'</td></tr>';
+  }
+  async function load(){
+    bodyEl.textContent='Loading…'; badgeEl.textContent='';
+    var data;
+    try { data = await (await fetch('/api/cache-stats')).json(); }
+    catch(e){ bodyEl.textContent='failed to load /api/cache-stats'; return; }
+    if(!data.enabled){
+      bodyEl.innerHTML='measurement off — set <code>ANATOMIA_CACHE_LOG</code> (+ <code>ANATOMIA_CACHE_DIR</code>) and run verify/analyze via MCP';
+      return;
+    }
+    var r=data.report;
+    if(!r || r.global.gets===0){ bodyEl.innerHTML='no cache events recorded yet (transcript: <code>'+esc(data.logPath)+'</code>)'; return; }
+    badgeEl.textContent=pct(r.global.hitRate)+' ('+r.global.hits+'/'+r.global.gets+')';
+    badgeEl.style.color=r.global.hitRate>=0.5?'#3fb950':'#d29922';
+    var html='<table style="border-collapse:collapse"><tbody>';
+    html+=row('GLOBAL', r.global);
+    Object.keys(r.byNamespace).sort().forEach(function(ns){ html+=row('ns: '+ns, r.byNamespace[ns]); });
+    Object.keys(r.bySession).sort().forEach(function(s){ html+=row('session: '+s, r.bySession[s]); });
+    html+='</tbody></table>';
+    html+='<div style="margin-top:10px;color:#8b949e">LLM calls: '+r.llmCalls+
+      ' &middot; calls saved (hits): '+r.estimatedCallsSaved+
+      ' &middot; tokens in/out: '+r.tokens.inputTokens+'/'+r.tokens.outputTokens+
+      ' &middot; est. saved ~'+r.estimatedTokensSaved+'</div>';
+    bodyEl.innerHTML=html;
+  }
+  var btn=document.getElementById('cache-refresh');
+  if(btn) btn.addEventListener('click', load);
+  load();
 })();
 </script>
 </body>
