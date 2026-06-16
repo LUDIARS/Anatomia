@@ -25,15 +25,15 @@
  */
 
 import { createHash } from "node:crypto";
-import { readdir, stat, mkdir, readFile, writeFile } from "node:fs/promises";
-import { join, extname } from "node:path";
+import { stat, mkdir, readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { collectFilesByExt } from "../fs/walk.js";
 import { buildRepoNode } from "../dag/merkle.js";
 import { cacheRoot } from "./store.js";
 import type { AnalysisContext } from "../core.js";
 
 /** Source extensions whose presence/mtime define a project's fingerprint. */
 const SOURCE_EXTS = new Set([".cpp", ".h", ".cs", ".ts", ".tsx", ".md"]);
-const EXCLUDE_SEGMENTS = new Set(["node_modules", "dist", ".git", ".anatomia"]);
 
 /** One file's identity contribution to the fingerprint. */
 interface FileStamp {
@@ -84,31 +84,15 @@ export async function computeFingerprint(rootPath: string): Promise<string> {
 
 async function collectStamps(root: string): Promise<FileStamp[]> {
   const out: FileStamp[] = [];
-  let entries: import("node:fs").Dirent[];
-  try {
-    entries = (await readdir(root, {
-      withFileTypes: true,
-      recursive: true,
-    })) as import("node:fs").Dirent[];
-  } catch {
-    return out;
-  }
-  for (const entry of entries) {
-    if (!entry.isFile()) continue;
-    const ext = extname(entry.name).toLowerCase();
-    if (!SOURCE_EXTS.has(ext)) continue;
-    const parent: string =
-      (entry as unknown as { parentPath?: string }).parentPath ??
-      (entry as unknown as { path?: string }).path ??
-      root;
-    const norm = parent.replace(/\\/g, "/");
-    if (norm.split("/").some((seg) => EXCLUDE_SEGMENTS.has(seg))) continue;
-    const full = join(parent, entry.name);
+  // Directory-pruning walk (fs/walk.ts): node_modules/dist/.git/.anatomia are
+  // never descended into, so the fingerprint scan is O(source tree) not O(repo).
+  const paths = await collectFilesByExt(root, SOURCE_EXTS);
+  for (const full of paths) {
     try {
       const st = await stat(full);
       out.push({ path: full, size: st.size, mtimeMs: st.mtimeMs });
     } catch {
-      // file vanished between readdir and stat — ignore.
+      // file vanished between walk and stat — ignore.
     }
   }
   return out;

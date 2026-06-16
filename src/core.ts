@@ -8,8 +8,9 @@
  * SRP: wiring only. No new analysis logic lives here.
  */
 
-import { readdir, readFile } from "node:fs/promises";
-import { join, extname } from "node:path";
+import { readFile } from "node:fs/promises";
+import { extname } from "node:path";
+import { collectFilesByExt } from "./fs/walk.js";
 import { parse } from "./dag/parser.js";
 import { extractFunctions } from "./dag/extract.js";
 import { normalize } from "./dag/normalize.js";
@@ -79,27 +80,8 @@ export interface AnalyzeOptions {
 const SOURCE_EXTS = new Set([".cpp", ".h", ".cs", ".ts", ".tsx"]);
 const SPEC_EXTS = new Set([".md"]);
 
-/** Collect files under `dir` (recursive) whose extension is in `exts`. */
-async function collectFilesByExt(dir: string, exts: Set<string>): Promise<string[]> {
-  const result: string[] = [];
-  let entries: import("node:fs").Dirent[];
-  try {
-    entries = await readdir(dir, { withFileTypes: true, recursive: true }) as import("node:fs").Dirent[];
-  } catch {
-    return result;
-  }
-  for (const entry of entries) {
-    if (!entry.isFile()) continue;
-    const ext = extname(entry.name).toLowerCase();
-    if (!exts.has(ext)) continue;
-    const parentPath: string =
-      (entry as unknown as { parentPath?: string }).parentPath ??
-      (entry as unknown as { path?: string }).path ??
-      dir;
-    result.push(join(parentPath, entry.name));
-  }
-  return result;
-}
+// Source-file discovery uses the directory-pruning walk in fs/walk.ts so huge
+// node_modules/dist trees are never enumerated (see that file for the why).
 
 function collectSourceFiles(dir: string): Promise<string[]> {
   return collectFilesByExt(dir, SOURCE_EXTS);
