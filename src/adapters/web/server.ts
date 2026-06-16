@@ -47,6 +47,13 @@ import { mountProjectRoutes } from "./routes/projects.js";
 import { mountAnalysisRoutes } from "./routes/analysis.js";
 import { mountCacheRoute } from "./routes/cache.js";
 import { mountHarnessRoutes } from "./routes/harness.js";
+import { resolveProviders } from "../../providers/index.js";
+import { createCardCache } from "../../domains/card.js";
+import type { CardCache, DomainCard } from "../../domains/card.js";
+import { createFileStore } from "../../cache/file-store.js";
+import { instrumentStore } from "../../cache/instrumented.js";
+import { resolveTranscript } from "../../cache/transcript.js";
+import type { VerifyOptions } from "../../core.js";
 import type { AnalysisContext } from "../../core.js";
 import type { CodeNode, Edge } from "../../types.js";
 import { buildTimeline } from "../../dynamic/viz/timeline.js";
@@ -110,6 +117,7 @@ function loadIndexHtml(): string {
 export function createApp(
   src: AnalysisContext | ProjectManager,
   traceSource?: TraceSource,
+  verifyOpts?: VerifyOptions,
 ): Hono {
   const source = webContextSourceFrom(src);
   const manager = src instanceof ProjectManager ? src : null;
@@ -126,7 +134,7 @@ export function createApp(
   mountCacheRoute(app);
 
   // ── Warm supply/verify routes for the agent harness (hooks) ──────────────
-  mountHarnessRoutes(app, source);
+  mountHarnessRoutes(app, source, verifyOpts);
 
   // ── Legacy data routes (kept for backward compat; also used by old tests) ─
 
@@ -216,10 +224,39 @@ export function createApp(
 
 export async function startServer(options: WebServerOptions): Promise<void> {
   const { ctx, port = 4200, traceSource } = options;
-  const app = createApp(ctx, traceSource);
+  const app = createApp(ctx, traceSource, resolveWebVerifyOpts());
 
   const { serve } = await import("@hono/node-server");
   serve({ fetch: app.fetch, port }, () => {
     console.log(`[anatomia/web] listening on http://localhost:${port}`);
   });
+}
+
+/**
+ * Resolve verify options (providers + instrumented card cache) from the
+ * environment so `anatomia web` runs /api/verify with REAL distilled cards (and
+ * records cache hit/miss) — mirrors the MCP server's main(). With no API key the
+ * stub LLM is used; with ANATOMIA_CACHE_LOG set, card-cache gets are recorded.
+ */
+function resolveWebVerifyOpts(): VerifyOptions {
+  const obs = resolveTranscript();
+  const providers = resolveProviders(undefined, {
+    onUsage: (usage) =>
+      obs.transcript.record({
+        kind: "llm",
+        ts: Date.now(),
+        session: obs.session,
+        model: providers.llmModelId,
+        usage,
+      }),
+  });
+  const dir = process.env["ANATOMIA_CACHE_DIR"];
+  const base: CardCache = dir ? createFileStore<DomainCard>(dir) : createCardCache();
+  const cardCache = obs.enabled
+    ? instrumentStore(base, { ns: "card", transcript: obs.transcript, session: obs.session, model: providers.llmModelId }).store
+    : base;
+  if (obs.enabled) {
+    console.error(`[anatomia/web] verify cache measurement ON -> ${process.env["ANATOMIA_CACHE_LOG"]}`);
+  }
+  return { providers, cardCache };
 }

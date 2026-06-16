@@ -19,10 +19,16 @@
 
 import type { Hono } from "hono";
 import { buildVerdict, buildContextBundle } from "../../../core.js";
+import type { VerifyOptions } from "../../../core.js";
 import type { WebContextSource } from "../context.js";
 
-/** Mount the warm supply/verify routes on `app`. */
-export function mountHarnessRoutes(app: Hono, source: WebContextSource): void {
+/**
+ * Mount the warm supply/verify routes on `app`. `verifyOpts` (providers +
+ * cardCache) makes /api/verify run the duplication gate against real distilled
+ * cards (else hermetic mock). /api/context needs no providers (it uses the
+ * already-detected domains from analyze).
+ */
+export function mountHarnessRoutes(app: Hono, source: WebContextSource, verifyOpts?: VerifyOptions): void {
   // POST /api/verify — run the 5-gate verify on a diff against a warm project.
   app.post("/api/verify", async (c) => {
     let body: { diff?: unknown; project?: unknown; targetPath?: unknown };
@@ -42,7 +48,7 @@ export function mountHarnessRoutes(app: Hono, source: WebContextSource): void {
       return c.json({ error: `no such project "${project ?? ""}"` }, 404);
     }
     const targetPath = typeof body.targetPath === "string" ? body.targetPath : undefined;
-    const verdict = await buildVerdict(ctx, body.diff, targetPath);
+    const verdict = await buildVerdict(ctx, body.diff, targetPath, verifyOpts);
     return c.json(verdict);
   });
 
