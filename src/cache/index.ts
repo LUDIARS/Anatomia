@@ -10,6 +10,9 @@
 export type { CacheStore } from "./store.js";
 export { createMemoryStore, versionedKey } from "./store.js";
 export { createFileStore } from "./file-store.js";
+export type { RedisLike, RedisStoreOptions } from "./redis-store.js";
+export { createRedisStore } from "./redis-store.js";
+export { resolveCacheStore, describeCacheBackend } from "./resolve.js";
 export type { CacheEvent, GetEvent, LlmEvent, LlmUsage, CacheTranscript } from "./transcript.js";
 export {
   createNullTranscript,

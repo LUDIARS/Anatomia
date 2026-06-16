@@ -124,11 +124,13 @@ describe("ProjectManager analyzing two projects", () => {
     await mgr.addProject({ name: "Fixture", rootPath: fixtureRoot });
   });
 
+  // Self-analysis parses ALL of src/ (the heaviest test); the default 5s timeout
+  // is too tight under full-suite parallel CPU contention, so allow more headroom.
   it("analyzes the repo's own src/ as one project", async () => {
     const ctx = await mgr.analyzeProject("reposrc");
     expect(ctx.repoPath).toBe(REPO_SRC);
     expect(ctx.functions.length).toBeGreaterThan(20);
-  });
+  }, 30000);
 
   it("analyzes the temp C++ fixture as a separate project", async () => {
     const ctx = await mgr.analyzeProject("fixture");

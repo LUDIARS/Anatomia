@@ -27,5 +27,8 @@
   "bin": {
     "anatomia": "bin/anatomia.mjs",
     "anatomia-mcp": "bin/anatomia-mcp.mjs"
+  },
+  "optionalDependencies": {
+    "redis": "^4.7.0"
   }
 }
