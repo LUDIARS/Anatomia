@@ -5,9 +5,10 @@
  * exposes small set helpers over node collections. Predicate *evaluation*
  * lives in engine.ts; the Predicate ADT itself lives in types.ts.
  *
- * A NodeFilter matches by kind / namePattern (regex) / tags. All present
- * fields are ANDed; an empty filter matches every node. A node matches the
- * `tags` field only when it carries ALL listed tags.
+ * A NodeFilter matches by kind / namePattern (regex) / tags / pathPattern (regex
+ * on the source file path). All present fields are ANDed; an empty filter
+ * matches every node. A node matches the `tags` field only when it carries ALL
+ * listed tags.
  */
 
 import type { CodeNode, NodeFilter } from "../types.js";
@@ -37,6 +38,12 @@ export function matchesFilter(node: CodeNode, filter: NodeFilter): boolean {
     for (const t of filter.tags) {
       if (!nodeTags.includes(t)) return false;
     }
+  }
+
+  if (filter.pathPattern !== undefined) {
+    const normalizedPath = node.sourceRange.filePath.replace(/\\/g, "/");
+    const re = compileRegex(filter.pathPattern);
+    if (!re.test(normalizedPath)) return false;
   }
 
   return true;

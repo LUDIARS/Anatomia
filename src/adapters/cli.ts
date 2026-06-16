@@ -72,6 +72,11 @@ export interface CliArgs {
   port?: number;
   /** For web: Anatomia home dir (registry + cache). */
   homeDir?: string;
+  /**
+   * --spec-dir <path>: additional directories to search for spec (*.md) files
+   * (can be repeated). Merged with the repo's own spec files; duplicates deduplicated.
+   */
+  specDirs?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -117,6 +122,7 @@ export function parseArgs(argv: string[]): CliArgs {
   let json = false;
   let project: string | undefined;
   let output: string | undefined;
+  const specDirs: string[] = [];
 
   for (let i = 0; i < args.length; i++) {
     const flag = args[i];
@@ -132,6 +138,9 @@ export function parseArgs(argv: string[]): CliArgs {
       project = args[++i];
     } else if (flag === "--output" || flag === "-o") {
       output = args[++i];
+    } else if (flag === "--spec-dir") {
+      const d = args[++i];
+      if (d) specDirs.push(resolvePath(d));
     } else if (subcommand === "export-graph" && !flag.startsWith("-")) {
       // Positional: export-graph <project-id-or-path>
       // If it looks like a path (contains / or \) use it as repoPath,
@@ -144,7 +153,7 @@ export function parseArgs(argv: string[]): CliArgs {
     }
   }
 
-  return { subcommand, repoPath, diff, task, json, project, output };
+  return { subcommand, repoPath, diff, task, json, project, output, specDirs: specDirs.length > 0 ? specDirs : undefined };
 }
 
 function parseWebArgs(args: string[]): CliArgs {
@@ -301,7 +310,7 @@ async function resolveContext(args: CliArgs): Promise<AnalysisContext> {
     const mgr = await ProjectManager.load();
     return mgr.getContext(args.project);
   }
-  return analyze(args.repoPath);
+  return analyze(args.repoPath, { specDirs: args.specDirs });
 }
 
 // ---------------------------------------------------------------------------

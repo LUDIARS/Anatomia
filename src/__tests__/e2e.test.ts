@@ -28,6 +28,7 @@ import {
 
 const here = dirname(fileURLToPath(import.meta.url));
 const FIXTURE = join(here, "fixtures", "mini");
+const EXTERNAL_SPEC_DIR = join(here, "fixtures", "external-spec");
 
 // A subset of AdventureCube covering its core domains (Skill→Action, combat,
 // equipment). Skipped automatically when the repo is not checked out here.
@@ -96,6 +97,29 @@ describe("analyze() — mini fixture (always runs)", () => {
     expect(withId).toBeDefined();
     const radius = await getImpactRadius(ctx, withId!.id!);
     expect(Array.isArray(radius)).toBe(true);
+  });
+
+  it("specDirs merges external spec clauses with repo's own specs", async () => {
+    const baseline = await analyze(FIXTURE, { quiet: true });
+    const withExtra = await analyze(FIXTURE, { quiet: true, specDirs: [EXTERNAL_SPEC_DIR] });
+
+    // Should have more clauses when an external dir is provided.
+    expect(withExtra.specClauses!.length).toBeGreaterThan(baseline.specClauses!.length);
+
+    // The external clause should be present.
+    const externalClause = withExtra.specClauses!.find((c) =>
+      c.sourceFile.includes("ExternalSpec"),
+    );
+    expect(externalClause).toBeDefined();
+    expect(externalClause!.heading).toContain("External");
+  });
+
+  it("specDirs deduplicates when the same file would be collected twice", async () => {
+    // Pass the repo's own spec dir as an extra specDir — no duplicates should appear.
+    const specDir = join(FIXTURE, "spec");
+    const ctx = await analyze(FIXTURE, { quiet: true, specDirs: [specDir] });
+    const baseline = await analyze(FIXTURE, { quiet: true });
+    expect(ctx.specClauses!.length).toBe(baseline.specClauses!.length);
   });
 });
 

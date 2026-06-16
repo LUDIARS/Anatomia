@@ -71,6 +71,13 @@ export interface AnalyzeOptions {
   quiet?: boolean;
   /** Explicit domain-ontology plugin dir (else ANATOMIA_PLUGIN_DIR). */
   pluginDir?: string;
+  /**
+   * Additional directories to search for spec files (*.md), merged with the
+   * repo's own spec files. Useful when specs live in a separate docs/spec repo
+   * or a shared directory outside the analysed repo root.
+   * Duplicates (same absolute path collected from two dirs) are deduplicated.
+   */
+  specDirs?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -228,10 +235,20 @@ export async function analyze(
   }
 
   // Phase 5 — spec linking (G4). Parse markdown, then explicit + structural links.
+  // Spec files are collected from the repo root AND any additional specDirs.
   let specClauses: SpecClause[] = [];
   let links: Link[] = [];
   try {
-    const specPaths = await collectSpecFiles(repoPath);
+    const allSpecDirs = [repoPath, ...(options.specDirs ?? [])];
+    const pathSets = await Promise.all(allSpecDirs.map((d) => collectSpecFiles(d)));
+    // Deduplicate by absolute path (a file reachable via two dir roots should not be parsed twice).
+    const seen = new Set<string>();
+    const specPaths: string[] = [];
+    for (const paths of pathSets) {
+      for (const p of paths) {
+        if (!seen.has(p)) { seen.add(p); specPaths.push(p); }
+      }
+    }
     if (specPaths.length > 0) {
       specClauses = await parseSpecFiles(specPaths);
       const sourcePaths = files.map((f) => f.path);

@@ -141,6 +141,9 @@ function isMeaningfulFilter(f: NodeFilter): boolean {
     // ".*" and "" match everything -> not meaningful for implementor scoping.
     return f.namePattern !== ".*" && f.namePattern !== "";
   }
+  if (f.pathPattern !== undefined) {
+    return f.pathPattern !== ".*" && f.pathPattern !== "";
+  }
   return false;
 }
 

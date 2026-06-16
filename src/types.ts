@@ -119,7 +119,7 @@ export type ViolationSeverity = "error" | "warning" | "info";
 // ── Predicate ADT (T14) ────────────────────────────────────────────────────
 
 /**
- * A NodeFilter matches CodeNodes by kind, name (regex) and/or tags.
+ * A NodeFilter matches CodeNodes by kind, name (regex), tags, and/or file path.
  * All present fields are ANDed. An empty filter matches every node.
  */
 export interface NodeFilter {
@@ -129,6 +129,12 @@ export interface NodeFilter {
   namePattern?: string;
   /** Match nodes that carry ALL of these tags. */
   tags?: string[];
+  /**
+   * Match nodes whose source file path matches this regex (JS RegExp source).
+   * Useful to scope rules to a directory subtree, e.g. "src/skill/activation/".
+   * Path separators are normalized to "/" before matching.
+   */
+  pathPattern?: string;
 }
 
 /**
