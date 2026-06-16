@@ -33,6 +33,9 @@ import { resolveProviders } from "../providers/index.js";
 import { createCardCache } from "../domains/card.js";
 import type { CardCache, DomainCard } from "../domains/card.js";
 import { createFileStore } from "../cache/file-store.js";
+import { instrumentStore } from "../cache/instrumented.js";
+import { resolveTranscript } from "../cache/transcript.js";
+import type { CacheTranscript } from "../cache/transcript.js";
 import type { AnalysisContext, Landing } from "../core.js";
 import type { ContextBundle, Verdict, AnchorId } from "../types.js";
 import type { Project } from "../project/types.js";
@@ -82,23 +85,44 @@ export interface ToolHandlers {
 }
 
 /**
- * Resolve the card cache: a persistent file store under ANATOMIA_CACHE_DIR when
- * set (shared across invocations / sessions / repos), else in-memory.
+ * Cache measurement context: the shared transcript + this process's session id.
+ * Threaded from main() so the card cache and the LLM-usage hook record into the
+ * same JSONL log (see cache/transcript.ts).
  */
-function resolveCardCache(): CardCache {
+export interface CacheObservability {
+  transcript: CacheTranscript;
+  session: string;
+  /** Resolved LLM model id, stamped on get events (diagnostic). */
+  model?: string;
+}
+
+/**
+ * Resolve the card cache: a persistent file store under ANATOMIA_CACHE_DIR when
+ * set (shared across invocations / sessions / repos), else in-memory. When `obs`
+ * is present the store is wrapped so every get records a hit/miss event.
+ */
+function resolveCardCache(obs?: CacheObservability): CardCache {
   const dir = process.env["ANATOMIA_CACHE_DIR"];
-  return dir ? createFileStore<DomainCard>(dir) : createCardCache();
+  const base: CardCache = dir ? createFileStore<DomainCard>(dir) : createCardCache();
+  if (!obs) return base;
+  return instrumentStore(base, {
+    ns: "card",
+    transcript: obs.transcript,
+    session: obs.session,
+    model: obs.model,
+  }).store;
 }
 
 export function createHandlers(
   src: AnalysisContext | ProjectManager,
   providers?: Providers,
+  obs?: CacheObservability,
 ): ToolHandlers {
   const source = contextSourceFrom(src);
   // Reused across verify calls so unchanged domains skip LLM card distillation.
   // ANATOMIA_CACHE_DIR opts into a persistent, content-addressed store shared
   // across MCP invocations / sessions / repos; unset = hermetic in-memory.
-  const cardCache = resolveCardCache();
+  const cardCache = resolveCardCache(obs);
   const verifyOpts = providers ? { providers, cardCache } : undefined;
 
   return {
@@ -171,8 +195,12 @@ export class AnatomiaServer {
   private readonly handlers: ToolHandlers;
   private readonly hasManager: boolean;
 
-  constructor(src: AnalysisContext | ProjectManager, providers?: Providers) {
-    this.handlers = createHandlers(src, providers);
+  constructor(
+    src: AnalysisContext | ProjectManager,
+    providers?: Providers,
+    obs?: CacheObservability,
+  ) {
+    this.handlers = createHandlers(src, providers, obs);
     this.hasManager = src instanceof ProjectManager;
     this.server = new McpServer({ name: "anatomia", version: "0.1.0" });
     this._registerTools();
@@ -279,8 +307,9 @@ export class AnatomiaServer {
 export function createServer(
   src: AnalysisContext | ProjectManager,
   providers?: Providers,
+  obs?: CacheObservability,
 ): AnatomiaServer {
-  return new AnatomiaServer(src, providers);
+  return new AnatomiaServer(src, providers, obs);
 }
 
 // ---------------------------------------------------------------------------
@@ -293,17 +322,38 @@ export function createServer(
  * With no persisted registry: register cwd as the default project so existing
  * single-project usage keeps working, but with project tools available.
  */
-export async function main(
-  repoPath = process.cwd(),
-  providers: Providers = resolveProviders(),
-): Promise<void> {
+export async function main(repoPath = process.cwd()): Promise<void> {
   const mgr = await ProjectManager.load();
   if (mgr.list().length === 0) {
     await mgr.addProject({ name: "default", rootPath: repoPath });
   }
+
+  // Cache measurement: ANATOMIA_CACHE_LOG opts in. The same transcript receives
+  // both card-cache hit/miss events and per-call LLM token usage, so cache-stats
+  // can correlate hits with the calls they avoided.
+  const obs = resolveTranscript();
+  const providers = resolveProviders(undefined, {
+    onUsage: (usage) =>
+      obs.transcript.record({
+        kind: "llm",
+        ts: Date.now(),
+        session: obs.session,
+        model: providers.llmModelId,
+        usage,
+      }),
+  });
+
   // Diagnostics to stderr (stdout is the MCP transport — must stay clean).
   console.error(`[anatomia/mcp] providers: ${providers.describe()}`);
-  const srv = createServer(mgr, providers);
+  if (obs.enabled) {
+    console.error(
+      `[anatomia/mcp] cache measurement ON -> ${process.env["ANATOMIA_CACHE_LOG"]} (session ${obs.session})`,
+    );
+  }
+  const cacheObs = obs.enabled
+    ? { transcript: obs.transcript, session: obs.session, model: providers.llmModelId }
+    : undefined;
+  const srv = createServer(mgr, providers, cacheObs);
   const transport = new StdioServerTransport();
   await srv.connect(transport);
 }

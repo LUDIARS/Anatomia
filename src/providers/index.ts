@@ -24,6 +24,13 @@ import { createOpenAiEmbedder } from "./openai-embedder.js";
 import { createHashEmbedder } from "./hash-embedder.js";
 import type { Providers, ProviderConfig } from "./types.js";
 import type { LLMClient } from "../domains/card.js";
+import type { LlmUsage } from "../cache/transcript.js";
+
+/** Optional runtime hooks threaded into the resolved providers. */
+export interface ProviderHooks {
+  /** Called once per real LLM API call with its token usage (measurement). */
+  onUsage?: (usage: LlmUsage) => void;
+}
 
 export type { Providers, ProviderConfig } from "./types.js";
 export { createAnthropicLlm } from "./anthropic-llm.js";
@@ -68,10 +75,17 @@ export function envConfig(): ProviderConfig {
 }
 
 /** Resolve a concrete LLM + embedder pair from config (defaults to env). */
-export function resolveProviders(config: ProviderConfig = envConfig()): Providers {
+export function resolveProviders(
+  config: ProviderConfig = envConfig(),
+  hooks?: ProviderHooks,
+): Providers {
   const llmReal = Boolean(config.anthropicApiKey);
   const llm: LLMClient = llmReal
-    ? createAnthropicLlm({ apiKey: config.anthropicApiKey!, model: config.llmModel })
+    ? createAnthropicLlm({
+        apiKey: config.anthropicApiKey!,
+        model: config.llmModel,
+        onUsage: hooks?.onUsage,
+      })
     : createStubLlm();
 
   const embedReal = Boolean(config.embedBaseUrl);

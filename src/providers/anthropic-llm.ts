@@ -16,6 +16,7 @@
  */
 
 import type { LLMClient } from "../domains/card.js";
+import type { LlmUsage } from "../cache/transcript.js";
 
 export interface AnthropicLlmConfig {
   apiKey: string;
@@ -23,6 +24,12 @@ export interface AnthropicLlmConfig {
   model?: string;
   /** Output cap. Default 1024 (a card is small). */
   maxTokens?: number;
+  /**
+   * Usage sink — called once per real API call with the token usage. Lets the
+   * caller record cache-miss cost (and any Anthropic prompt-cache read/creation
+   * tokens) to the measurement transcript. Optional; absent => no reporting.
+   */
+  onUsage?: (usage: LlmUsage) => void;
 }
 
 const DEFAULT_MODEL = "claude-opus-4-8";
@@ -42,7 +49,7 @@ export function createAnthropicLlm(config: AnthropicLlmConfig): LLMClient {
   const maxTokens = config.maxTokens ?? DEFAULT_MAX_TOKENS;
 
   // Lazy, memoised client construction (avoids loading the SDK unless used).
-  let clientPromise: Promise<{ messages: { create(body: unknown): Promise<{ content: { type: string; text?: string }[] }> } }> | null =
+  let clientPromise: Promise<{ messages: { create(body: unknown): Promise<AnthropicResponse> } }> | null =
     null;
   const getClient = async () => {
     if (!clientPromise) {
@@ -61,9 +68,31 @@ export function createAnthropicLlm(config: AnthropicLlmConfig): LLMClient {
       system: SYSTEM_PROMPT,
       messages: [{ role: "user", content: prompt }],
     });
+    if (config.onUsage) config.onUsage(normalizeUsage(res.usage));
     return res.content
       .filter((b) => b.type === "text" && typeof b.text === "string")
       .map((b) => b.text as string)
       .join("");
+  };
+}
+
+/** SDK Messages response — only the fields we read (token counts may be null). */
+interface AnthropicResponse {
+  content: { type: string; text?: string }[];
+  usage?: {
+    input_tokens?: number | null;
+    output_tokens?: number | null;
+    cache_read_input_tokens?: number | null;
+    cache_creation_input_tokens?: number | null;
+  };
+}
+
+/** Map the SDK `usage` (snake_case, possibly absent) to our LlmUsage shape. */
+function normalizeUsage(usage: AnthropicResponse["usage"]): LlmUsage {
+  return {
+    inputTokens: usage?.input_tokens ?? 0,
+    outputTokens: usage?.output_tokens ?? 0,
+    cacheReadTokens: usage?.cache_read_input_tokens ?? 0,
+    cacheCreationTokens: usage?.cache_creation_input_tokens ?? 0,
   };
 }
