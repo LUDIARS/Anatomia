@@ -348,6 +348,10 @@ export async function buildVerdict(
   const source = sourceFromDiffInput(diff);
   const lang = langForDiff(diff, targetPath);
   const tree = await parse(source, lang);
+  // tree-sitter Tree は WASM メモリを所有する。diff の fns/bodyAst は buildVerdict 内で
+  // しか使われない (verdict は anchor 文字列のみ保持) ので、verify 完了後に必ず解放する。
+  // これをしないと warm サーバの per-verify で Tree がリークし WASM 枯渇 (Aborted) する。
+  try {
   const fns = extractFunctions(tree, source, targetPath ?? "<diff>");
   for (const fn of fns) assignAnchorId(fn, normalize(fn.bodyAst));
 
@@ -380,7 +384,10 @@ export async function buildVerdict(
   };
 
   const gates = buildDefaultGates({ embed: embed! });
-  return verify(diffInput, gates);
+    return await verify(diffInput, gates);
+  } finally {
+    tree.delete();
+  }
 }
 
 /**
