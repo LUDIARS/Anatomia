@@ -5,6 +5,7 @@
  *   GET /api/graph     -- { nodes: CodeNode[], edges: Edge[] }   (?project=<id>)
  *   GET /api/metrics   -- NodeMetrics[]                          (?project=<id>)
  *   GET /api/domains   -- { domains: string[], cards: [] }       (?project=<id>)
+ *   GET /api/cache-stats -- { enabled, logPath?, report? }       (A-3 cache hit rate)
  *   GET /              -- serves index.html (management panel SPA)
  *
  * Project management routes (manager mode only):
@@ -42,6 +43,7 @@ import { ProjectManager } from "../../project/manager.js";
 import { webContextSourceFrom } from "./context.js";
 import { mountProjectRoutes } from "./routes/projects.js";
 import { mountAnalysisRoutes } from "./routes/analysis.js";
+import { mountCacheRoute } from "./routes/cache.js";
 import type { AnalysisContext } from "../../core.js";
 import type { CodeNode, Edge } from "../../types.js";
 import { buildTimeline } from "../../dynamic/viz/timeline.js";
@@ -116,6 +118,9 @@ export function createApp(
 
   // ── Per-project analysis routes ──────────────────────────────────────────
   mountAnalysisRoutes(app, source);
+
+  // ── Global LLM-cache stats route (A-3 measurement) ───────────────────────
+  mountCacheRoute(app);
 
   // ── Legacy data routes (kept for backward compat; also used by old tests) ─
 
