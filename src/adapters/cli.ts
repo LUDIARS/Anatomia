@@ -14,6 +14,9 @@
  *   web           -- start the multi-project management panel HTTP server
  *                      --port <n>    TCP port (default 4200)
  *                      --home <dir>  Anatomia home dir (registry + cache location)
+ *   cache-stats   -- aggregate the A-3 LLM-cache transcript into a hit-rate report
+ *                      --log <path>  JSONL transcript (default $ANATOMIA_CACHE_LOG)
+ *                      --json        machine-readable report
  *
  * `verify` / `context` / `where` / `export-graph` accept `--project <id>` to
  * target a registered project (the registered rootPath overrides --repo).
@@ -35,6 +38,8 @@ import { resolveLanding } from "../supply/landing.js";
 import { ProjectManager } from "../project/manager.js";
 import { exportGraphHtml } from "./web/export.js";
 import { startServer } from "./web/server.js";
+import { readEvents } from "../cache/transcript.js";
+import { aggregate, formatReport } from "../cache/stats.js";
 import type { AnalysisContext } from "../core.js";
 import type { Verdict } from "../types.js";
 
@@ -45,8 +50,10 @@ import type { Verdict } from "../types.js";
 export type ProjectAction = "add" | "list" | "remove" | "analyze";
 
 export interface CliArgs {
-  subcommand: "verify" | "context" | "where" | "project" | "export-graph" | "web";
+  subcommand: "verify" | "context" | "where" | "project" | "export-graph" | "web" | "cache-stats";
   repoPath: string;
+  /** For cache-stats: path to the JSONL transcript (defaults to ANATOMIA_CACHE_LOG). */
+  logPath?: string;
   /** For verify: path to diff file, or "-" to read stdin. */
   diff?: string;
   /** For context/where. */
@@ -81,10 +88,11 @@ export function parseArgs(argv: string[]): CliArgs {
     subcommand !== "where" &&
     subcommand !== "project" &&
     subcommand !== "export-graph" &&
-    subcommand !== "web"
+    subcommand !== "web" &&
+    subcommand !== "cache-stats"
   ) {
     throw new Error(
-      `Unknown subcommand "${subcommand ?? ""}". Expected: verify | context | where | project | export-graph | web`,
+      `Unknown subcommand "${subcommand ?? ""}". Expected: verify | context | where | project | export-graph | web | cache-stats`,
     );
   }
 
@@ -96,6 +104,11 @@ export function parseArgs(argv: string[]): CliArgs {
   // The `web` subcommand has its own flag set.
   if (subcommand === "web") {
     return parseWebArgs(args);
+  }
+
+  // The `cache-stats` subcommand has its own flag set.
+  if (subcommand === "cache-stats") {
+    return parseCacheStatsArgs(args);
   }
 
   let repoPath = process.cwd();
@@ -153,6 +166,17 @@ function parseWebArgs(args: string[]): CliArgs {
   };
 }
 
+function parseCacheStatsArgs(args: string[]): CliArgs {
+  let json = false;
+  let logPath: string | undefined;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === "--json" || a === "-j") json = true;
+    else if (a === "--log" || a === "-l") logPath = args[++i];
+  }
+  return { subcommand: "cache-stats", repoPath: process.cwd(), json, logPath };
+}
+
 function parseProjectArgs(args: string[]): CliArgs {
   const action = args.shift();
   if (action !== "add" && action !== "list" && action !== "remove" && action !== "analyze") {
@@ -205,6 +229,10 @@ export async function runCli(
 ): Promise<{ exitCode: number; output: string }> {
   if (args.subcommand === "project") {
     return runProject(args);
+  }
+
+  if (args.subcommand === "cache-stats") {
+    return runCacheStats(args);
   }
 
   const ctx = await resolveContext(args);
@@ -274,6 +302,36 @@ async function resolveContext(args: CliArgs): Promise<AnalysisContext> {
     return mgr.getContext(args.project);
   }
   return analyze(args.repoPath);
+}
+
+// ---------------------------------------------------------------------------
+// cache-stats subcommand — aggregate the A-3 cache transcript into a hit rate
+// ---------------------------------------------------------------------------
+
+/**
+ * Report the LLM-cache hit rate from the JSONL transcript written when
+ * ANATOMIA_CACHE_LOG is set (see cache/transcript.ts). Reads --log <path> or the
+ * env var; aggregates global / per-namespace / per-session hit rates + token
+ * spend. This is how a session quantifies whether the shared cache is paying off.
+ */
+async function runCacheStats(
+  args: CliArgs,
+): Promise<{ exitCode: number; output: string }> {
+  const logPath = args.logPath ?? process.env["ANATOMIA_CACHE_LOG"];
+  if (!logPath) {
+    return {
+      exitCode: 1,
+      output:
+        "no transcript: set ANATOMIA_CACHE_LOG (and run verify/analyze via MCP) " +
+        "or pass --log <path.jsonl>",
+    };
+  }
+  const events = await readEvents(logPath);
+  const report = aggregate(events);
+  if (args.json) {
+    return { exitCode: 0, output: JSON.stringify(report, null, 2) };
+  }
+  return { exitCode: 0, output: formatReport(report) };
 }
 
 // ---------------------------------------------------------------------------
