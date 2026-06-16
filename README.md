@@ -52,7 +52,8 @@ duplication ゲートが「車輪の再発明」を実検出する。
 | `ANTHROPIC_API_KEY` | LLM 蒸留を有効化（既定モデル `claude-opus-4-8`） |
 | `ANATOMIA_LLM_MODEL` | LLM モデル上書き |
 | `ANATOMIA_EMBED_BASE_URL` / `_API_KEY` / `_MODEL` / `_DIM` | OpenAI 互換 embedder（ローカル Ollama 可） |
-| `ANATOMIA_CACHE_DIR` | 設定すると LLM 蒸留キャッシュ（ドメインカード）を**永続・共有**ストアに置く。content-addressed なので呼び出し/セッション/リポを跨いでヒットする。未設定はプロセス内メモリ（hermetic） |
+| `ANATOMIA_CACHE_REDIS` | `redis://…` を設定すると LLM 蒸留キャッシュを **Redis（org 横断共有）** に置く。どこかのマシンが蒸留したカードを全員が引けるので命中率が上がり、Redis の `maxmemory`+`allkeys-lfu` で eviction も自動。`redis` は optionalDependency（未導入/到達不可なら無言で no-op に degrade）。`ANATOMIA_CACHE_REDIS_TTL`（秒）で保持上限も可。backend 優先度 = **Redis > File > memory** |
+| `ANATOMIA_CACHE_DIR` | 設定すると LLM 蒸留キャッシュ（ドメインカード）を**永続・共有**ストア（per-machine file）に置く。content-addressed なので呼び出し/セッション/リポを跨いでヒットする。未設定はプロセス内メモリ（hermetic） |
 | `ANATOMIA_CACHE_LOG` | 設定すると LLM キャッシュの **hit/miss と LLM 呼び出しの token 使用量** を JSONL transcript に追記する（MCP サーバ経路）。`anatomia cache-stats` で命中率を集計。未設定は計測 off（ゼロオーバヘッド） |
 | `ANATOMIA_SESSION_ID` | transcript の session タグを上書き（Lictor 等のラッパが端末セッションと cache イベントを対応付けるため）。未設定は `pid-時刻` を自動採番 |
 

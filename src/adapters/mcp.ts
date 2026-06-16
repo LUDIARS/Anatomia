@@ -30,9 +30,8 @@ import {
 import { resolveLanding } from "../supply/landing.js";
 import { ProjectManager } from "../project/manager.js";
 import { resolveProviders } from "../providers/index.js";
-import { createCardCache } from "../domains/card.js";
 import type { CardCache, DomainCard } from "../domains/card.js";
-import { createFileStore } from "../cache/file-store.js";
+import { resolveCacheStore } from "../cache/resolve.js";
 import { instrumentStore } from "../cache/instrumented.js";
 import { resolveTranscript } from "../cache/transcript.js";
 import type { CacheTranscript } from "../cache/transcript.js";
@@ -97,13 +96,12 @@ export interface CacheObservability {
 }
 
 /**
- * Resolve the card cache: a persistent file store under ANATOMIA_CACHE_DIR when
- * set (shared across invocations / sessions / repos), else in-memory. When `obs`
- * is present the store is wrapped so every get records a hit/miss event.
+ * Resolve the card cache backend from env (Redis > File > memory; see
+ * cache/resolve.ts). When `obs` is present the store is wrapped so every get
+ * records a hit/miss event.
  */
 function resolveCardCache(obs?: CacheObservability): CardCache {
-  const dir = process.env["ANATOMIA_CACHE_DIR"];
-  const base: CardCache = dir ? createFileStore<DomainCard>(dir) : createCardCache();
+  const base = resolveCacheStore<DomainCard>();
   if (!obs) return base;
   return instrumentStore(base, {
     ns: "card",

@@ -48,9 +48,8 @@ import { mountAnalysisRoutes } from "./routes/analysis.js";
 import { mountCacheRoute } from "./routes/cache.js";
 import { mountHarnessRoutes } from "./routes/harness.js";
 import { resolveProviders } from "../../providers/index.js";
-import { createCardCache } from "../../domains/card.js";
-import type { CardCache, DomainCard } from "../../domains/card.js";
-import { createFileStore } from "../../cache/file-store.js";
+import type { DomainCard } from "../../domains/card.js";
+import { resolveCacheStore } from "../../cache/resolve.js";
 import { instrumentStore } from "../../cache/instrumented.js";
 import { resolveTranscript } from "../../cache/transcript.js";
 import type { VerifyOptions } from "../../core.js";
@@ -250,8 +249,7 @@ function resolveWebVerifyOpts(): VerifyOptions {
         usage,
       }),
   });
-  const dir = process.env["ANATOMIA_CACHE_DIR"];
-  const base: CardCache = dir ? createFileStore<DomainCard>(dir) : createCardCache();
+  const base = resolveCacheStore<DomainCard>();
   const cardCache = obs.enabled
     ? instrumentStore(base, { ns: "card", transcript: obs.transcript, session: obs.session, model: providers.llmModelId }).store
     : base;
