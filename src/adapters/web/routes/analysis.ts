@@ -36,29 +36,14 @@ export function mountAnalysisRoutes(app: Hono, source: WebContextSource): void {
 
   app.get("/api/projects/:id/summary", async (c) => {
     const id = c.req.param("id");
-    let ctx;
     try {
-      ctx = await source.resolve(id);
+      // Served from the persisted snapshot when the source is unchanged — the
+      // first-view fast path that avoids a full re-analysis after a restart.
+      const counts = await source.summary(id);
+      return c.json({ id, ...counts });
     } catch {
       return c.json({ error: `no such project "${id}"` }, 404);
     }
-
-    const nodes = await ctx.graph.allNodes();
-    let edgeCount = 0;
-    for (const n of nodes) {
-      const edges = await ctx.graph.edgesFrom(n.id);
-      edgeCount += edges.length;
-    }
-
-    return c.json({
-      id,
-      files: ctx.files.length,
-      functions: ctx.functions.length,
-      nodes: nodes.length,
-      edges: edgeCount,
-      domains: (ctx.domains ?? []).length,
-      links: (ctx.links ?? []).length,
-    });
   });
 
   // ── hotspots ──────────────────────────────────────────────────────────────
