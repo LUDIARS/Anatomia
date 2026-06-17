@@ -13,7 +13,8 @@
 import { analyze } from "../core.js";
 import type { AnalysisContext, AnalyzeOptions } from "../core.js";
 import { ProjectRegistry } from "./registry.js";
-import { AnalysisCache, computeFingerprint } from "./cache.js";
+import { AnalysisCache, computeFingerprint, summarize } from "./cache.js";
+import type { SummaryCounts } from "./cache.js";
 import { loadRegistry, saveRegistry } from "./store.js";
 import type { Project, ProjectInput } from "./types.js";
 
@@ -109,8 +110,16 @@ export class ProjectManager {
   async analyzeProject(id?: string): Promise<AnalysisContext> {
     const projectId = this.resolveId(id);
     const project = this.registry.get(projectId)!;
-
     const fingerprint = await computeFingerprint(project.rootPath);
+    return this.analyzeWith(projectId, project, fingerprint);
+  }
+
+  /** Resolve a context for a project whose fingerprint is already computed. */
+  private async analyzeWith(
+    projectId: string,
+    project: Project,
+    fingerprint: string,
+  ): Promise<AnalysisContext> {
     const cached = this.cache.getIfFresh(projectId, fingerprint);
     if (cached) return cached;
 
@@ -121,6 +130,32 @@ export class ProjectManager {
     const ctx = await analyze(project.rootPath, opts);
     await this.cache.put(projectId, fingerprint, ctx);
     return ctx;
+  }
+
+  /**
+   * First-view summary counts for a project, optimised for the project list's
+   * first paint. Three tiers, cheapest first:
+   *   1. live in-memory context (fingerprint match) → summarise directly;
+   *   2. persisted snapshot whose fingerprint still matches the source →
+   *      served from disk WITHOUT re-analysis (the restart fast path);
+   *   3. changed / never-analysed → full analyze(), then summarise.
+   * Only tier 3 pays for parsing + graph build, so an unchanged workspace
+   * repaints from cache after a fingerprint walk alone.
+   */
+  async summary(id?: string): Promise<SummaryCounts> {
+    const projectId = this.resolveId(id);
+    const project = this.registry.get(projectId)!;
+    const fingerprint = await computeFingerprint(project.rootPath);
+
+    const cached = this.cache.getIfFresh(projectId, fingerprint);
+    if (cached) return summarize(cached);
+
+    const snap = await this.cache.readSnapshot(projectId);
+    if (snap && snap.fingerprint === fingerprint && snap.summary) {
+      return snap.summary;
+    }
+
+    return summarize(await this.analyzeWith(projectId, project, fingerprint));
   }
 
   /**

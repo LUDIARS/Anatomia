@@ -8,6 +8,8 @@
  */
 
 import { ProjectManager } from "../../project/manager.js";
+import { summarize } from "../../project/cache.js";
+import type { SummaryCounts } from "../../project/cache.js";
 import type { AnalysisContext } from "../../core.js";
 import type { Project } from "../../project/types.js";
 
@@ -15,6 +17,12 @@ import type { Project } from "../../project/types.js";
 export interface WebContextSource {
   /** Resolve the AnalysisContext for an optional project id. */
   resolve(projectId?: string): Promise<AnalysisContext>;
+  /**
+   * First-view summary counts for a project. Cheaper than resolve(): served
+   * from the persisted snapshot when the source is unchanged, so the project
+   * list repaints without forcing a full re-analysis after a restart.
+   */
+  summary(projectId?: string): Promise<SummaryCounts>;
   /** All registered projects (or a synthetic single-entry list). */
   projects(): Project[];
   /** The currently selected/default project id, or null. */
@@ -32,6 +40,7 @@ export function webContextSourceFrom(
   if (src instanceof ProjectManager) {
     return {
       resolve: (projectId?: string) => src.getContext(projectId),
+      summary: (projectId?: string) => src.summary(projectId),
       projects: () => src.list(),
       selected: () => src.selected,
     };
@@ -46,6 +55,7 @@ export function webContextSourceFrom(
   };
   return {
     resolve: async () => src,
+    summary: async () => summarize(src),
     projects: () => [single],
     selected: () => "default",
   };
