@@ -6,6 +6,8 @@
  *   GET /api/metrics   -- NodeMetrics[]                          (?project=<id>)
  *   GET /api/domains   -- { domains: string[], cards: [] }       (?project=<id>)
  *   GET /api/cache-stats -- { enabled, logPath?, report? }       (A-3 cache hit rate)
+ *   POST /api/cost-feed  -- ingest cross-service cost summaries     (other services PUSH)
+ *   GET  /api/cost-feed  -- aggregated cross-service cost report    (panel)
  *   POST /api/verify   -- { diff, project? } -> Verdict           (warm harness verify hook)
  *   GET  /api/context  -- ?project=&task= -> ContextBundle        (warm harness supply hook)
  *   GET /              -- serves index.html (management panel SPA)
@@ -46,6 +48,7 @@ import { webContextSourceFrom } from "./context.js";
 import { mountProjectRoutes } from "./routes/projects.js";
 import { mountAnalysisRoutes } from "./routes/analysis.js";
 import { mountCacheRoute } from "./routes/cache.js";
+import { mountCostRoute } from "./routes/cost.js";
 import { mountHarnessRoutes } from "./routes/harness.js";
 import { resolveProviders } from "../../providers/index.js";
 import type { DomainCard } from "../../domains/card.js";
@@ -131,6 +134,9 @@ export function createApp(
 
   // ── Global LLM-cache stats route (A-3 measurement) ───────────────────────
   mountCacheRoute(app);
+
+  // ── Cross-service cost-feed routes (other services PUSH cost summaries) ────
+  mountCostRoute(app);
 
   // ── Warm supply/verify routes for the agent harness (hooks) ──────────────
   mountHarnessRoutes(app, source, verifyOpts);

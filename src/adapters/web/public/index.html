@@ -283,6 +283,16 @@
         </div>
         <div id="cache-body" style="font-size:0.85rem;color:#8b949e">Loading&hellip;</div>
       </section>
+
+      <!-- ═══ Cross-service LLM cost (pushed via POST /api/cost-feed) ═══ -->
+      <section id="cost-card" style="margin-top:1rem;border:1px solid #30363d;border-radius:8px;padding:1rem 1.25rem;background:#0d1117">
+        <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.6rem">
+          <h2 style="margin:0;font-size:1rem">LLM Cost (cross-service)</h2>
+          <span id="cost-total-badge" style="font-weight:600"></span>
+          <button class="btn btn-sm" id="cost-refresh" style="margin-left:auto">Refresh</button>
+        </div>
+        <div id="cost-body" style="font-size:0.85rem;color:#8b949e">Loading&hellip;</div>
+      </section>
     </div>
 
     <!-- ═══ VIEW: Per-project dashboard ═══ -->
@@ -943,6 +953,57 @@
     bodyEl.innerHTML=html;
   }
   var btn=document.getElementById('cache-refresh');
+  if(btn) btn.addEventListener('click', load);
+  load();
+})();
+</script>
+
+<!-- ═══ Cross-service LLM cost widget — feeds from POST /api/cost-feed ═══ -->
+<script>
+(function () {
+  var bodyEl = document.getElementById('cost-body');
+  var badgeEl = document.getElementById('cost-total-badge');
+  if (!bodyEl) return;
+  function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+  function usd(n){return '$'+(Number(n)||0).toFixed(4);}
+  function n(v){return (Number(v)||0).toLocaleString();}
+  function row(label, a){
+    return '<tr><td style="padding:2px 14px 2px 0;color:#c9d1d9">'+esc(label)+'</td>'+
+      '<td style="text-align:right;color:#8b949e">'+a.sessions+'</td>'+
+      '<td style="text-align:right;padding-left:14px;color:#8b949e">'+a.calls+'</td>'+
+      '<td style="text-align:right;padding-left:14px;color:#8b949e">'+n(a.cacheReadTokens)+'</td>'+
+      '<td style="text-align:right;padding-left:14px;color:#c9d1d9">'+usd(a.costUsd)+'</td></tr>';
+  }
+  function header(){
+    return '<tr style="color:#6e7681"><td></td>'+
+      '<td style="text-align:right">sess</td>'+
+      '<td style="text-align:right;padding-left:14px">calls</td>'+
+      '<td style="text-align:right;padding-left:14px">cacheR</td>'+
+      '<td style="text-align:right;padding-left:14px">cost</td></tr>';
+  }
+  async function load(){
+    bodyEl.textContent='Loading…'; badgeEl.textContent='';
+    var r;
+    try { r = await (await fetch('/api/cost-feed')).json(); }
+    catch(e){ bodyEl.textContent='failed to load /api/cost-feed'; return; }
+    if(!r || !r.total || r.total.calls===0){
+      bodyEl.innerHTML='no cost pushed yet — services POST to <code>/api/cost-feed</code> (Discutere: <code>npm run cost-report</code> + relay)';
+      return;
+    }
+    badgeEl.textContent=usd(r.total.costUsd)+' ('+r.total.calls+' calls)';
+    var html='<table style="border-collapse:collapse"><tbody>';
+    html+=header();
+    html+=row('TOTAL', r.total);
+    (r.byService||[]).forEach(function(a){ html+=row('svc: '+a.key, a); });
+    (r.byModel||[]).forEach(function(a){ html+=row('model: '+a.key, a); });
+    html+='</tbody></table>';
+    html+='<div style="margin-top:10px;color:#8b949e">tokens in/out: '+n(r.total.inputTokens)+'/'+n(r.total.outputTokens)+
+      ' &middot; cache read/create: '+n(r.total.cacheReadTokens)+'/'+n(r.total.cacheCreationTokens)+
+      (r.updatedAt? ' &middot; updated '+esc(new Date(r.updatedAt).toLocaleString()):'')+
+      '<br>cost は等価API換算の推定 (サブスクは定額・実課金ではない)</div>';
+    bodyEl.innerHTML=html;
+  }
+  var btn=document.getElementById('cost-refresh');
   if(btn) btn.addEventListener('click', load);
   load();
 })();
