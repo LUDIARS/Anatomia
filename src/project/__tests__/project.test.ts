@@ -187,3 +187,71 @@ describe("ProjectManager analyzing two projects", () => {
     expect(after.functions.map((f) => f.name)).toContain("fixtureGamma");
   });
 });
+
+// ---------------------------------------------------------------------------
+// First-view summary fast path (cache the project list's first paint)
+// ---------------------------------------------------------------------------
+
+describe("first-view summary fast path", () => {
+  let fastHome: string;
+  let fastRoot: string;
+
+  const make = async () => {
+    const m = new ProjectManager(new ProjectRegistry(), {
+      homeDir: fastHome,
+      analyzeOptions: { quiet: true },
+    });
+    await m.addProject({ name: "Fast", rootPath: fastRoot });
+    return m;
+  };
+
+  beforeAll(async () => {
+    fastHome = await mkdtemp(join(tmpdir(), "anatomia-fast-home-"));
+    fastRoot = await mkdtemp(join(tmpdir(), "anatomia-fast-fixture-"));
+    await mkdir(join(fastRoot, "src"), { recursive: true });
+    await writeFile(join(fastRoot, "src", "a.cpp"), FIXTURE_CPP, "utf8");
+  });
+
+  afterAll(async () => {
+    await rm(fastHome, { recursive: true, force: true });
+    await rm(fastRoot, { recursive: true, force: true });
+  });
+
+  it("persists the first-view summary counts in the snapshot", async () => {
+    const m = await make();
+    await m.analyzeProject("fast");
+    const snap = await m.cache.readSnapshot("fast");
+    expect(snap!.summary).toBeDefined();
+    expect(snap!.summary!.functions).toBeGreaterThan(0);
+    expect(snap!.summary!.files).toBe(snap!.fileCount);
+    expect(snap!.summary!.functions).toBe(snap!.functionCount);
+  });
+
+  it("serves the summary from disk without re-analysis after a restart", async () => {
+    // Fresh manager = cold in-memory cache; the snapshot from the previous test
+    // is still on disk. summary() must answer from disk and never analyze.
+    const cold = await make();
+    const a = await cold.summary("fast");
+    const b = await cold.summary("fast");
+    expect(a.functions).toBeGreaterThan(0);
+    expect(b).toEqual(a);
+    // A full analyze() would have populated the in-memory cache, turning the
+    // second call into a hit. Zero hits proves both were disk-served.
+    expect(cold.cache.hits).toBe(0);
+  });
+
+  it("falls back to analysis when the source changed since the snapshot", async () => {
+    const cold = await make();
+    await writeFile(
+      join(fastRoot, "src", "a.cpp"),
+      FIXTURE_CPP + "\nvoid fixtureDelta() { }\n",
+      "utf8",
+    );
+    const s = await cold.summary("fast"); // fingerprint changed → re-analyze
+    expect(s.functions).toBeGreaterThanOrEqual(3);
+    // The re-analyzed context is now in memory: the next summary is a hit.
+    const hitsBefore = cold.cache.hits;
+    await cold.summary("fast");
+    expect(cold.cache.hits).toBe(hitsBefore + 1);
+  });
+});

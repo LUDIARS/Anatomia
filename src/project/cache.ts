@@ -42,6 +42,20 @@ interface FileStamp {
   mtimeMs: number;
 }
 
+/**
+ * First-view summary counts for a project. This is exactly the payload the
+ * management panel's project list paints per row, so persisting it lets a cold
+ * server answer `/api/projects/:id/summary` from disk without re-analysis.
+ */
+export interface SummaryCounts {
+  files: number;
+  functions: number;
+  nodes: number;
+  edges: number;
+  domains: number;
+  links: number;
+}
+
 /** Persisted, serializable cache snapshot for a project. */
 export interface CacheSnapshot {
   version: 1;
@@ -52,6 +66,11 @@ export interface CacheSnapshot {
   merkleHash: string;
   fileCount: number;
   functionCount: number;
+  /**
+   * First-view summary counts. Optional because snapshots written before this
+   * field existed lack it — readers must fall back to (re)analysis when absent.
+   */
+  summary?: SummaryCounts;
   analyzedAt: string;
 }
 
@@ -109,6 +128,27 @@ export function merkleHashOf(ctx: AnalysisContext): string {
 }
 
 /**
+ * Derive the first-view summary counts from an analyzed context. Mirrors what
+ * the `/api/projects/:id/summary` route returns; computed once at analyze time
+ * and persisted so the first paint never has to traverse the graph again.
+ */
+export async function summarize(ctx: AnalysisContext): Promise<SummaryCounts> {
+  const nodes = await ctx.graph.allNodes();
+  let edges = 0;
+  for (const n of nodes) {
+    edges += (await ctx.graph.edgesFrom(n.id)).length;
+  }
+  return {
+    files: ctx.files.length,
+    functions: ctx.functions.length,
+    nodes: nodes.length,
+    edges,
+    domains: (ctx.domains ?? []).length,
+    links: (ctx.links ?? []).length,
+  };
+}
+
+/**
  * In-memory + on-disk incremental analysis cache.
  *
  * `get(id, fingerprint)` returns a cached context only when the fingerprint
@@ -146,13 +186,15 @@ export class AnalysisCache {
   ): Promise<CacheSnapshot> {
     const merkleHash = merkleHashOf(ctx);
     this.mem.set(projectId, { fingerprint, merkleHash, ctx });
+    const summary = await summarize(ctx);
     const snap: CacheSnapshot = {
       version: 1,
       projectId,
       fingerprint,
       merkleHash,
-      fileCount: ctx.files.length,
-      functionCount: ctx.functions.length,
+      fileCount: summary.files,
+      functionCount: summary.functions,
+      summary,
       analyzedAt: new Date().toISOString(),
     };
     await this.writeSnapshot(projectId, snap);
