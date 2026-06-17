@@ -4,6 +4,7 @@
       "command": "node",
       "args": ["bin/anatomia-mcp.mjs"],
       "env": {
+        "ANATOMIA_HOME": "${ANATOMIA_HOME:-E:/Document/Ars/.anatomia}",
         "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY}",
         "ANATOMIA_LLM_MODEL": "${ANATOMIA_LLM_MODEL}",
         "ANATOMIA_EMBED_BASE_URL": "${ANATOMIA_EMBED_BASE_URL}",
