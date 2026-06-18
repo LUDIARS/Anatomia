@@ -410,14 +410,35 @@ async function runProject(
 // main
 // ---------------------------------------------------------------------------
 
+/**
+ * Write `text` to a stdio stream, wait for it to flush, then exit with `code`.
+ *
+ * On Windows, stdout/stderr backed by a pipe (a hook redirect, a backfill loop
+ * capturing output) are *asynchronous*: write() hands the data to libuv and
+ * returns before the OS pipe has drained. Calling process.exit() immediately
+ * tears down the pipe handle while that write is still closing, which makes
+ * libuv abort with `Assertion failed: !(handle->flags & UV_HANDLE_CLOSING)` —
+ * intermittently, only when the write happens to still be in flight. Waiting
+ * for the write callback (fired once the data is flushed) before exiting closes
+ * the race and also guarantees the output is never truncated.
+ */
+async function writeThenExit(
+  stream: NodeJS.WriteStream,
+  text: string,
+  code: number,
+): Promise<never> {
+  await new Promise<void>((resolve) => stream.write(text, () => resolve()));
+  process.exit(code);
+}
+
 export async function main(): Promise<void> {
   let args: CliArgs;
   try {
     args = parseArgs(process.argv.slice(2));
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    process.stderr.write(`anatomia: ${msg}\n`);
-    process.exit(1);
+    await writeThenExit(process.stderr, `anatomia: ${msg}\n`, 1);
+    return;
   }
 
   // The `web` subcommand starts an HTTP server and keeps the process alive.
@@ -430,6 +451,5 @@ export async function main(): Promise<void> {
   }
 
   const { exitCode, output } = await runCli(args);
-  process.stdout.write(output + "\n");
-  process.exit(exitCode);
+  await writeThenExit(process.stdout, output + "\n", exitCode);
 }
