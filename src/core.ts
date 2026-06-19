@@ -92,7 +92,7 @@ function collectSpecFiles(dir: string): Promise<string[]> {
 }
 
 /** Detect language from file extension. Defaults to "cpp" for .h and .cpp. */
-function langFor(filePath: string): Lang {
+export function langFor(filePath: string): Lang {
   const ext = extname(filePath).toLowerCase();
   if (ext === ".cs") return "c_sharp";
   if (ext === ".tsx") return "tsx";
