@@ -4,7 +4,8 @@
 ProjectManager を背後に持つ（multi-project）か bare AnalysisContext（single-project）で起動。
 **single-project モードでは mutation 系ルートは 501** を返す。
 
-ルートグループは `src/adapters/web/routes/`（analysis / projects / cache / cost / harness）。
+ルートグループは `src/adapters/web/routes/`（analysis / projects / cache / cost / harness /
+branch / domain-view）。
 
 ## 静的 / 解析系 read
 
@@ -33,6 +34,8 @@ ProjectManager を背後に持つ（multi-project）か bare AnalysisContext（s
 | GET | `/api/projects/:id/spec-links` | コード↔spec リンク |
 | GET | `/api/projects/:id/domains` | ドメイン検出結果 |
 | GET | `/api/projects/:id/vis-data` | vis-network データ（export.ts と共有） |
+| GET | `/api/projects/:id/branch-diff` | ブランチ差分の関数 delta（`?base=<ref>`、→ feature/branch-diff.md） |
+| GET | `/api/projects/:id/domain-view` | ドメイン別フォーカス + spec 由来の日本語説明（→ feature/domain-view.md） |
 
 ## warm harness（per-edit / per-prompt フック）
 

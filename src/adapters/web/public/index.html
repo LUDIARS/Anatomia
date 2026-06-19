@@ -55,6 +55,8 @@
     }
     .badge-green { background: #0d4a1e; color: #3fb950; }
     .badge-red   { background: #4a0f0f; color: #f78166; }
+    .badge-orange{ background: #4a330d; color: #d29922; }
+    .badge-blue  { background: #0d2f4a; color: #58a6ff; }
 
     /* ── VIEW: projects list ────────────────────────────────── */
     #view-projects { flex: 1; overflow-y: auto; padding: 20px 24px; }
@@ -215,6 +217,62 @@
     .conf-bar { display: inline-block; height: 5px; border-radius: 2px;
                 background: #58a6ff; vertical-align: middle; margin-left: 4px; }
 
+    /* ── Branch-diff controls (overlaid on the Graph tab) ───── */
+    #graph-branch-bar {
+      position: absolute; top: 10px; right: 10px; z-index: 5;
+      display: flex; gap: 10px; align-items: center;
+      background: rgba(22,27,34,.92); border: 1px solid #30363d;
+      border-radius: 6px; padding: 5px 10px; font-size: 0.74rem; color: #c9d1d9;
+    }
+    #graph-branch-bar label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+    #graph-branch-bar select {
+      background: #21262d; color: #e1e4e8; border: 1px solid #30363d;
+      border-radius: 4px; padding: 2px 6px; font-size: 0.72rem; max-width: 150px;
+    }
+    #branch-diff-summary { color: #8b949e; font-size: 0.7rem; }
+    #branch-diff-summary .bd-add { color: #3fb950; }
+    #branch-diff-summary .bd-chg { color: #d29922; }
+    #branch-diff-summary .bd-rem { color: #f78166; }
+
+    /* ── Domain View panel ──────────────────────────────────── */
+    #panel-domain-view { display: none; }
+    #panel-domain-view.active { display: flex; flex-direction: row; height: 100%; overflow: hidden; }
+    #dv-sidebar {
+      width: 300px; flex: none; overflow-y: auto; padding: 14px;
+      border-right: 1px solid #30363d; background: #0f1117;
+    }
+    #dv-sidebar h3 { font-size: 0.75rem; color: #8b949e; text-transform: uppercase;
+                     letter-spacing: .05em; margin-bottom: 10px; }
+    .dv-card {
+      background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+      padding: 10px 12px; margin-bottom: 10px; cursor: pointer; transition: border-color .12s;
+    }
+    .dv-card:hover { border-color: #58a6ff; }
+    .dv-card.selected { border-color: #58a6ff; background: #1c2330; }
+    .dv-card-name { font-weight: 600; font-size: 0.86rem; margin-bottom: 5px; }
+    .dv-card-desc { font-size: 0.74rem; color: #8b949e; line-height: 1.4; margin: 6px 0; }
+    .dv-card-stats { display: flex; gap: 10px; font-size: 0.72rem; color: #6e7681; }
+    .dv-card-stats strong { color: #c9d1d9; }
+    #dv-main { flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative; }
+    #dv-canvas { flex: 1; width: 100%; }
+    #dv-graph-loading {
+      position: absolute; top: 0; left: 0; right: 0; bottom: 160px;
+      display: flex; align-items: center; justify-content: center;
+      color: #6e7681; font-size: 0.85rem; pointer-events: none;
+    }
+    #dv-spec {
+      flex: none; height: 160px; overflow-y: auto; border-top: 1px solid #30363d;
+      background: #161b22; padding: 10px 14px;
+    }
+    #dv-spec h4 { font-size: 0.72rem; color: #8b949e; text-transform: uppercase;
+                  letter-spacing: .05em; margin-bottom: 8px; }
+    .dv-spec-ref { padding: 6px 0; border-bottom: 1px solid #21262d; font-size: 0.76rem; }
+    .dv-spec-ref:last-child { border-bottom: none; }
+    .dv-spec-head { font-weight: 600; color: #c9d1d9; }
+    .dv-spec-file { font-family: monospace; font-size: 0.68rem; color: #6e7681; margin-left: 6px; }
+    .dv-spec-excerpt { color: #8b949e; margin-top: 3px; line-height: 1.45; }
+    #dv-placeholder { color: #6e7681; font-size: 0.85rem; padding: 24px; text-align: center; }
+
     /* ── Common states ──────────────────────────────────────── */
     .loading-msg { color: #6e7681; padding: 24px; text-align: center; }
     .error-msg   { color: #f78166; padding: 24px; text-align: center; }
@@ -316,6 +374,7 @@
       <!-- Tab bar -->
       <div id="dash-tabs">
         <button class="tab-btn active" data-tab="graph">Graph</button>
+        <button class="tab-btn" data-tab="domain-view">Domain View</button>
         <button class="tab-btn" data-tab="hotspots">Hotspots</button>
         <button class="tab-btn" data-tab="domains">Domains</button>
         <button class="tab-btn" data-tab="spec-links">Spec Links</button>
@@ -334,6 +393,15 @@
                      style="font-size:0.75rem;color:#8b949e">Group:</label>
               <select id="graph-group-filter"><option value="">All groups</option></select>
             </div>
+            <div id="graph-branch-bar">
+              <label title="Show only functions this branch added or changed vs its base">
+                <input type="checkbox" id="bd-toggle"> Branch diff only
+              </label>
+              <label title="Also show functions one call away from the diff">
+                <input type="checkbox" id="bd-neighbors"> +1-hop
+              </label>
+              <span id="branch-diff-summary"></span>
+            </div>
           </div>
           <div id="graph-side">
             <div id="graph-detail">
@@ -349,6 +417,24 @@
               <div class="legend-encode"><span style="color:#d29922">&#9632;</span> orange &ge;4</div>
               <div class="legend-encode"><span style="color:#238636">&#9632;</span> green &lt;4</div>
               <div class="legend-note" style="margin-top:4px">Node size = cyclomatic complexity</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── Domain View ── -->
+        <div class="tab-panel" id="panel-domain-view">
+          <div id="dv-sidebar">
+            <h3>Domains</h3>
+            <div id="dv-list"><div class="loading-msg">Loading…</div></div>
+          </div>
+          <div id="dv-main">
+            <div id="dv-canvas"></div>
+            <div id="dv-graph-loading" style="display:none">Select a domain to focus the graph.</div>
+            <div id="dv-spec">
+              <h4>Spec references (日本語補間)</h4>
+              <div id="dv-spec-body"><div id="dv-placeholder">
+                Click a domain on the left to focus its functions and see the linked spec.
+              </div></div>
             </div>
           </div>
         </div>
@@ -442,6 +528,12 @@
     network: null,
     rawVisData: null,
     graphLoaded: false,
+    branchDiff: null,
+    branchDiffBase: null,
+    domainNetwork: null,
+    domainViewLoaded: false,
+    domainViews: null,
+    selectedDomain: null,
   };
 
   // ── Navigation ─────────────────────────────────────────────────────────────
@@ -473,7 +565,12 @@
     state.projectPath = path;
     state.graphLoaded = false;
     state.rawVisData = null;
+    state.branchDiff = null;
+    state.branchDiffBase = null;
+    state.domainViewLoaded = false;
+    state.selectedDomain = null;
     if (state.network) { state.network.destroy(); state.network = null; }
+    if (state.domainNetwork) { state.domainNetwork.destroy(); state.domainNetwork = null; }
     renderCrumb();
     showView('dashboard');
     // Reset to graph tab
@@ -673,10 +770,11 @@
   function loadTabContent(tab) {
     var id = state.projectId;
     if (!id) return;
-    if (tab === 'graph')      loadGraph(id);
-    if (tab === 'hotspots')   loadHotspots(id);
-    if (tab === 'domains')    loadDomains(id);
-    if (tab === 'spec-links') loadSpecLinks(id);
+    if (tab === 'graph')       loadGraph(id);
+    if (tab === 'domain-view') loadDomainView(id);
+    if (tab === 'hotspots')    loadHotspots(id);
+    if (tab === 'domains')     loadDomains(id);
+    if (tab === 'spec-links')  loadSpecLinks(id);
   }
 
   // Re-analyze from dashboard header
@@ -689,7 +787,12 @@
       if (!res.ok) { var b = await res.json(); throw new Error(b.error); }
       state.rawVisData = null;
       state.graphLoaded = false;
+      state.branchDiff = null;
+      state.branchDiffBase = null;
+      state.domainViewLoaded = false;
+      state.selectedDomain = null;
       if (state.network) { state.network.destroy(); state.network = null; }
+      if (state.domainNetwork) { state.domainNetwork.destroy(); state.domainNetwork = null; }
       loadDashboard();
     } catch (e) { alert('Re-analyze failed: ' + e.message); }
     finally { btn.disabled = false; btn.textContent = 'Re-analyze'; }
@@ -795,13 +898,203 @@
       }).join('');
     });
 
-    // Group filter
-    gf.onchange = function () {
-      var chosen = gf.value;
-      dsNodes.update((state.rawVisData ? state.rawVisData.nodes : []).map(function (n) {
-        return { id: n.id, hidden: chosen !== '' && n.group !== chosen };
+    // ── Unified graph filters: group select + branch-diff overlay ──────────────
+    // Both filters narrow the SAME main graph (the branch diff is a view over the
+    // full analysis, not a separate parse). Added/changed diff nodes are
+    // re-bordered green/orange; everything else is hidden in diff-only mode.
+    var bdToggle    = document.getElementById('bd-toggle');
+    var bdNeighbors = document.getElementById('bd-neighbors');
+    var sumEl       = document.getElementById('branch-diff-summary');
+
+    function diffSets() {
+      var bd = state.branchDiff;
+      if (!bdToggle.checked || !bd || !bd.available) return null;
+      var added = {}, changed = {}, all = {};
+      bd.anchors.added.forEach(function (a) { added[a] = 1; all[a] = 1; });
+      bd.anchors.changed.forEach(function (a) { changed[a] = 1; all[a] = 1; });
+      var visible = all;
+      if (bdNeighbors.checked) {
+        visible = {};
+        Object.keys(all).forEach(function (k) { visible[k] = 1; });
+        (state.rawVisData ? state.rawVisData.edges : []).forEach(function (e) {
+          if (all[e.from] || all[e.to]) { visible[e.from] = 1; visible[e.to] = 1; }
+        });
+      }
+      return { added: added, changed: changed, visible: visible };
+    }
+
+    function applyGraphFilters() {
+      var group = gf.value;
+      var ds = diffSets();
+      var src = state.rawVisData ? state.rawVisData.nodes : [];
+      dsNodes.update(src.map(function (n) {
+        var hidden = group !== '' && n.group !== group;
+        var border = n.color.border;
+        if (ds) {
+          if (!ds.visible[n.id]) hidden = true;
+          if (ds.added[n.id])        border = '#3fb950';
+          else if (ds.changed[n.id]) border = '#d29922';
+        }
+        return {
+          id: n.id, hidden: hidden,
+          color: { background: n.color.background, border: border, highlight: n.color.highlight },
+        };
       }));
+    }
+
+    function renderBranchSummary() {
+      var bd = state.branchDiff;
+      if (!bdToggle.checked) { sumEl.textContent = ''; return; }
+      if (!bd) { sumEl.textContent = 'loading diff…'; return; }
+      if (!bd.available) { sumEl.textContent = 'n/a: ' + (bd.reason || 'no diff'); return; }
+      var s = bd.summary;
+      sumEl.innerHTML =
+        'base <b>' + esc(bd.base) + '</b> · ' +
+        '<span class="bd-add">+' + s.functionsAdded + '</span> ' +
+        '<span class="bd-chg">~' + s.functionsChanged + '</span> ' +
+        '<span class="bd-rem">−' + s.functionsRemoved + '</span> · ' +
+        s.filesChanged + ' files';
+    }
+
+    async function ensureBranchDiff() {
+      if (state.branchDiff) return state.branchDiff;
+      try {
+        state.branchDiff = await apiFetch(
+          '/api/projects/' + encodeURIComponent(id) + '/branch-diff');
+      } catch (e) {
+        state.branchDiff = { available: false, reason: e.message };
+      }
+      return state.branchDiff;
+    }
+
+    gf.onchange = applyGraphFilters;
+    bdToggle.onchange = async function () {
+      if (bdToggle.checked) { renderBranchSummary(); await ensureBranchDiff(); }
+      renderBranchSummary();
+      applyGraphFilters();
     };
+    bdNeighbors.onchange = applyGraphFilters;
+
+    // Re-apply any sticky diff/group selection after a graph reload.
+    renderBranchSummary();
+    applyGraphFilters();
+  }
+
+  // ── Domain View tab ──────────────────────────────────────────────────────────
+  // A dedicated view that focuses the graph on one domain at a time and shows the
+  // spec clauses (Japanese) linked to that domain's functions.
+
+  async function ensureVisData(id) {
+    if (state.rawVisData) return state.rawVisData;
+    state.rawVisData = await apiFetch('/api/projects/' + encodeURIComponent(id) + '/vis-data');
+    return state.rawVisData;
+  }
+
+  async function loadDomainView(id) {
+    if (state.domainViewLoaded) return;
+    var listEl = document.getElementById('dv-list');
+    listEl.innerHTML = '<div class="loading-msg">Loading…</div>';
+    var data;
+    try {
+      data = await apiFetch('/api/projects/' + encodeURIComponent(id) + '/domain-view');
+    } catch (e) {
+      listEl.innerHTML = '<div class="error-msg">' + esc(e.message) + '</div>';
+      return;
+    }
+    state.domainViewLoaded = true;
+    state.domainViews = data;
+    if (!data.length) {
+      listEl.innerHTML = '<div class="empty-msg">No domains with implementors detected.</div>';
+      return;
+    }
+    listEl.innerHTML = '';
+    data.forEach(function (v) {
+      var card = document.createElement('div');
+      card.className = 'dv-card';
+      card.setAttribute('data-domain', v.domain);
+      var badge = v.conforms
+        ? '<span class="badge badge-green">conforms</span>'
+        : '<span class="badge badge-red">' + v.violationCount + ' violations</span>';
+      var desc = v.description
+        ? '<div class="dv-card-desc">' + esc(v.description) + '</div>'
+        : '<div class="dv-card-desc" style="font-style:italic;color:#6e7681">spec リンクなし</div>';
+      card.innerHTML =
+        '<div class="dv-card-name">' + esc(v.domain) + ' ' + badge + '</div>' + desc +
+        '<div class="dv-card-stats">' +
+          '<span><strong>' + v.implementorCount + '</strong> impl</span>' +
+          '<span><strong>' + v.specRefs.length + '</strong> spec</span>' +
+        '</div>';
+      card.onclick = function () { selectDomain(v); };
+      listEl.appendChild(card);
+    });
+    selectDomain(data[0]);
+  }
+
+  function selectDomain(v) {
+    state.selectedDomain = v.domain;
+    document.querySelectorAll('#dv-list .dv-card').forEach(function (c) {
+      c.classList.toggle('selected', c.getAttribute('data-domain') === v.domain);
+    });
+    renderSpecRefs(v);
+    focusDomain(v);
+  }
+
+  function renderSpecRefs(v) {
+    var body = document.getElementById('dv-spec-body');
+    if (!v.specRefs.length) {
+      body.innerHTML = '<div id="dv-placeholder">このドメインに紐づく spec 節は見つかりませんでした（spec/*.md のリンクが必要）。</div>';
+      return;
+    }
+    body.innerHTML = v.specRefs.map(function (r) {
+      var pct = Math.round(r.confidence * 100);
+      return '<div class="dv-spec-ref">' +
+        '<span class="dv-spec-head">' + esc(r.heading) + '</span>' +
+        '<span class="dv-spec-file">' + esc(r.file) + ' · ' + esc(r.evidence) + ' ' + pct + '%</span>' +
+        '<div class="dv-spec-excerpt">' + esc(r.excerpt) + '</div>' +
+      '</div>';
+    }).join('');
+  }
+
+  async function focusDomain(v) {
+    var loadEl = document.getElementById('dv-graph-loading');
+    loadEl.style.display = ''; loadEl.textContent = 'Loading graph…';
+    var data;
+    try {
+      data = await ensureVisData(state.projectId);
+    } catch (e) {
+      loadEl.textContent = 'Error: ' + e.message; return;
+    }
+    var impl = {};
+    v.implementors.forEach(function (a) { impl[a] = 1; });
+    var nodes = data.nodes.filter(function (n) { return impl[n.id]; });
+    var idset = {}; nodes.forEach(function (n) { idset[n.id] = 1; });
+    var edges = data.edges.filter(function (e) { return idset[e.from] && idset[e.to]; });
+
+    if (state.domainNetwork) { state.domainNetwork.destroy(); state.domainNetwork = null; }
+    if (!nodes.length) {
+      loadEl.style.display = ''; loadEl.textContent = 'No graph nodes for this domain.'; return;
+    }
+
+    var dsNodes = new vis.DataSet(nodes.map(function (n) {
+      return { id: n.id, label: n.label, title: n.title,
+               color: n.color, size: n.size, font: n.font, group: n.group };
+    }));
+    var dsEdges = new vis.DataSet(edges);
+
+    var container = document.getElementById('dv-canvas');
+    state.domainNetwork = new vis.Network(container, { nodes: dsNodes, edges: dsEdges }, {
+      layout: { improvedLayout: true },
+      physics: {
+        solver: 'forceAtlas2Based',
+        forceAtlas2Based: { gravitationalConstant: -50, springLength: 100, damping: 0.5 },
+        stabilization: { iterations: 150, updateInterval: 25 },
+      },
+      interaction: { hover: true, tooltipDelay: 120, navigationButtons: true, keyboard: false },
+      nodes: { shape: 'dot', borderWidth: 2 },
+      edges: { smooth: { type: 'continuous', roundness: 0.3 } },
+    });
+    state.domainNetwork.once('stabilizationIterationsDone', function () { loadEl.style.display = 'none'; });
+    setTimeout(function () { loadEl.style.display = 'none'; }, 6000);
   }
 
   // ── Hotspots tab ───────────────────────────────────────────────────────────

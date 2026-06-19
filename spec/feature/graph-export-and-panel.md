@@ -21,6 +21,16 @@ per-edit / per-prompt フック（`/api/verify` / `/api/context`）に sub-secon
 提供 API は [interface/web.md](../interface/web.md) を参照（解析系 read API、
 プロジェクト管理、per-project データ、warm harness、cost-feed、cache-stats、trace）。
 
+### パネルのタブ
+
+ダッシュボードは `Graph` / `Domain View` / `Hotspots` / `Domains` / `Spec Links` のタブを持つ。
+
+- **Graph**: 全グラフ。グループ絞り込みに加え、**ブランチ差分オーバーレイ**（[feature/branch-diff.md](./branch-diff.md)）
+  を持つ。「Branch diff only」で `/api/projects/:id/branch-diff` の追加/変更 anchor だけに絞り、
+  追加=緑/変更=橙の枠で色付けする。「+1-hop」で 1 ホップ隣接も表示。
+- **Domain View**: ドメイン別フォーカスの専用ビュー（[feature/domain-view.md](./domain-view.md)）。
+  ドメインを選ぶとそのドメインの実装関数だけにグラフを絞り、紐づく spec 節（日本語）を表示する。
+
 ## 制約
 
 - web は `bin/anatomia.mjs` のうち `process.exit` を呼ばず event loop で常駐する唯一の経路。

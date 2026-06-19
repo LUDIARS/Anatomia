@@ -24,6 +24,8 @@
  *   GET /api/projects/:id/spec-links  code↔spec links
  *   GET /api/projects/:id/domains     domain detection results
  *   GET /api/projects/:id/vis-data    vis-network data (shared with export.ts)
+ *   GET /api/projects/:id/branch-diff branch-diff function delta (?base=<ref>)
+ *   GET /api/projects/:id/domain-view per-domain focus + spec-derived JP descriptions
  *
  * Dynamic trace routes (G8):
  *   GET /api/trace/timeline -- TimelineData (T40)
@@ -50,6 +52,8 @@ import { mountAnalysisRoutes } from "./routes/analysis.js";
 import { mountCacheRoute } from "./routes/cache.js";
 import { mountCostRoute } from "./routes/cost.js";
 import { mountHarnessRoutes } from "./routes/harness.js";
+import { mountBranchRoutes } from "./routes/branch.js";
+import { mountDomainViewRoute } from "./routes/domain-view.js";
 import { resolveProviders } from "../../providers/index.js";
 import type { DomainCard } from "../../domains/card.js";
 import { resolveCacheStore } from "../../cache/resolve.js";
@@ -132,6 +136,12 @@ export function createApp(
 
   // ── Per-project analysis routes ──────────────────────────────────────────
   mountAnalysisRoutes(app, source);
+
+  // ── Branch-diff analysis route (diff-only view over the full analysis) ────
+  mountBranchRoutes(app, source);
+
+  // ── Domain-view route (per-domain focus + spec-derived JP descriptions) ───
+  mountDomainViewRoute(app, source);
 
   // ── Global LLM-cache stats route (A-3 measurement) ───────────────────────
   mountCacheRoute(app);
