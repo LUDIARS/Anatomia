@@ -80,7 +80,7 @@ git diff | node bin/anatomia.mjs verify --project adventure --json
 単発（登録なし）は `--repo <path>`、静的グラフは `export-graph -o graph.html`、
 複数プロジェクト管理 UI は `web --port 4200`。
 
-**詳しい解析手順は [`spec/usage/analysis-procedure.md`](./spec/usage/analysis-procedure.md)。**
+**詳しい解析手順は [`spec/feature/analysis-procedure.md`](./spec/feature/analysis-procedure.md)。**
 
 ---
 
@@ -91,7 +91,7 @@ git diff | node bin/anatomia.mjs verify --project adventure --json
 - **MCP（常駐サーバ）** — `.mcp.json` に `bin/anatomia-mcp.mjs` を登録し 7 ツールを公開。
   設定は [`docs/mcp-setup.md`](./docs/mcp-setup.md)。
 - **Skill（MCP 不要・CLI ラッパ）** — Claude Code のスキル `anatomia-analyze` から CLI を直接叩く。
-  常駐プロセス不要。`spec/usage/analysis-procedure.md` §4.2 参照。
+  常駐プロセス不要。`spec/feature/analysis-procedure.md` §4 参照。
 
 ---
 
