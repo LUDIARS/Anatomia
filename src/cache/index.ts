@@ -25,3 +25,6 @@ export type { CacheCounters, InstrumentOptions } from "./instrumented.js";
 export { instrumentStore, createCounters, hitRate } from "./instrumented.js";
 export type { CacheStatsReport, HitTally } from "./stats.js";
 export { aggregate, formatReport } from "./stats.js";
+export { runWithSession, currentSession } from "./session-context.js";
+export type { CostEstimate, ModelPricing, AssumedCallSize } from "./cost-estimate.js";
+export { estimateCost, resolveCostParams } from "./cost-estimate.js";

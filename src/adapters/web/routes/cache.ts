@@ -16,8 +16,14 @@
 import type { Hono } from "hono";
 import { readEvents } from "../../../cache/transcript.js";
 import { aggregate } from "../../../cache/stats.js";
+import { estimateCost } from "../../../cache/cost-estimate.js";
 
-/** Mount the global cache-stats route on `app`. */
+/** Mount the global cache-stats route on `app`.
+ *
+ * `?session=<id>` adds a `session` view (that slice's tally + cost estimate) so a
+ * caller — e.g. the Concordia status card — can show "this session's" hit rate
+ * and estimated USD without re-reading the transcript itself. `cost` is the
+ * global cost estimate; both are null when there are no events for that slice. */
 export function mountCacheRoute(app: Hono): void {
   app.get("/api/cache-stats", async (c) => {
     const logPath = process.env["ANATOMIA_CACHE_LOG"];
@@ -25,6 +31,12 @@ export function mountCacheRoute(app: Hono): void {
       return c.json({ enabled: false as const });
     }
     const events = await readEvents(logPath);
-    return c.json({ enabled: true as const, logPath, report: aggregate(events) });
+    const report = aggregate(events);
+    const sessionId = c.req.query("session");
+    const cost = estimateCost(report);
+    const session = sessionId
+      ? { id: sessionId, tally: report.bySession[sessionId] ?? null, cost: estimateCost(report, { session: sessionId }) }
+      : undefined;
+    return c.json({ enabled: true as const, logPath, report, cost, session });
   });
 }

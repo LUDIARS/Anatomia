@@ -36,8 +36,14 @@ export interface InstrumentOptions {
   ns: string;
   /** Sink for events. */
   transcript: CacheTranscript;
-  /** Session id stamped on every event. */
-  session: string;
+  /**
+   * Session id stamped on every event. A plain string tags every event with one
+   * id (single-process callers). A resolver `() => string` is evaluated at the
+   * moment each event is recorded, so a long-running shared server can tag events
+   * with a per-request session id (see cache/session-context.ts) while falling
+   * back to its process-global id between requests.
+   */
+  session: string | (() => string);
   /** Model id folded into the key (diagnostic only). */
   model?: string;
   /** Optional shared counter to accumulate into (created if omitted). */
@@ -54,6 +60,7 @@ export function instrumentStore<V>(
   opts: InstrumentOptions,
 ): { store: CacheStore<V>; counters: CacheCounters } {
   const counters = opts.counters ?? createCounters();
+  const resolveSession = typeof opts.session === "function" ? opts.session : () => opts.session as string;
   const store: CacheStore<V> = {
     async get(key) {
       const value = await inner.get(key);
@@ -64,7 +71,7 @@ export function instrumentStore<V>(
       opts.transcript.record({
         kind: "get",
         ts: Date.now(),
-        session: opts.session,
+        session: resolveSession(),
         ns: opts.ns,
         hit,
         key,

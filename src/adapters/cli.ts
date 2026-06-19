@@ -40,6 +40,7 @@ import { exportGraphHtml } from "./web/export.js";
 import { startServer } from "./web/server.js";
 import { readEvents } from "../cache/transcript.js";
 import { aggregate, formatReport } from "../cache/stats.js";
+import { estimateCost, formatCost } from "../cache/cost-estimate.js";
 import type { AnalysisContext } from "../core.js";
 import type { Verdict } from "../types.js";
 
@@ -328,10 +329,12 @@ async function runCacheStats(
   }
   const events = await readEvents(logPath);
   const report = aggregate(events);
+  const cost = estimateCost(report);
   if (args.json) {
-    return { exitCode: 0, output: JSON.stringify(report, null, 2) };
+    return { exitCode: 0, output: JSON.stringify({ ...report, cost }, null, 2) };
   }
-  return { exitCode: 0, output: formatReport(report) };
+  const text = cost ? `${formatReport(report)}\n\n${formatCost(cost)}` : formatReport(report);
+  return { exitCode: 0, output: text };
 }
 
 // ---------------------------------------------------------------------------
