@@ -55,6 +55,7 @@ import type { DomainCard } from "../../domains/card.js";
 import { resolveCacheStore } from "../../cache/resolve.js";
 import { instrumentStore } from "../../cache/instrumented.js";
 import { resolveTranscript } from "../../cache/transcript.js";
+import { currentSession } from "../../cache/session-context.js";
 import type { VerifyOptions } from "../../core.js";
 import type { AnalysisContext } from "../../core.js";
 import type { CodeNode, Edge } from "../../types.js";
@@ -245,19 +246,23 @@ export async function startServer(options: WebServerOptions): Promise<void> {
  */
 function resolveWebVerifyOpts(): VerifyOptions {
   const obs = resolveTranscript();
+  // Tag every cache/LLM event with the per-request session id when a harness route
+  // set one (runWithSession), else the process-global id. This is what splits the
+  // shared warm server's events back into per-terminal-session slices.
+  const sessionTag = () => currentSession() ?? obs.session;
   const providers = resolveProviders(undefined, {
     onUsage: (usage) =>
       obs.transcript.record({
         kind: "llm",
         ts: Date.now(),
-        session: obs.session,
+        session: sessionTag(),
         model: providers.llmModelId,
         usage,
       }),
   });
   const base = resolveCacheStore<DomainCard>();
   const cardCache = obs.enabled
-    ? instrumentStore(base, { ns: "card", transcript: obs.transcript, session: obs.session, model: providers.llmModelId }).store
+    ? instrumentStore(base, { ns: "card", transcript: obs.transcript, session: sessionTag, model: providers.llmModelId }).store
     : base;
   if (obs.enabled) {
     console.error(`[anatomia/web] verify cache measurement ON -> ${process.env["ANATOMIA_CACHE_LOG"]}`);

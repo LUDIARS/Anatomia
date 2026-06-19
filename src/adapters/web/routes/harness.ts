@@ -21,6 +21,7 @@ import type { Hono } from "hono";
 import { buildVerdict, buildContextBundle } from "../../../core.js";
 import type { VerifyOptions } from "../../../core.js";
 import type { WebContextSource } from "../context.js";
+import { runWithSession } from "../../../cache/session-context.js";
 
 /**
  * Mount the warm supply/verify routes on `app`. `verifyOpts` (providers +
@@ -31,7 +32,7 @@ import type { WebContextSource } from "../context.js";
 export function mountHarnessRoutes(app: Hono, source: WebContextSource, verifyOpts?: VerifyOptions): void {
   // POST /api/verify — run the 5-gate verify on a diff against a warm project.
   app.post("/api/verify", async (c) => {
-    let body: { diff?: unknown; project?: unknown; targetPath?: unknown };
+    let body: { diff?: unknown; project?: unknown; targetPath?: unknown; session?: unknown };
     try {
       body = await c.req.json();
     } catch {
@@ -40,6 +41,7 @@ export function mountHarnessRoutes(app: Hono, source: WebContextSource, verifyOp
     if (typeof body.diff !== "string" || !body.diff.trim()) {
       return c.json({ error: "missing 'diff' (non-empty string)" }, 400);
     }
+    const diff = body.diff;
     const project = typeof body.project === "string" ? body.project : undefined;
     let ctx;
     try {
@@ -48,7 +50,10 @@ export function mountHarnessRoutes(app: Hono, source: WebContextSource, verifyOp
       return c.json({ error: `no such project "${project ?? ""}"` }, 404);
     }
     const targetPath = typeof body.targetPath === "string" ? body.targetPath : undefined;
-    const verdict = await buildVerdict(ctx, body.diff, targetPath, verifyOpts);
+    // Tag cache events produced by this verify with the caller's session (e.g. the
+    // Lictor/Concordia session id) so cache-stats can report a per-session slice.
+    const session = typeof body.session === "string" ? body.session : undefined;
+    const verdict = await runWithSession(session, () => buildVerdict(ctx, diff, targetPath, verifyOpts));
     return c.json(verdict);
   });
 
@@ -56,13 +61,14 @@ export function mountHarnessRoutes(app: Hono, source: WebContextSource, verifyOp
   app.get("/api/context", async (c) => {
     const project = c.req.query("project");
     const task = c.req.query("task") ?? "analyze";
+    const session = c.req.query("session");
     let ctx;
     try {
       ctx = await source.resolve(project);
     } catch {
       return c.json({ error: `no such project "${project ?? ""}"` }, 404);
     }
-    const bundle = await buildContextBundle(ctx, { task });
+    const bundle = await runWithSession(session, () => buildContextBundle(ctx, { task }));
     return c.json(bundle);
   });
 }

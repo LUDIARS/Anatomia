@@ -2,3 +2,7 @@ node_modules/
 dist/
 logs/
 .anatomia/
+
+# eval / scratch artifacts (not part of source)
+.eval-cache/
+ks-graph.html
