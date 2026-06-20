@@ -381,13 +381,15 @@ function emitEdges(
 ): void {
   for (const info of edgeInfo.values()) {
     const fromId = info.anchorId;
-    if (!graph.nodes.has(fromId)) continue;
+    const fromNode = graph.nodes.get(fromId);
+    if (!fromNode) continue;
+    const callerPath = fromNode.sourceRange.filePath;
 
     // calls
     for (const callee of info.calleeNames) {
       const targets = nameIndex.get(callee);
       if (!targets) continue;
-      for (const toId of targets) {
+      for (const toId of localityResolve(graph, callerPath, targets)) {
         addEdge(graph, { from: fromId, to: toId, kind: "calls" });
       }
     }
@@ -396,7 +398,7 @@ function emitEdges(
     for (const fieldName of info.writeFieldNames) {
       const targets = nameIndex.get(fieldName);
       if (!targets) continue;
-      for (const toId of targets) {
+      for (const toId of localityResolve(graph, callerPath, targets)) {
         addEdge(graph, { from: fromId, to: toId, kind: "writes" });
       }
     }
@@ -405,7 +407,7 @@ function emitEdges(
     for (const fieldName of info.readFieldNames) {
       const targets = nameIndex.get(fieldName);
       if (!targets) continue;
-      for (const toId of targets) {
+      for (const toId of localityResolve(graph, callerPath, targets)) {
         const alreadyWritten = graph.adjacency
           .get(fromId)
           ?.some((e) => e.to === toId && e.kind === "writes");
@@ -415,6 +417,48 @@ function emitEdges(
       }
     }
   }
+}
+
+/** Forward-slash a path and return its directory portion (everything before the last `/`). */
+function dirOf(filePath: string): string {
+  const p = filePath.replace(/\\/g, "/");
+  const i = p.lastIndexOf("/");
+  return i >= 0 ? p.slice(0, i) : "";
+}
+
+/**
+ * Disambiguate a by-name callee resolution using caller locality.
+ *
+ * Anatomia resolves a call by bare function name, so a name defined in many
+ * places (generic accessors like `alive()`/`position()`/`tick()` that each
+ * layer redefines) would otherwise draw an edge to EVERY definition — including
+ * ones in unrelated layers, manufacturing false "calls up the layer spine"
+ * violations. When a name has multiple candidates we prefer, in order:
+ *   1. candidates in the SAME FILE as the caller (a method calling a sibling);
+ *   2. else candidates in the SAME DIRECTORY/layer (the .h/.cpp split case);
+ *   3. else ALL candidates — a genuinely cross-module call (e.g. a skill calling
+ *      a render-only helper) keeps its edge, so real violations still surface.
+ *
+ * Tradeoff: when the caller's own layer ALSO defines the name, a real call to a
+ * different layer's same-named function is collapsed to the local one (a rare
+ * false negative). For an advisory architecture linter, fewer false positives
+ * (trust) is worth that.
+ */
+function localityResolve(graph: CodeGraph, callerPath: string, candidates: AnchorId[]): AnchorId[] {
+  if (candidates.length <= 1) return candidates;
+  const caller = callerPath.replace(/\\/g, "/");
+  const callerDir = dirOf(caller);
+
+  const pathOf = (id: AnchorId): string =>
+    (graph.nodes.get(id)?.sourceRange.filePath ?? "").replace(/\\/g, "/");
+
+  const sameFile = candidates.filter((id) => pathOf(id) === caller);
+  if (sameFile.length > 0) return sameFile;
+
+  const sameDir = candidates.filter((id) => dirOf(pathOf(id)) === callerDir);
+  if (sameDir.length > 0) return sameDir;
+
+  return candidates;
 }
 
 /**
