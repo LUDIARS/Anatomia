@@ -25,6 +25,7 @@
  *   GET /api/projects/:id/domains     domain detection results
  *   GET /api/projects/:id/vis-data    vis-network data (shared with export.ts)
  *   GET /api/projects/:id/branch-diff branch-diff function delta (?base=<ref>)
+ *   GET /api/projects/:id/branches    base refs for the branch-diff selector
  *   GET /api/projects/:id/domain-view per-domain focus + spec-derived JP descriptions
  *
  * Dynamic trace routes (G8):

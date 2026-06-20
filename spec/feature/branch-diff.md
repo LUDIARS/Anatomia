@@ -43,6 +43,10 @@ Graph タブのオーバーレイ（[feature/graph-export-and-panel.md](./graph-
 「Branch diff only」で `anchors.all` のノードだけ表示し、added=緑 / changed=橙 の枠に色付け。
 「+1-hop」で隣接ノードも含める。route は `GET /api/projects/:id/branch-diff[?base=<ref>]`。
 
+**base セレクタ**: パネルは `GET /api/projects/:id/branches`（`{ current, autoBase, candidates[] }`）で
+ローカル + リモート追跡ブランチ（`listBranches`、既定候補を先頭）を取得し、auto 以外の任意 base を選べる。
+base 変更時は `?base=` を付けて差分を再計算する。
+
 ## 制約
 
 - 解析対象拡張子は `.cpp/.h/.cs/.ts/.tsx`（`.d.ts` 除外）。spec(.md) 等は差分対象外。
