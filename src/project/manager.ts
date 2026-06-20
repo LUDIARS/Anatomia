@@ -171,6 +171,39 @@ export class ProjectManager {
   async getContext(id?: string): Promise<AnalysisContext> {
     return this.analyzeProject(id);
   }
+
+  /**
+   * Resolve a fingerprint-keyed derived render artifact (e.g. the graph view's
+   * vis-data), building it from the analyzed context only on a cache miss.
+   *
+   * Restart fast path: the cheap fingerprint walk hits the persisted artifact
+   * and returns it WITHOUT re-analysis — analyze() is never called and `build`
+   * never runs. This is what keeps opening the panel's graph view on a cold
+   * (just-restarted) warm server from re-parsing the entire repo, the path that
+   * previously made the web panel fall over on large C++ projects.
+   *
+   * On a miss (cold disk, or source changed) it analyzes once, builds the
+   * artifact, persists it, and returns it.
+   */
+  async cachedArtifact<T>(
+    id: string | undefined,
+    name: string,
+    build: (ctx: AnalysisContext) => Promise<T>,
+  ): Promise<T> {
+    const projectId = this.resolveId(id);
+    const project = this.registry.get(projectId)!;
+    const fingerprint = await computeFingerprint(project.rootPath, {
+      configDirs: configDirsOf(project),
+    });
+
+    const cached = await this.cache.readArtifact<T>(projectId, name, fingerprint);
+    if (cached !== null) return cached;
+
+    const ctx = await this.analyzeWith(projectId, project, fingerprint);
+    const data = await build(ctx);
+    await this.cache.writeArtifact(projectId, name, fingerprint, data);
+    return data;
+  }
 }
 
 /**

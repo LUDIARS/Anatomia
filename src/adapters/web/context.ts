@@ -27,6 +27,17 @@ export interface WebContextSource {
   projects(): Project[];
   /** The currently selected/default project id, or null. */
   selected(): string | null;
+  /**
+   * Resolve a fingerprint-keyed derived render artifact (vis-data etc),
+   * building it from the context only on a cache miss. After a restart the
+   * persisted artifact is served straight from disk WITHOUT re-analysis, so
+   * opening the graph view never re-parses the whole repo.
+   */
+  cachedArtifact<T>(
+    projectId: string | undefined,
+    name: string,
+    build: (ctx: AnalysisContext) => Promise<T>,
+  ): Promise<T>;
 }
 
 /**
@@ -43,6 +54,8 @@ export function webContextSourceFrom(
       summary: (projectId?: string) => src.summary(projectId),
       projects: () => src.list(),
       selected: () => src.selected,
+      cachedArtifact: (projectId, name, build) =>
+        src.cachedArtifact(projectId, name, build),
     };
   }
 
@@ -58,5 +71,9 @@ export function webContextSourceFrom(
     summary: async () => summarize(src),
     projects: () => [single],
     selected: () => "default",
+    // Legacy single-context mode has no project home/fingerprint to key a disk
+    // cache on, so build fresh each call. This is the one-off CLI/export path,
+    // not the warm multi-project server where the cache matters.
+    cachedArtifact: async (_projectId, _name, build) => build(src),
   };
 }
