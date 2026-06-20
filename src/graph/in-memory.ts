@@ -22,6 +22,15 @@ export class InMemoryCodeGraph implements CodeGraphQuery {
     this.graph = graph;
   }
 
+  /**
+   * The backing CodeGraph (read-only access for callers that build a derived
+   * graph, e.g. verify's diff overlay via augmentGraph). Treat as immutable;
+   * mutating it bypasses this wrapper's invariants.
+   */
+  get raw(): CodeGraph {
+    return this.graph;
+  }
+
   // ── Node lookups ─────────────────────────────────────────────────────────
 
   async getNode(id: AnchorId): Promise<CodeNode | undefined> {

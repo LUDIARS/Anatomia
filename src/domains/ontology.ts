@@ -76,10 +76,14 @@ export const BUILTIN_DOMAINS: DomainDef[] = [
   {
     name: "hot-path-processor",
     description:
-      "Per-frame hot functions: no allocation, low fan-out, tight coupling budget.",
+      "Per-frame hot functions (tagged `hotPath`): no allocation in the hot path.",
     presetRules: [
       { preset: "hotPathNoAlloc", params: { hotPathTag: "hotPath", allocTag: "alloc" } },
-      { preset: "couplingCap", params: { targetPattern: ".*", maxFanOut: 8 } },
+      // NOTE: a blanket couplingCap(".*", maxFanOut:8) used to live here, but
+      // matching every function made it a generic fan-out linter, not a hot-path
+      // rule — it flagged ~100 unrelated functions per real repo as "violations"
+      // (KS: 97). Coupling caps belong on a tagged hot-path set (once tagging
+      // exists), not on ".*"; until then this domain is just the no-alloc rule.
     ],
     templateRules: [],
     cardTemplate:
