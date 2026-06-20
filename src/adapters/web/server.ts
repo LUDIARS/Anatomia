@@ -27,6 +27,7 @@
  *   GET /api/projects/:id/branch-diff branch-diff function delta (?base=<ref>)
  *   GET /api/projects/:id/branches    base refs for the branch-diff selector
  *   GET /api/projects/:id/domain-view per-domain focus + spec-derived JP descriptions
+ *   GET /api/projects/:id/access-patterns heuristic singleton/locator/facade + accessor domains
  *
  * Dynamic trace routes (G8):
  *   GET /api/trace/timeline -- TimelineData (T40)
@@ -55,6 +56,7 @@ import { mountCostRoute } from "./routes/cost.js";
 import { mountHarnessRoutes } from "./routes/harness.js";
 import { mountBranchRoutes } from "./routes/branch.js";
 import { mountDomainViewRoute } from "./routes/domain-view.js";
+import { mountPatternRoutes } from "./routes/patterns.js";
 import { resolveIdleMs, checkIntervalMs, shouldShutdown } from "./idle.js";
 import { resolveProviders } from "../../providers/index.js";
 import type { DomainCard } from "../../domains/card.js";
@@ -155,6 +157,9 @@ export function createApp(
 
   // ── Domain-view route (per-domain focus + spec-derived JP descriptions) ───
   mountDomainViewRoute(app, source);
+
+  // ── Access-pattern route (heuristic singleton/locator/facade + accessors) ──
+  mountPatternRoutes(app, source);
 
   // ── Global LLM-cache stats route (A-3 measurement) ───────────────────────
   mountCacheRoute(app);
