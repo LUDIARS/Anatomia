@@ -35,6 +35,7 @@ branch / domain-view）。
 | GET | `/api/projects/:id/domains` | ドメイン検出結果 |
 | GET | `/api/projects/:id/vis-data` | vis-network データ（export.ts と共有） |
 | GET | `/api/projects/:id/branch-diff` | ブランチ差分の関数 delta（`?base=<ref>`、→ feature/branch-diff.md） |
+| GET | `/api/projects/:id/branches` | base セレクタ用の ref 一覧 `{ current, autoBase, candidates[] }` |
 | GET | `/api/projects/:id/domain-view` | ドメイン別フォーカス + spec 由来の日本語説明（→ feature/domain-view.md） |
 
 ## warm harness（per-edit / per-prompt フック）

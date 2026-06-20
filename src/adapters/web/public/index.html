@@ -260,6 +260,11 @@
       display: flex; align-items: center; justify-content: center;
       color: #6e7681; font-size: 0.85rem; pointer-events: none;
     }
+    #dv-graph-note {
+      position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 5;
+      background: rgba(74,51,13,.92); border: 1px solid #d29922; color: #e3b341;
+      border-radius: 6px; padding: 3px 10px; font-size: 0.72rem; pointer-events: none;
+    }
     #dv-spec {
       flex: none; height: 160px; overflow-y: auto; border-top: 1px solid #30363d;
       background: #161b22; padding: 10px 14px;
@@ -400,6 +405,9 @@
               <label title="Also show functions one call away from the diff">
                 <input type="checkbox" id="bd-neighbors"> +1-hop
               </label>
+              <select id="bd-base" title="Base ref to diff against (auto = first of origin/main, main, …)">
+                <option value="">auto base</option>
+              </select>
               <span id="branch-diff-summary"></span>
             </div>
           </div>
@@ -430,6 +438,7 @@
           <div id="dv-main">
             <div id="dv-canvas"></div>
             <div id="dv-graph-loading" style="display:none">Select a domain to focus the graph.</div>
+            <div id="dv-graph-note" style="display:none"></div>
             <div id="dv-spec">
               <h4>Spec references (日本語補間)</h4>
               <div id="dv-spec-body"><div id="dv-placeholder">
@@ -494,6 +503,10 @@
 <script>
 (function () {
   'use strict';
+
+  // Max nodes rendered in a single Domain View focus (coarse domains can match
+  // thousands of functions; the rest are trimmed by coupling with a notice).
+  var DV_MAX_NODES = 400;
 
   // ── Utilities ──────────────────────────────────────────────────────────────
 
@@ -816,6 +829,13 @@
     var gf = document.getElementById('graph-group-filter');
     while (gf.options.length > 1) gf.remove(1);
 
+    // Reset the branch-diff base selector (repopulated lazily when toggled on).
+    var bdBaseEl = document.getElementById('bd-base');
+    while (bdBaseEl.options.length > 1) bdBaseEl.remove(1);
+    bdBaseEl.options[0].textContent = 'auto base';
+    bdBaseEl.value = '';
+    delete bdBaseEl.dataset.loaded;
+
     var data;
     try {
       data = await apiFetch('/api/projects/' + encodeURIComponent(id) + '/vis-data');
@@ -904,6 +924,7 @@
     // re-bordered green/orange; everything else is hidden in diff-only mode.
     var bdToggle    = document.getElementById('bd-toggle');
     var bdNeighbors = document.getElementById('bd-neighbors');
+    var bdBase      = document.getElementById('bd-base');
     var sumEl       = document.getElementById('branch-diff-summary');
 
     function diffSets() {
@@ -957,23 +978,56 @@
     }
 
     async function ensureBranchDiff() {
-      if (state.branchDiff) return state.branchDiff;
+      var base = bdBase.value || '';
+      // Re-use the cached diff only when it was computed for the same base.
+      if (state.branchDiff && state.branchDiffBase === base) return state.branchDiff;
       try {
-        state.branchDiff = await apiFetch(
-          '/api/projects/' + encodeURIComponent(id) + '/branch-diff');
+        var url = '/api/projects/' + encodeURIComponent(id) + '/branch-diff' +
+          (base ? '?base=' + encodeURIComponent(base) : '');
+        state.branchDiff = await apiFetch(url);
       } catch (e) {
         state.branchDiff = { available: false, reason: e.message };
       }
+      state.branchDiffBase = base;
       return state.branchDiff;
+    }
+
+    // Fill the base selector from the repo's branches (once per graph load).
+    async function populateBaseOptions() {
+      if (bdBase.dataset.loaded) return;
+      bdBase.dataset.loaded = '1';
+      var info;
+      try {
+        info = await apiFetch('/api/projects/' + encodeURIComponent(id) + '/branches');
+      } catch (e) { return; }
+      if (info.autoBase) bdBase.options[0].textContent = 'auto (' + info.autoBase + ')';
+      (info.candidates || []).forEach(function (b) {
+        var opt = document.createElement('option');
+        opt.value = b;
+        opt.textContent = b;
+        bdBase.appendChild(opt);
+      });
     }
 
     gf.onchange = applyGraphFilters;
     bdToggle.onchange = async function () {
-      if (bdToggle.checked) { renderBranchSummary(); await ensureBranchDiff(); }
+      if (bdToggle.checked) {
+        populateBaseOptions();
+        renderBranchSummary();
+        await ensureBranchDiff();
+      }
       renderBranchSummary();
       applyGraphFilters();
     };
     bdNeighbors.onchange = applyGraphFilters;
+    bdBase.onchange = async function () {
+      if (!bdToggle.checked) return;
+      state.branchDiff = null;       // base changed → recompute
+      renderBranchSummary();
+      await ensureBranchDiff();
+      renderBranchSummary();
+      applyGraphFilters();
+    };
 
     // Re-apply any sticky diff/group selection after a graph reload.
     renderBranchSummary();
@@ -1067,6 +1121,23 @@
     var impl = {};
     v.implementors.forEach(function (a) { impl[a] = 1; });
     var nodes = data.nodes.filter(function (n) { return impl[n.id]; });
+
+    // Coarse builtin domains can match thousands of functions (e.g. state-machine
+    // on a TS codebase). Rendering all of them is unusable, so cap the focused
+    // subgraph to the most-coupled MAX nodes and tell the user what was trimmed.
+    var noteEl = document.getElementById('dv-graph-note');
+    var total = nodes.length;
+    if (total > DV_MAX_NODES) {
+      nodes = nodes.slice().sort(function (a, b) {
+        return (b._meta ? b._meta.coupling : 0) - (a._meta ? a._meta.coupling : 0);
+      }).slice(0, DV_MAX_NODES);
+      noteEl.textContent = 'showing top ' + DV_MAX_NODES + ' of ' + total +
+        ' functions (by coupling)';
+      noteEl.style.display = '';
+    } else {
+      noteEl.style.display = 'none';
+    }
+
     var idset = {}; nodes.forEach(function (n) { idset[n.id] = 1; });
     var edges = data.edges.filter(function (e) { return idset[e.from] && idset[e.to]; });
 

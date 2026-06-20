@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { analyze } from "../../core.js";
 import { computeBranchDiff } from "../diff.js";
+import { listBranches } from "../git.js";
 
 function git(dir: string, args: string[]): void {
   execFileSync("git", args, { cwd: dir, stdio: "ignore" });
@@ -75,5 +76,27 @@ describe("computeBranchDiff", () => {
     for (const a of diff.anchors.all) expect(graphIds.has(a)).toBe(true);
     expect(diff.anchors.added.length).toBe(1);
     expect(diff.anchors.changed.length).toBe(1);
+  });
+});
+
+describe("listBranches", () => {
+  it("lists other branches, excluding the current one, outside-of-repo = []", async () => {
+    expect(await listBranches(dir)).toEqual([]); // not a git repo yet
+
+    git(dir, ["init"]);
+    git(dir, ["symbolic-ref", "HEAD", "refs/heads/main"]);
+    git(dir, ["config", "user.email", "test@example.com"]);
+    git(dir, ["config", "user.name", "test"]);
+    await writeFile(join(dir, "mod.ts"), BASE, "utf8");
+    git(dir, ["add", "."]);
+    git(dir, ["commit", "-m", "base"]);
+    git(dir, ["branch", "develop"]);
+    git(dir, ["checkout", "-b", "feature"]);
+
+    const branches = await listBranches(dir);
+    expect(branches).toContain("main"); // known base candidate surfaced
+    expect(branches).toContain("develop");
+    expect(branches).not.toContain("feature"); // current branch excluded
+    expect(branches[0]).toBe("main"); // DEFAULT_BASE_CANDIDATES first
   });
 });

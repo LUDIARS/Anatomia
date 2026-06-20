@@ -79,3 +79,29 @@ describe("GET /api/projects/:id/branch-diff", () => {
     expect(res.status).toBe(404);
   });
 });
+
+describe("GET /api/projects/:id/branches", () => {
+  it("returns the base-selector shape (empty candidates outside a git repo)", async () => {
+    const app = createApp(mgr);
+    const res = await app.fetch(
+      new Request("http://localhost/api/projects/views/branches"),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      current: string | null;
+      autoBase: string | null;
+      candidates: string[];
+    };
+    expect(Array.isArray(body.candidates)).toBe(true);
+    expect(body.candidates).toHaveLength(0);
+    expect(body.autoBase).toBeNull();
+  });
+
+  it("404s on an unknown project", async () => {
+    const app = createApp(mgr);
+    const res = await app.fetch(
+      new Request("http://localhost/api/projects/nope/branches"),
+    );
+    expect(res.status).toBe(404);
+  });
+});
