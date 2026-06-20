@@ -25,26 +25,32 @@ C# Unity の支配的なシングルトン形は**静的プロパティ** `publi
   識別子＝**内包クラス名**（上方向に `class/struct` 走査）。
 - **service-locator**: locator-ish ファイル（`locator|servicelocator|container`）内の `Resolve/Provide/GetService/Locate`。
 - **facade**: クラス名 `*Facade`。
-- **accessors**: `Type.Instance` / `Type.Resolve(` 等の使用を走査 → 使用行を内包する関数 → そのドメイン
-  ＋アクセス種別（`reads`=プロパティ/`calls`=メソッド）。`{domain, access}` で集約。
+- **network**: 通信クライアント。クラス名 `*ApiClient/*HttpClient/*WebSocketClient/*Gateway` 等、または
+  ネットワーク API トークン（`UnityWebRequest/HttpClient/WebSocket/System.Net/fetch(` …）を含むクラス。
+  **通信先 URL/host は DI されるのでソースに無い → クライアント名から論理的なサーバ種別を分類**
+  （`classifyServer`: login→ログインサーバ / rank→ランキングサーバ / match・lobby→ゲームサーバ /
+  error・log→ログ解析 / serial・billing→課金/コード / asset→アセット配信 / 既定→APIサーバ）。`target` に格納。
+- **accessors**: singleton/locator/facade は `Type.Instance` / `Type.Resolve(` 使用 → 使用行を内包する関数 →
+  そのドメイン＋種別（`reads`=プロパティ/`calls`=メソッド）。network は実体が DI されるため、クライアントを
+  **所有するドメイン**（クライアントのファイルの関数群）を `calls` で帰属。`{domain, access}` で集約。
 
 精度優先（汎用 `get`・素の `registry.get` は除外）。返りは `AccessPattern[]`
-`{ name, file, line, kind, reason, accessors:[{domain,access}] }`。route `GET /api/projects/:id/access-patterns`。
+`{ name, file, line, kind, reason, target?, accessors:[{domain,access}] }`。route `GET /api/projects/:id/access-patterns`。
 
 ## パネルでの使われ方（ドメインビュー）
 
 [feature/domain-view.md](./domain-view.md) の機能単位グラフに重ねる:
 
-- パターンを含む機能単位ノードを**黄枠＋アイコン**（◆ singleton / ⬡ locator / ▤ facade）で明示、
-  tooltip に検出名を列挙。
+- パターンを含む機能単位ノードを**枠色＋アイコン**で明示（◆ singleton / ⬡ locator / ▤ facade は黄枠、
+  **☁ network は青緑（teal）枠で「色を変えて」明示し、ノードに通信先サーバ種別を併記**）。tooltip に検出名。
 - 下部「Access patterns（このドメインが触る）」に、選択中ドメインが accessor に含まれるパターンを
-  `名前 [kind] reads/calls` で一覧（＝**どのドメインが・どの集約点に・どうアクセスするか**）。
+  `名前 [kind / network→種別] reads/calls` で一覧（＝**どのドメインが・どの集約点/サーバに・どうアクセスするか**）。
 
 ## 制約
 
 - 名前/署名/ソースのヒューリスティックなので完全ではない（精度優先＝見逃しあり）。
 - accessor の解像度は検出ドメインの粒度に依存（粗い builtin だと帰属が大雑把、B-3 で改善）。
-- **通信アクセスの色分け＋通信先サーバ明記は未実装**（呼び出し引数/接続先の AST 抽出が別途必要、follow-up）。
+- 通信先サーバは**論理種別**まで（DI される具体 URL/host はソースに無いので出さない）。種別分類は名前ヒューリスティック。
 
 ## 関連
 
