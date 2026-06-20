@@ -119,14 +119,21 @@ export type ViolationSeverity = "error" | "warning" | "info";
 // ── Predicate ADT (T14) ────────────────────────────────────────────────────
 
 /**
- * A NodeFilter matches CodeNodes by kind, name (regex) and/or tags.
- * All present fields are ANDed. An empty filter matches every node.
+ * A NodeFilter matches CodeNodes by kind, name (regex), source-path (regex)
+ * and/or tags. All present fields are ANDed. An empty filter matches every node.
  */
 export interface NodeFilter {
   /** Match nodes of this kind. */
   kind?: NodeKind;
   /** Match nodes whose name matches this regex (JS RegExp source). */
   namePattern?: string;
+  /**
+   * Match nodes whose source file path matches this regex (JS RegExp source).
+   * Tested against the path normalised to forward slashes, so a pattern like
+   * `/enemy/` matches regardless of OS path separator. This is the lever for
+   * directory-based architecture rules (layer = location).
+   */
+  pathPattern?: string;
   /** Match nodes that carry ALL of these tags. */
   tags?: string[];
 }

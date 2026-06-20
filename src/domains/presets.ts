@@ -20,9 +20,23 @@ export type PresetId =
   | "noCycle"
   | "hotPathNoAlloc";
 
+/** How a preset's pattern parameters are matched against nodes. */
+export type MatchBy = "name" | "path";
+
 /** Build a NodeFilter from a name regex (convenience). */
 function byName(pattern: string): NodeFilter {
   return { namePattern: pattern };
+}
+
+/**
+ * Build a NodeFilter from a pattern, matching against the function name (`by:
+ * "name"`, default) or its source file path (`by: "path"`). Path matching is
+ * what lets directory-structured projects express layer rules by location:
+ * `mkFilter("/render/", "path")` matches everything under a render/ directory
+ * regardless of function names.
+ */
+function mkFilter(pattern: string, by: MatchBy = "name"): NodeFilter {
+  return by === "path" ? { pathPattern: pattern } : { namePattern: pattern };
 }
 
 /**
@@ -41,8 +55,11 @@ function byName(pattern: string): NodeFilter {
 export function layerDependencyDirection(params: {
   layers: string[];
   kind?: EdgeKind;
+  /** Match each layer pattern by function name (default) or source path. */
+  by?: MatchBy;
 }): Predicate {
   const kind = params.kind ?? "calls";
+  const by = params.by ?? "name";
   const children: Predicate[] = [];
   const { layers } = params;
   for (let lower = 0; lower < layers.length; lower++) {
@@ -50,8 +67,8 @@ export function layerDependencyDirection(params: {
       // lower layer must not call higher layer.
       children.push({
         type: "EdgeForbidden",
-        from: byName(layers[lower]!),
-        to: byName(layers[higher]!),
+        from: mkFilter(layers[lower]!, by),
+        to: mkFilter(layers[higher]!, by),
         kind,
       });
     }
@@ -98,11 +115,14 @@ export function forbiddenCall(params: {
   callerPattern: string;
   calleePattern: string;
   kind?: EdgeKind;
+  /** Match both patterns by function name (default) or source path. */
+  by?: MatchBy;
 }): Predicate {
+  const by = params.by ?? "name";
   return {
     type: "EdgeForbidden",
-    from: byName(params.callerPattern),
-    to: byName(params.calleePattern),
+    from: mkFilter(params.callerPattern, by),
+    to: mkFilter(params.calleePattern, by),
     kind: params.kind ?? "calls",
   };
 }
@@ -116,8 +136,10 @@ export function couplingCap(params: {
   maxFanIn?: number;
   maxFanOut?: number;
   kind?: EdgeKind;
+  /** Match the target pattern by function name (default) or source path. */
+  by?: MatchBy;
 }): Predicate {
-  const target = byName(params.targetPattern);
+  const target = mkFilter(params.targetPattern, params.by ?? "name");
   const children: Predicate[] = [];
   if (params.maxFanIn !== undefined) {
     children.push({ type: "FanInCap", target, max: params.maxFanIn, kind: params.kind });
@@ -133,8 +155,12 @@ export function couplingCap(params: {
 }
 
 /** noCycle — forbid cycles among nodes matching scopePattern (all if omitted). */
-export function noCycle(params: { scopePattern?: string; kind?: EdgeKind } = {}): Predicate {
-  const scope: NodeFilter = params.scopePattern ? byName(params.scopePattern) : {};
+export function noCycle(
+  params: { scopePattern?: string; kind?: EdgeKind; by?: MatchBy } = {},
+): Predicate {
+  const scope: NodeFilter = params.scopePattern
+    ? mkFilter(params.scopePattern, params.by ?? "name")
+    : {};
   return { type: "NoCycle", scope, kind: params.kind };
 }
 

@@ -23,13 +23,14 @@ import { verify, buildDefaultGates } from "./supply/verify.js";
 import { resolveLanding } from "./supply/landing.js";
 import { loadOntology } from "./domains/ontology.js";
 import { detectDomains } from "./domains/detect.js";
+import { compileDomainRules } from "./domains/compile.js";
 import { generateCard, createCardCache } from "./domains/card.js";
 import type { CardCache, LLMClient } from "./domains/card.js";
 import type { Providers } from "./providers/index.js";
 import { parseSpecFiles } from "./spec/parse.js";
 import { findExplicitLinks } from "./spec/explicit.js";
 import { findStructuralLinks } from "./spec/structural.js";
-import type { AnchorId, ContextBundle, FileNode, FunctionNode, Link, SpecClause, Verdict } from "./types.js";
+import type { AnchorId, ContextBundle, FileNode, FunctionNode, Link, Rule, SpecClause, Verdict } from "./types.js";
 import type { Landing, LandingTask, DomainDetector, LayerRules, SiblingLookup } from "./supply/landing.js";
 import type { DetectionResult } from "./domains/detect.js";
 import type { DiffInput } from "./supply/gates/types.js";
@@ -56,6 +57,11 @@ export interface AnalysisContext {
   links?: Link[];
   /** Domain-detection results from the builtin ontology + plugins (G3). */
   domains?: DetectionResult[];
+  /**
+   * Preset rules compiled from the active ontology (builtin + plugins). These
+   * are the rules the supply bundle lists and the verify pipeline evaluates.
+   */
+  rules?: Rule[];
   /** Files that could not be read or parsed (skipped, with reason). */
   skipped?: { filePath: string; reason: string }[];
 }
@@ -71,6 +77,13 @@ export interface AnalyzeOptions {
   quiet?: boolean;
   /** Explicit domain-ontology plugin dir (else ANATOMIA_PLUGIN_DIR). */
   pluginDir?: string;
+  /**
+   * Extra directories to scan for `spec/*.md` clauses, in addition to repoPath.
+   * Needed when a project's code root is a subdirectory (e.g. `<repo>/src`) but
+   * its spec lives at a sibling (`<repo>/spec`): register the code root for a
+   * clean graph, point specDirs at the spec tree for linkage.
+   */
+  specDirs?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -218,9 +231,13 @@ export async function analyze(
 
   // Phase 4 — domain detection (G3). Builtin ontology + optional plugins.
   let domains: DetectionResult[] = [];
+  let rules: Rule[] = [];
   try {
     const ontology = await loadOntology(options.pluginDir);
     domains = await detectDomains(ontology, graph, allFunctions);
+    // Surface the ontology's preset rules so supply can list them and verify
+    // can evaluate them (detection only reports violations on existing code).
+    rules = compileDomainRules(ontology);
   } catch (err) {
     if (!options.quiet) {
       console.warn(`[anatomia/analyze] domain detection failed: ${String(err)}`);
@@ -231,7 +248,11 @@ export async function analyze(
   let specClauses: SpecClause[] = [];
   let links: Link[] = [];
   try {
-    const specPaths = await collectSpecFiles(repoPath);
+    // Scan the code root plus any extra spec dirs (e.g. a sibling spec/ when the
+    // code root is <repo>/src). De-dupe so an overlapping dir is not parsed twice.
+    const specRoots = [repoPath, ...(options.specDirs ?? [])];
+    const collected = await Promise.all(specRoots.map((d) => collectSpecFiles(d)));
+    const specPaths = [...new Set(collected.flat())];
     if (specPaths.length > 0) {
       specClauses = await parseSpecFiles(specPaths);
       const sourcePaths = files.map((f) => f.path);
@@ -255,6 +276,7 @@ export async function analyze(
     specClauses,
     links,
     domains,
+    rules,
     skipped,
   };
 }
@@ -294,13 +316,18 @@ export async function buildContextBundle(
 
   // Existing domains that actually have implementors in this repo feed the
   // duplication-avoidance segment of the bundle (DESIGN §9.1 ①).
-  const existingDomains = (ctx.domains ?? [])
-    .filter((m) => m.implementors.length > 0)
-    .map((m) => m.domain);
+  const activeDomains = (ctx.domains ?? []).filter((m) => m.implementors.length > 0);
+  const existingDomains = activeDomains.map((m) => m.domain);
+
+  // Applicable rules = the preset rules of domains that are actually present in
+  // this repo (rule id is `${domain}/preset#i`), so the bundle advises the agent
+  // with the conventions that apply here rather than every catalogued rule.
+  const activeNames = new Set(existingDomains);
+  const applicable = (ctx.rules ?? []).filter((r) => activeNames.has(r.id.split("/")[0]!));
 
   const { bundle } = assembleBundle({
     landingAnchors,
-    rules: [],
+    rules: applicable,
     specClauses: ctx.specClauses ?? [],
     exemplars,
     impactRadius: [],
@@ -377,6 +404,8 @@ export async function buildVerdict(
     changed: fns,
     graph: ctx.graph,
     domainCards,
+    // Domain + global rules so the rule_conformance gate can evaluate them.
+    rules: ctx.rules ?? [],
     // Real spec clauses + links so the spec_linkage gate has context to judge
     // whether the changed functions tie into any spec clause (orphan warning).
     specClauses: ctx.specClauses ?? [],

@@ -22,6 +22,12 @@ export interface Project {
   languages?: Lang[];
   /** Optional explicit domain-ontology plugin dir for this project. */
   ontologyDir?: string;
+  /**
+   * Optional extra spec dirs scanned for `spec/*.md` in addition to rootPath.
+   * Use when the code root is a subdir but spec lives at a sibling (e.g.
+   * rootPath=`<repo>/src`, specDirs=[`<repo>/spec`]).
+   */
+  specDirs?: string[];
   /** ISO timestamp when the project was registered. */
   addedAt: string;
 }
@@ -34,6 +40,7 @@ export interface ProjectInput {
   id?: string;
   languages?: Lang[];
   ontologyDir?: string;
+  specDirs?: string[];
 }
 
 /** The serializable shape persisted to projects.json. */

@@ -65,6 +65,7 @@ export class ProjectRegistry {
       rootPath: input.rootPath,
       languages: input.languages,
       ontologyDir: input.ontologyDir,
+      specDirs: input.specDirs,
       addedAt: existing?.addedAt ?? new Date().toISOString(),
     };
     this.byId.set(id, project);

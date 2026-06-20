@@ -72,6 +72,30 @@ describe("T15 preset shapes", () => {
     expect(p.type).toBe("NoCycle");
   });
 
+  it("layerDependencyDirection by:path emits pathPattern filters (not namePattern)", () => {
+    const p = layerDependencyDirection({ layers: ["/util/", "/render/", "/enemy/"], by: "path" });
+    expect(p.type).toBe("And");
+    if (p.type === "And") {
+      const first = p.children[0]!;
+      expect(first.type).toBe("EdgeForbidden");
+      if (first.type === "EdgeForbidden") {
+        expect(first.from.pathPattern).toBe("/util/");
+        expect(first.from.namePattern).toBeUndefined();
+        expect(first.to.pathPattern).toBe("/render/");
+      }
+    }
+  });
+
+  it("forbiddenCall/couplingCap honour by:path", () => {
+    const f = forbiddenCall({ callerPattern: "/render/", calleePattern: "/enemy/", by: "path" });
+    if (f.type === "EdgeForbidden") {
+      expect(f.from.pathPattern).toBe("/render/");
+      expect(f.to.pathPattern).toBe("/enemy/");
+    }
+    const c = couplingCap({ targetPattern: "/render/", maxFanOut: 8, by: "path" });
+    if (c.type === "FanOutCap") expect(c.target.pathPattern).toBe("/render/");
+  });
+
   it("stateAccessPath builds an EdgeForbidden with a negative-lookahead caller", () => {
     const p = stateAccessPath({ statePattern: "State$", allowedCallerPattern: "Transition" });
     expect(p.type).toBe("EdgeForbidden");
