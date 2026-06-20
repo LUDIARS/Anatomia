@@ -110,7 +110,9 @@ export class ProjectManager {
   async analyzeProject(id?: string): Promise<AnalysisContext> {
     const projectId = this.resolveId(id);
     const project = this.registry.get(projectId)!;
-    const fingerprint = await computeFingerprint(project.rootPath);
+    const fingerprint = await computeFingerprint(project.rootPath, {
+      configDirs: configDirsOf(project),
+    });
     return this.analyzeWith(projectId, project, fingerprint);
   }
 
@@ -126,6 +128,7 @@ export class ProjectManager {
     const opts: AnalyzeOptions = {
       ...this.analyzeOptions,
       pluginDir: project.ontologyDir ?? this.analyzeOptions.pluginDir,
+      specDirs: project.specDirs ?? this.analyzeOptions.specDirs,
     };
     const ctx = await analyze(project.rootPath, opts);
     await this.cache.put(projectId, fingerprint, ctx);
@@ -145,7 +148,9 @@ export class ProjectManager {
   async summary(id?: string): Promise<SummaryCounts> {
     const projectId = this.resolveId(id);
     const project = this.registry.get(projectId)!;
-    const fingerprint = await computeFingerprint(project.rootPath);
+    const fingerprint = await computeFingerprint(project.rootPath, {
+      configDirs: configDirsOf(project),
+    });
 
     const cached = this.cache.getIfFresh(projectId, fingerprint);
     if (cached) return summarize(cached);
@@ -166,4 +171,15 @@ export class ProjectManager {
   async getContext(id?: string): Promise<AnalysisContext> {
     return this.analyzeProject(id);
   }
+}
+
+/**
+ * The project's config dirs (ontologyDir + specDirs) that feed the fingerprint,
+ * so editing an ontology def or an out-of-root spec busts the analysis cache.
+ */
+function configDirsOf(project: Project): string[] {
+  const dirs: string[] = [];
+  if (project.ontologyDir) dirs.push(project.ontologyDir);
+  if (project.specDirs) dirs.push(...project.specDirs);
+  return dirs;
 }

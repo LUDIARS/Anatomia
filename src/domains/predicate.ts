@@ -5,9 +5,15 @@
  * exposes small set helpers over node collections. Predicate *evaluation*
  * lives in engine.ts; the Predicate ADT itself lives in types.ts.
  *
- * A NodeFilter matches by kind / namePattern (regex) / tags. All present
- * fields are ANDed; an empty filter matches every node. A node matches the
- * `tags` field only when it carries ALL listed tags.
+ * A NodeFilter matches by kind / namePattern (regex) / pathPattern (regex over
+ * the source file path) / tags. All present fields are ANDed; an empty filter
+ * matches every node. A node matches the `tags` field only when it carries ALL
+ * listed tags.
+ *
+ * `pathPattern` is tested against the node's source file path normalised to
+ * forward slashes (so ontology patterns like `/enemy/` are OS-independent). It
+ * is what lets directory-structured codebases (e.g. a game's enemy/ combat/
+ * render/ layout) express layer rules by location rather than by name.
  */
 
 import type { CodeNode, NodeFilter } from "../types.js";
@@ -30,6 +36,12 @@ export function matchesFilter(node: CodeNode, filter: NodeFilter): boolean {
   if (filter.namePattern !== undefined) {
     const re = compileRegex(filter.namePattern);
     if (!re.test(node.name)) return false;
+  }
+
+  if (filter.pathPattern !== undefined) {
+    const re = compileRegex(filter.pathPattern);
+    const path = node.sourceRange.filePath.replace(/\\/g, "/");
+    if (!re.test(path)) return false;
   }
 
   if (filter.tags !== undefined && filter.tags.length > 0) {

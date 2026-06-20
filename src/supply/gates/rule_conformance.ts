@@ -21,7 +21,11 @@ export function ruleConformanceGate(): Gate {
       const rules = input.rules ?? [];
       const changed = new Set(changedAnchors(input));
 
-      const offending: string[] = [];
+      // A `block` rule's violation fails the gate; a `warn` rule's violation is
+      // advisory (listed in the suggestion, gate still passes). This lets domain
+      // architecture rules guide without hard-blocking until promoted to block.
+      const blocking: string[] = [];
+      const advisory: string[] = [];
       const anchors = new Set<string>();
 
       for (const rule of rules) {
@@ -31,22 +35,27 @@ export function ruleConformanceGate(): Gate {
         });
         for (const v of violations) {
           // Only count violations touching the diff region.
-          if (v.anchors.some((a) => changed.has(a))) {
-            offending.push(`${v.ruleId}: ${v.evidence}`);
-            for (const a of v.anchors) anchors.add(a);
-          }
+          if (!v.anchors.some((a) => changed.has(a))) continue;
+          (rule.severity === "block" ? blocking : advisory).push(`${v.ruleId}: ${v.evidence}`);
+          for (const a of v.anchors) anchors.add(a);
         }
       }
 
-      const pass = offending.length === 0;
+      const pass = blocking.length === 0;
+      const lines: string[] = [];
+      if (blocking.length > 0) {
+        lines.push("Fix rule violations in new code:");
+        lines.push(...[...new Set(blocking)].sort().map((s) => `  - ${s}`));
+      }
+      if (advisory.length > 0) {
+        lines.push("Advisory (architecture warnings):");
+        lines.push(...[...new Set(advisory)].sort().map((s) => `  - ${s}`));
+      }
       return {
         gate: "rule_conformance",
         pass,
         anchors: [...anchors].sort() as GateResult["anchors"],
-        suggestion: pass
-          ? null
-          : "Fix rule violations in new code:\n" +
-            [...new Set(offending)].sort().map((s) => `  - ${s}`).join("\n"),
+        suggestion: lines.length > 0 ? lines.join("\n") : null,
       };
     },
   };
