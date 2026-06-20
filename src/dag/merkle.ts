@@ -9,7 +9,7 @@
  */
 
 import { createHash } from "node:crypto";
-import type { AnchorId, FileNode, FunctionNode } from "../types.js";
+import type { AnchorId, FileNode, FunctionNode, TypeDecl } from "../types.js";
 
 /** SHA-256 (full hex) over a sorted, newline-joined list of child hashes. */
 function merkleHash(childHashes: string[]): string {
@@ -20,8 +20,17 @@ function merkleHash(childHashes: string[]): string {
 /**
  * Build a FileNode (with computed Merkle hash) from its functions.
  * Each function MUST already have its `id` assigned (T06).
+ *
+ * `types` (class/struct/interface declarations) is metadata for type-aware call
+ * resolution; it is NOT folded into the Merkle hash (which is over function
+ * bodies only), so adding/removing a forward declaration does not perturb the
+ * content hash.
  */
-export function buildFileNode(filePath: string, functions: FunctionNode[]): FileNode {
+export function buildFileNode(
+  filePath: string,
+  functions: FunctionNode[],
+  types?: TypeDecl[],
+): FileNode {
   const childHashes = functions.map((f) => {
     if (f.id == null) {
       throw new Error(
@@ -34,6 +43,7 @@ export function buildFileNode(filePath: string, functions: FunctionNode[]): File
     path: filePath,
     hash: merkleHash(childHashes),
     functions,
+    ...(types && types.length > 0 ? { types } : {}),
   };
 }
 

@@ -29,10 +29,15 @@
  * Cross-file call resolution heuristic (best-effort, documented):
  *   1. Build a global name → AnchorId[] map from all provided functions.
  *   2. For each call_expression, extract the callee name (terminal simple name:
- *      `obj.method()` → `method`, `Ns::foo()` → `foo`).
- *   3. If the name maps to exactly ONE AnchorId, emit a `calls` edge.
- *      If multiple overloads share the name, emit edges to ALL of them
- *      (safe over-approximation for traceability).
+ *      `obj.method()` → `method`, `Ns::foo()` → `foo`) and the receiver (the
+ *      object the method is called on: `target.alive()` → `target`).
+ *   3. Resolve the target(s), in order of precedence:
+ *      a. TYPE-aware — if the receiver's static type T is known (a class in the
+ *         analyzed code), restrict candidates to `method` defined on T or its
+ *         bases. If none match (pure-virtual interface case), DROP the edge
+ *         rather than fan out to every same-named override (see type-resolve.ts).
+ *      b. LOCALITY — otherwise (unqualified call, or receiver type unknown),
+ *         prefer same-file then same-directory candidates (see localityResolve).
  *   4. Calls to unknown names (stdlib, external, unresolved) are silently
  *      dropped — no phantom nodes.
  *   5. Cycles (recursion, mutual recursion) are preserved; this is a general
@@ -46,7 +51,9 @@
  *   - If a writes edge is already emitted for a pair, the reads edge is skipped.
  *
  * Limits:
- *   - No type-resolution: same method name on different classes is conflated.
+ *   - Type resolution is receiver-based and single-level: it types a receiver
+ *     that is a plain parameter / local variable / `this`, not a chained
+ *     expression (`a.b.method()`) or a call result. Member fields are not typed.
  *   - Macro expansions / template instantiations are opaque.
  *   - Only function-to-function edges are built; file-level dependencies
  *     (#include / using) are left for G3/G4.
@@ -54,10 +61,25 @@
 
 import type { Node as AstNode } from "web-tree-sitter";
 import type { AnchorId, CodeNode, Edge, EdgeKind, FileNode, FunctionNode } from "../types.js";
+import { findDeclaratorName, simpleTypeName, templateElementName } from "../dag/extract.js";
+import { TypeRegistry } from "./type-resolve.js";
 
 // ---------------------------------------------------------------------------
 // Edge-info: plain data extracted from AST before tree deletion
 // ---------------------------------------------------------------------------
+
+/**
+ * A single call site: the callee's terminal name plus the receiver it is called
+ * on (the object before `.`/`->`), used for type-aware resolution.
+ *   `target.alive()` → { name: "alive", receiver: "target" }
+ *   `this->tick()`   → { name: "tick",  receiver: "this" }
+ *   `helper()`       → { name: "helper", receiver: null }  (unqualified)
+ *   `a.b.run()`      → { name: "run",   receiver: null }  (chained, not typed)
+ */
+export interface CallSite {
+  name: string;
+  receiver: string | null;
+}
 
 /**
  * Plain-data summary of the edges that originate from one function.
@@ -66,12 +88,19 @@ import type { AnchorId, CodeNode, Edge, EdgeKind, FileNode, FunctionNode } from 
 export interface FunctionEdgeInfo {
   /** AnchorId of the source function. */
   anchorId: AnchorId;
-  /** Terminal callee names extracted from call expressions. */
-  calleeNames: string[];
+  /** Call sites (name + receiver) extracted from call expressions. */
+  calls: CallSite[];
   /** Field/member names read (not assigned). */
   readFieldNames: string[];
   /** Field/member names written (LHS of assignment). */
   writeFieldNames: string[];
+  /**
+   * Receiver-variable → simple type name, merged from the caller's parameters
+   * and local variable declarations. Drives type-aware call resolution.
+   */
+  symbolTypes: Record<string, string>;
+  /** Simple name of the class this function is a method of (types `this`). */
+  selfType?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -90,6 +119,14 @@ export interface CodeGraph {
   reverseAdjacency: Map<AnchorId, Edge[]>;
   /** All edges (deduplicated by from+to+kind). */
   edges: Edge[];
+  /**
+   * Type registry used to resolve calls by receiver type. Carried on the graph
+   * so verify's diff overlay (augmentGraph) can extend it with the diff's types
+   * instead of rebuilding it over the whole repo. Always set by buildGraph /
+   * augmentGraph; optional only so hand-built test fixtures (which never run edge
+   * resolution) can omit it.
+   */
+  typeRegistry?: TypeRegistry;
 }
 
 // ---------------------------------------------------------------------------
@@ -128,14 +165,6 @@ function descendantsIterative(root: AstNode, types: Set<string>): AstNode[] {
  * We always take the rightmost leaf name so that `Ns::foo()` and `obj.foo()`
  * both resolve to `foo`.
  */
-function extractCalleeName(callNode: AstNode): string | null {
-  const fnField =
-    callNode.childForFieldName("function") ??
-    callNode.childForFieldName("method");
-  if (!fnField) return null;
-  return terminalName(fnField);
-}
-
 function terminalName(node: AstNode): string | null {
   const t = node.type;
   if (t === "identifier") return node.text;
@@ -202,16 +231,21 @@ export function extractFunctionEdgeInfo(fn: FunctionNode): FunctionEdgeInfo | nu
   if (!fn.id) return null;
 
   const body = fn.bodyAst;
-  const calleeNames: string[] = [];
+  const calls: CallSite[] = [];
   const readFieldNames: string[] = [];
   const writeFieldNames: string[] = [];
 
-  // ── calls ────────────────────────────────────────────────────────────────
+  // ── calls (name + receiver) ────────────────────────────────────────────────
   const callTypes = new Set(["call_expression", "invocation_expression"]);
   const callNodes = descendantsIterative(body, callTypes);
+  const seenCall = new Set<string>();
   for (const call of callNodes) {
-    const callee = extractCalleeName(call);
-    if (callee) calleeNames.push(callee);
+    const site = extractCallSite(call);
+    if (!site) continue;
+    const key = `${site.name}\0${site.receiver ?? ""}`;
+    if (seenCall.has(key)) continue; // deduplicate at source
+    seenCall.add(key);
+    calls.push(site);
   }
 
   // ── reads / writes ────────────────────────────────────────────────────────
@@ -236,12 +270,137 @@ export function extractFunctionEdgeInfo(fn: FunctionNode): FunctionEdgeInfo | nu
     }
   }
 
+  // ── symbol types (params + locals + range-for loop vars) ────────────────────
+  const symbolTypes: Record<string, string> = {};
+  // containerElem: var → element type of a container template it holds, used to
+  // type `for (auto* x : container)` loop variables.
+  const containerElem: Record<string, string> = {};
+  for (const p of fn.params ?? []) {
+    if (p.type) symbolTypes[p.name] = p.type;
+    if (p.elementType) containerElem[p.name] = p.elementType;
+  }
+  collectLocalTypes(body, symbolTypes, containerElem);
+  resolveRangeForTypes(body, symbolTypes, containerElem);
+
   return {
     anchorId: fn.id,
-    calleeNames: [...new Set(calleeNames)],       // deduplicate at source
+    calls,
     readFieldNames: [...new Set(readFieldNames)],
     writeFieldNames: [...new Set(writeFieldNames)],
+    symbolTypes,
+    ...(fn.enclosingType ? { selfType: fn.enclosingType } : {}),
   };
+}
+
+/**
+ * Extract `{ name, receiver }` from a call/invocation node. `receiver` is the
+ * object the method is invoked on when it is a plain identifier or `this`; it is
+ * null for an unqualified call or a chained/complex receiver (which we do not
+ * type — see Limits).
+ */
+function extractCallSite(callNode: AstNode): CallSite | null {
+  const fnField =
+    callNode.childForFieldName("function") ?? callNode.childForFieldName("method");
+  if (!fnField) return null;
+  const name = terminalName(fnField);
+  if (!name) return null;
+
+  let receiver: string | null = null;
+  if (fnField.type === "field_expression") {
+    // C++ `obj.method` / `ptr->method`
+    receiver = simpleReceiver(fnField.childForFieldName("argument"));
+  } else if (fnField.type === "member_access_expression") {
+    // C# `obj.Method`
+    receiver = simpleReceiver(fnField.childForFieldName("expression"));
+  }
+  return { name, receiver };
+}
+
+/** Reduce a receiver expression to a variable name, `this`, or null. */
+function simpleReceiver(node: AstNode | null): string | null {
+  if (!node) return null;
+  if (node.type === "identifier") return node.text;
+  if (node.type === "this" || node.type === "this_expression") return "this";
+  return null; // chained field_expression, call result, etc. — not typed
+}
+
+/** Local declaration node types whose declared variables we type. */
+const LOCAL_DECL_TYPES = new Set<string>([
+  "declaration", // C++
+  "variable_declaration", // C# (also nested under local_declaration_statement)
+]);
+
+/**
+ * Walk the body collecting local declaration types:
+ *   - `out`           : varName → simple class type (for direct receiver typing)
+ *   - `containerElem` : varName → element type of a container template it holds
+ *                       (for `for (auto* x : var)` loop-variable typing)
+ */
+function collectLocalTypes(
+  body: AstNode,
+  out: Record<string, string>,
+  containerElem: Record<string, string>,
+): void {
+  const decls = descendantsIterative(body, LOCAL_DECL_TYPES);
+  for (const decl of decls) {
+    const typeNode = decl.childForFieldName("type");
+    const typeName = simpleTypeName(typeNode);
+    const elemName = templateElementName(typeNode);
+    if (!typeName && !elemName) continue; // primitive / auto / var → not a class
+    if (decl.type === "declaration") {
+      // C++: one or more declarators (init_declarator / ref / pointer / id).
+      const declarators = decl.childrenForFieldName("declarator");
+      for (const d of declarators) {
+        const name = d ? findDeclaratorName(d) : null;
+        if (!name) continue;
+        if (typeName) out[name] = typeName;
+        if (elemName) containerElem[name] = elemName;
+      }
+    } else {
+      // C#: variable_declarator children carry the `name` field.
+      for (const d of decl.namedChildren) {
+        if (!d || d.type !== "variable_declarator") continue;
+        const nameNode = d.childForFieldName("name") ?? d.namedChildren[0];
+        if (!nameNode || nameNode.type !== "identifier") continue;
+        if (typeName) out[nameNode.text] = typeName;
+        if (elemName) containerElem[nameNode.text] = elemName;
+      }
+    }
+  }
+}
+
+/**
+ * Type the loop variables of C++ range-based for loops (`for (T x : container)`):
+ *   - explicit element type `T`         → that type;
+ *   - `auto`/`auto*`/`auto&` over a var → the container var's element type
+ *     (so `for (auto* r : receivers)` types `r` as the vector's element class).
+ * Member-field containers (`for (auto& y : items_)`) are not typed — only
+ * parameter / local containers we have an element type for.
+ */
+function resolveRangeForTypes(
+  body: AstNode,
+  out: Record<string, string>,
+  containerElem: Record<string, string>,
+): void {
+  const loops = descendantsIterative(body, new Set(["for_range_loop"]));
+  for (const loop of loops) {
+    const declarator = loop.childForFieldName("declarator");
+    const loopVar = declarator ? findDeclaratorName(declarator) : null;
+    if (!loopVar) continue;
+    const typeNode = loop.childForFieldName("type");
+    if (typeNode && typeNode.type !== "placeholder_type_specifier") {
+      // Explicit element type, e.g. `for (IDamageReceiver* r : …)`.
+      const explicit = simpleTypeName(typeNode);
+      if (explicit) out[loopVar] = explicit;
+      continue;
+    }
+    // `auto` element: resolve via the container variable's element type.
+    const right = loop.childForFieldName("right");
+    if (right && right.type === "identifier") {
+      const elem = containerElem[right.text];
+      if (elem) out[loopVar] = elem;
+    }
+  }
 }
 
 /**
@@ -322,6 +481,7 @@ export function buildGraph(
     adjacency: new Map(),
     reverseAdjacency: new Map(),
     edges: [],
+    typeRegistry: TypeRegistry.build(files),
   };
 
   const nameIndex = buildNameIndex(files);
@@ -386,10 +546,11 @@ function emitEdges(
     const callerPath = fromNode.sourceRange.filePath;
 
     // calls
-    for (const callee of info.calleeNames) {
-      const targets = nameIndex.get(callee);
+    for (const call of info.calls) {
+      const targets = nameIndex.get(call.name);
       if (!targets) continue;
-      for (const toId of localityResolve(graph, callerPath, targets)) {
+      const resolved = resolveCall(graph, callerPath, call, info, targets);
+      for (const toId of resolved) {
         addEdge(graph, { from: fromId, to: toId, kind: "calls" });
       }
     }
@@ -424,6 +585,37 @@ function dirOf(filePath: string): string {
   const p = filePath.replace(/\\/g, "/");
   const i = p.lastIndexOf("/");
   return i >= 0 ? p.slice(0, i) : "";
+}
+
+/**
+ * Resolve a call site to its target AnchorId(s).
+ *
+ * Precedence:
+ *   1. TYPE-aware — when the receiver's static type is known (parameter / local
+ *      var / `this`), restrict to `name` defined on that type or its bases. If
+ *      the type is known but the method is not found in its hierarchy, return []
+ *      (drop the edge) instead of fanning out to every same-named override —
+ *      this is the false-"calls up the spine" killer for calls through an
+ *      abstract interface the caller's layer owns (see type-resolve.ts).
+ *   2. LOCALITY — unqualified call, or receiver whose type we cannot determine:
+ *      fall back to same-file/same-directory preference (localityResolve).
+ */
+function resolveCall(
+  graph: CodeGraph,
+  callerPath: string,
+  call: CallSite,
+  info: FunctionEdgeInfo,
+  targets: AnchorId[],
+): AnchorId[] {
+  if (call.receiver !== null && graph.typeRegistry) {
+    const recvType =
+      call.receiver === "this" ? info.selfType : info.symbolTypes[call.receiver];
+    if (recvType && graph.typeRegistry.isKnownType(recvType)) {
+      // Known receiver type → trust the hierarchy resolution, even if empty.
+      return graph.typeRegistry.resolveMethod(recvType, call.name);
+    }
+  }
+  return localityResolve(graph, callerPath, targets);
 }
 
 /**
@@ -488,11 +680,18 @@ export function augmentGraph(
   diffFiles: FileNode[],
   diffEdgeInfo: Map<AnchorId, FunctionEdgeInfo>,
 ): CodeGraph {
+  // Clone the base registry and fold in the diff's types/methods so a call in the
+  // diff resolves against existing classes AND any class the diff introduces.
+  // (base.typeRegistry is always set by buildGraph; default for hand-built bases.)
+  const typeRegistry = (base.typeRegistry ?? new TypeRegistry()).clone();
+  typeRegistry.addFiles(diffFiles);
+
   const graph: CodeGraph = {
     nodes: new Map(base.nodes),
     adjacency: new Map([...base.adjacency].map(([k, v]) => [k, [...v]])),
     reverseAdjacency: new Map([...base.reverseAdjacency].map(([k, v]) => [k, [...v]])),
     edges: [...base.edges],
+    typeRegistry,
   };
 
   // Add diff nodes (a changed function whose id collides with an existing one is
