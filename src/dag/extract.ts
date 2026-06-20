@@ -13,7 +13,7 @@
  */
 
 import type { Node, Tree } from "web-tree-sitter";
-import type { FunctionNode, ParamInfo, SourceRange, TypeDecl } from "../types.js";
+import type { FieldInfo, FunctionNode, ParamInfo, SourceRange, TypeDecl } from "../types.js";
 
 /** Node types that introduce a function-like definition, by language family. */
 const FUNCTION_DEFINITION_TYPES = new Set<string>([
@@ -285,8 +285,20 @@ function qualifiedDefinitionScope(node: Node): string | null {
   if (!fnName || (fnName.type !== "qualified_identifier" && fnName.type !== "scoped_identifier")) {
     return null;
   }
+  // The `::` scope is the owning class. tree-sitter-cpp tags the qualifier as
+  // `namespace_identifier` (e.g. `AttackHitbox::sweep` → scope namespace_identifier
+  // "AttackHitbox"), so accept that in addition to type/qualified names; a nested
+  // qualifier (`A::B::method`) reduces to the innermost class B.
   const scope = fnName.childForFieldName("scope");
-  return scope ? simpleTypeName(scope) : null;
+  if (!scope) return null;
+  if (
+    scope.type === "namespace_identifier" ||
+    scope.type === "type_identifier" ||
+    scope.type === "identifier"
+  ) {
+    return scope.text;
+  }
+  return simpleTypeName(scope);
 }
 
 // ---------------------------------------------------------------------------
@@ -363,13 +375,81 @@ function extractBases(container: Node): string[] {
   return [...new Set(bases)];
 }
 
-/** Extract every class/struct/interface declaration (name + bases) in a tree. */
+/** Does this field_declaration declare a method (has a function_declarator)? */
+function declaresFunction(decl: Node): boolean {
+  let d: Node | null = decl.childForFieldName("declarator");
+  while (d) {
+    if (d.type === "function_declarator") return true;
+    d = d.childForFieldName("declarator");
+  }
+  return decl.namedChildren.some((c) => c && c.type === "function_declarator");
+}
+
+/** Name of a data-member field_declaration (field_identifier / wrapped declarator). */
+function memberFieldName(decl: Node): string | null {
+  const d = decl.childForFieldName("declarator");
+  if (d) {
+    const n = findDeclaratorName(d);
+    if (n) return n;
+  }
+  const fi = decl.namedChildren.find(
+    (c) => c && (c.type === "field_identifier" || c.type === "identifier"),
+  );
+  return fi ? fi.text : null;
+}
+
+/**
+ * Extract a class's DIRECT data members (fields/properties) with their simple
+ * type / container element type. Methods (function_definition / field_declaration
+ * with a function_declarator) are skipped. Members whose type names neither a
+ * class nor a container element are dropped (useless for receiver typing).
+ */
+function extractFields(container: Node): FieldInfo[] {
+  const list = container.namedChildren.find(
+    (c) => c && (c.type === "field_declaration_list" || c.type === "declaration_list"),
+  );
+  if (!list) return [];
+  const out: FieldInfo[] = [];
+  const push = (name: string | null, typeNode: Node | null): void => {
+    if (!name) return;
+    const type = simpleTypeName(typeNode);
+    const elementType = templateElementName(typeNode);
+    if (type || elementType) out.push({ name, type, elementType });
+  };
+  for (const m of list.namedChildren) {
+    if (!m) continue;
+    if (m.type === "field_declaration") {
+      if (declaresFunction(m)) continue; // method declaration, not a data member
+      // C# wraps the member in a variable_declaration; C++ is flat.
+      const vd = m.namedChildren.find((c) => c && c.type === "variable_declaration");
+      if (vd) {
+        const t = vd.childForFieldName("type");
+        for (const d of vd.namedChildren) {
+          if (!d || d.type !== "variable_declarator") continue;
+          const nn = d.childForFieldName("name") ?? d.namedChildren[0];
+          if (nn && nn.type === "identifier") push(nn.text, t);
+        }
+      } else {
+        push(memberFieldName(m), m.childForFieldName("type"));
+      }
+    } else if (m.type === "property_declaration") {
+      // C#: `public X Y { get; }` — accessed like a field for receiver typing.
+      push(m.childForFieldName("name")?.text ?? null, m.childForFieldName("type"));
+    }
+  }
+  return out;
+}
+
+/** Extract every class/struct/interface declaration (name + bases + fields). */
 export function extractTypeDecls(tree: Tree, filePath = "<memory>"): TypeDecl[] {
   const out: TypeDecl[] = [];
   const visit = (node: Node): void => {
     if (TYPE_CONTAINER_TYPES.has(node.type)) {
       const name = typeContainerName(node);
-      if (name) out.push({ name, bases: extractBases(node), filePath });
+      if (name) {
+        const fields = extractFields(node);
+        out.push({ name, bases: extractBases(node), filePath, ...(fields.length > 0 ? { fields } : {}) });
+      }
     }
     for (const child of node.namedChildren) if (child) visit(child);
   };

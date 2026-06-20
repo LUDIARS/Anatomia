@@ -107,8 +107,24 @@ export interface TypeDecl {
   name: string;
   /** Simple names of direct base classes / interfaces. */
   bases: string[];
+  /**
+   * Data members (fields/properties) with their simple type names. Lets a bare
+   * member-field receiver (`hit_.count()` inside a method) be typed via the
+   * enclosing class. Only members whose type names a class (or a container with
+   * a class element) are recorded.
+   */
+  fields?: FieldInfo[];
   /** Absolute path of the declaring file (diagnostics only). */
   filePath: string;
+}
+
+/** A data member: field name + simple type (and container element type). */
+export interface FieldInfo {
+  name: string;
+  /** Simple class type name, or null when not a class type. */
+  type: string | null;
+  /** Element type when the field is a single-arg container template. */
+  elementType?: string | null;
 }
 
 /** A source file modelled as a Merkle node over its function set. */

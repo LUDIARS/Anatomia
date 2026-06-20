@@ -591,13 +591,16 @@ function dirOf(filePath: string): string {
  * Resolve a call site to its target AnchorId(s).
  *
  * Precedence:
- *   1. TYPE-aware — when the receiver's static type is known (parameter / local
- *      var / `this`), restrict to `name` defined on that type or its bases. If
- *      the type is known but the method is not found in its hierarchy, return []
- *      (drop the edge) instead of fanning out to every same-named override —
- *      this is the false-"calls up the spine" killer for calls through an
- *      abstract interface the caller's layer owns (see type-resolve.ts).
- *   2. LOCALITY — unqualified call, or receiver whose type we cannot determine:
+ *   1. TYPE-aware — when the receiver's static type is determined:
+ *      - receiver type from parameter / local var / range-for loop var / `this`,
+ *        else from a DATA MEMBER of the enclosing class (`hit_.count()`);
+ *      - if that type is a KNOWN repo class → restrict to `name` on it or its
+ *        bases (empty ⇒ drop, the abstract-interface case, see type-resolve.ts);
+ *      - if that type is determined but NOT a repo class → it is external
+ *        (`std::unordered_set` etc.) → DROP rather than locality-fan-out to a
+ *        same-named repo function (kills false edges like `hit_.count` →
+ *        some unrelated `count()`).
+ *   2. LOCALITY — unqualified call, or a receiver whose type we cannot determine:
  *      fall back to same-file/same-directory preference (localityResolve).
  */
 function resolveCall(
@@ -607,12 +610,21 @@ function resolveCall(
   info: FunctionEdgeInfo,
   targets: AnchorId[],
 ): AnchorId[] {
-  if (call.receiver !== null && graph.typeRegistry) {
-    const recvType =
+  const registry = graph.typeRegistry;
+  if (call.receiver !== null && registry) {
+    let recvType =
       call.receiver === "this" ? info.selfType : info.symbolTypes[call.receiver];
-    if (recvType && graph.typeRegistry.isKnownType(recvType)) {
-      // Known receiver type → trust the hierarchy resolution, even if empty.
-      return graph.typeRegistry.resolveMethod(recvType, call.name);
+    // Member-field receiver: a bare identifier that is a field of `this`'s class.
+    if (!recvType && info.selfType) {
+      recvType = registry.fieldType(info.selfType, call.receiver)?.type ?? undefined;
+    }
+    if (recvType) {
+      if (registry.isKnownType(recvType)) {
+        // Known repo type → trust hierarchy resolution, even if empty.
+        return registry.resolveMethod(recvType, call.name);
+      }
+      // Determined but external type → external method, no repo edge.
+      return [];
     }
   }
   return localityResolve(graph, callerPath, targets);
