@@ -55,6 +55,7 @@ import { mountCostRoute } from "./routes/cost.js";
 import { mountHarnessRoutes } from "./routes/harness.js";
 import { mountBranchRoutes } from "./routes/branch.js";
 import { mountDomainViewRoute } from "./routes/domain-view.js";
+import { resolveIdleMs, checkIntervalMs, shouldShutdown } from "./idle.js";
 import { resolveProviders } from "../../providers/index.js";
 import type { DomainCard } from "../../domains/card.js";
 import { resolveCacheStore } from "../../cache/resolve.js";
@@ -126,11 +127,22 @@ export function createApp(
   src: AnalysisContext | ProjectManager,
   traceSource?: TraceSource,
   verifyOpts?: VerifyOptions,
+  onAccess?: () => void,
 ): Hono {
   const source = webContextSourceFrom(src);
   const manager = src instanceof ProjectManager ? src : null;
   const trace: TraceSource = traceSource ?? new RecordedTraceSource([]);
   const app = new Hono();
+
+  // ── Access tracking (warm-server idle shutdown) ──────────────────────────
+  // Registered first so it wraps every route; notifies startServer of activity
+  // so an idle warm daemon can self-terminate (next hook call re-spawns it).
+  if (onAccess) {
+    app.use("*", async (_c, next) => {
+      onAccess();
+      await next();
+    });
+  }
 
   // ── Project management routes ────────────────────────────────────────────
   mountProjectRoutes(app, source, manager);
@@ -241,12 +253,35 @@ export function createApp(
 
 export async function startServer(options: WebServerOptions): Promise<void> {
   const { ctx, port = 4200, traceSource } = options;
-  const app = createApp(ctx, traceSource, resolveWebVerifyOpts());
+
+  // Idle self-shutdown: the warm daemon exits after a window with no HTTP
+  // access (default 3h, ANATOMIA_IDLE_SHUTDOWN_MS; <=0 disables). The harness
+  // hook re-spawns it on the next supply/verify, so this just reclaims a daemon
+  // that has been sitting unused.
+  const idleMs = resolveIdleMs();
+  let lastAccess = Date.now();
+  const app = createApp(ctx, traceSource, resolveWebVerifyOpts(), () => {
+    lastAccess = Date.now();
+  });
 
   const { serve } = await import("@hono/node-server");
   serve({ fetch: app.fetch, port }, () => {
     console.log(`[anatomia/web] listening on http://localhost:${port}`);
+    if (idleMs > 0) {
+      console.log(`[anatomia/web] idle shutdown after ${Math.round(idleMs / 60000)}min of no access`);
+    }
   });
+
+  if (idleMs > 0) {
+    const timer = setInterval(() => {
+      if (shouldShutdown(lastAccess, Date.now(), idleMs)) {
+        console.log(`[anatomia/web] idle for ${Math.round(idleMs / 60000)}min — shutting down`);
+        process.exit(0);
+      }
+    }, checkIntervalMs(idleMs));
+    // Don't let the idle timer itself keep the event loop alive.
+    timer.unref?.();
+  }
 }
 
 /**
