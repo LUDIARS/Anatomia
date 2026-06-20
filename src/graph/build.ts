@@ -61,7 +61,7 @@
 
 import type { Node as AstNode } from "web-tree-sitter";
 import type { AnchorId, CodeNode, Edge, EdgeKind, FileNode, FunctionNode } from "../types.js";
-import { findDeclaratorName, simpleTypeName } from "../dag/extract.js";
+import { findDeclaratorName, simpleTypeName, templateElementName } from "../dag/extract.js";
 import { TypeRegistry } from "./type-resolve.js";
 
 // ---------------------------------------------------------------------------
@@ -270,12 +270,17 @@ export function extractFunctionEdgeInfo(fn: FunctionNode): FunctionEdgeInfo | nu
     }
   }
 
-  // ── symbol types (params + locals) ──────────────────────────────────────────
+  // ── symbol types (params + locals + range-for loop vars) ────────────────────
   const symbolTypes: Record<string, string> = {};
+  // containerElem: var → element type of a container template it holds, used to
+  // type `for (auto* x : container)` loop variables.
+  const containerElem: Record<string, string> = {};
   for (const p of fn.params ?? []) {
     if (p.type) symbolTypes[p.name] = p.type;
+    if (p.elementType) containerElem[p.name] = p.elementType;
   }
-  collectLocalTypes(body, symbolTypes);
+  collectLocalTypes(body, symbolTypes, containerElem);
+  resolveRangeForTypes(body, symbolTypes, containerElem);
 
   return {
     anchorId: fn.id,
@@ -325,26 +330,75 @@ const LOCAL_DECL_TYPES = new Set<string>([
   "variable_declaration", // C# (also nested under local_declaration_statement)
 ]);
 
-/** Walk the body collecting `varName → simpleType` for local declarations. */
-function collectLocalTypes(body: AstNode, out: Record<string, string>): void {
+/**
+ * Walk the body collecting local declaration types:
+ *   - `out`           : varName → simple class type (for direct receiver typing)
+ *   - `containerElem` : varName → element type of a container template it holds
+ *                       (for `for (auto* x : var)` loop-variable typing)
+ */
+function collectLocalTypes(
+  body: AstNode,
+  out: Record<string, string>,
+  containerElem: Record<string, string>,
+): void {
   const decls = descendantsIterative(body, LOCAL_DECL_TYPES);
   for (const decl of decls) {
-    const typeName = simpleTypeName(decl.childForFieldName("type"));
-    if (!typeName) continue; // primitive / auto / var → not a class
+    const typeNode = decl.childForFieldName("type");
+    const typeName = simpleTypeName(typeNode);
+    const elemName = templateElementName(typeNode);
+    if (!typeName && !elemName) continue; // primitive / auto / var → not a class
     if (decl.type === "declaration") {
       // C++: one or more declarators (init_declarator / ref / pointer / id).
       const declarators = decl.childrenForFieldName("declarator");
       for (const d of declarators) {
         const name = d ? findDeclaratorName(d) : null;
-        if (name) out[name] = typeName;
+        if (!name) continue;
+        if (typeName) out[name] = typeName;
+        if (elemName) containerElem[name] = elemName;
       }
     } else {
       // C#: variable_declarator children carry the `name` field.
       for (const d of decl.namedChildren) {
         if (!d || d.type !== "variable_declarator") continue;
         const nameNode = d.childForFieldName("name") ?? d.namedChildren[0];
-        if (nameNode && nameNode.type === "identifier") out[nameNode.text] = typeName;
+        if (!nameNode || nameNode.type !== "identifier") continue;
+        if (typeName) out[nameNode.text] = typeName;
+        if (elemName) containerElem[nameNode.text] = elemName;
       }
+    }
+  }
+}
+
+/**
+ * Type the loop variables of C++ range-based for loops (`for (T x : container)`):
+ *   - explicit element type `T`         → that type;
+ *   - `auto`/`auto*`/`auto&` over a var → the container var's element type
+ *     (so `for (auto* r : receivers)` types `r` as the vector's element class).
+ * Member-field containers (`for (auto& y : items_)`) are not typed — only
+ * parameter / local containers we have an element type for.
+ */
+function resolveRangeForTypes(
+  body: AstNode,
+  out: Record<string, string>,
+  containerElem: Record<string, string>,
+): void {
+  const loops = descendantsIterative(body, new Set(["for_range_loop"]));
+  for (const loop of loops) {
+    const declarator = loop.childForFieldName("declarator");
+    const loopVar = declarator ? findDeclaratorName(declarator) : null;
+    if (!loopVar) continue;
+    const typeNode = loop.childForFieldName("type");
+    if (typeNode && typeNode.type !== "placeholder_type_specifier") {
+      // Explicit element type, e.g. `for (IDamageReceiver* r : …)`.
+      const explicit = simpleTypeName(typeNode);
+      if (explicit) out[loopVar] = explicit;
+      continue;
+    }
+    // `auto` element: resolve via the container variable's element type.
+    const right = loop.childForFieldName("right");
+    if (right && right.type === "identifier") {
+      const elem = containerElem[right.text];
+      if (elem) out[loopVar] = elem;
     }
   }
 }

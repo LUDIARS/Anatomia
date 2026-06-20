@@ -163,13 +163,60 @@ export function simpleTypeName(typeNode: Node | null): string | null {
   }
   // template_type (C++) / generic_name (C#): use the base name only.
   if (t === "template_type") {
-    return simpleTypeName(typeNode.childForFieldName("name"));
+    const name =
+      typeNode.childForFieldName("name") ??
+      typeNode.namedChildren.find((c) => c && c.type === "type_identifier") ??
+      null;
+    return simpleTypeName(name);
   }
   if (t === "generic_name") {
     const id = typeNode.namedChildren.find((c) => c && c.type === "identifier");
     return id ? id.text : null;
   }
   return null;
+}
+
+/**
+ * For a single-argument container template, return the simple element type:
+ *   std::vector<IDamageReceiver*>  → IDamageReceiver
+ *   List<Foo>  (C#)               → Foo
+ * Returns null when the type is not a 1-arg template. Pointers/refs on the
+ * element are stripped (the element's class name is what we resolve against).
+ */
+export function templateElementName(typeNode: Node | null): string | null {
+  if (!typeNode) return null;
+  // Drill to the template_type / generic_name carrying the argument list.
+  let tmpl: Node | null = null;
+  if (typeNode.type === "template_type" || typeNode.type === "generic_name") {
+    tmpl = typeNode;
+  } else {
+    tmpl =
+      typeNode.namedChildren.find(
+        (c) => c && (c.type === "template_type" || c.type === "generic_name"),
+      ) ?? null;
+  }
+  if (!tmpl) return null;
+  const argList = tmpl.namedChildren.find(
+    (c) => c && (c.type === "template_argument_list" || c.type === "type_argument_list"),
+  );
+  if (!argList) return null;
+  // First type argument: C++ wraps it in type_descriptor; C# uses the type node directly.
+  const firstArg = argList.namedChildren.find((c) => c !== null) ?? null;
+  if (!firstArg) return null;
+  if (firstArg.type === "type_descriptor") {
+    const inner =
+      firstArg.childForFieldName("type") ??
+      firstArg.namedChildren.find(
+        (c) =>
+          c &&
+          (c.type === "type_identifier" ||
+            c.type === "qualified_identifier" ||
+            c.type === "template_type"),
+      ) ??
+      null;
+    return simpleTypeName(inner);
+  }
+  return simpleTypeName(firstArg);
 }
 
 // ---------------------------------------------------------------------------
@@ -283,12 +330,14 @@ function extractParams(node: Node): ParamInfo[] {
       const typeNode = p.childForFieldName("type");
       const declarator = p.childForFieldName("declarator");
       const name = declarator ? findDeclaratorName(declarator) : null;
-      if (name) out.push({ name, type: simpleTypeName(typeNode) });
+      if (name) out.push({ name, type: simpleTypeName(typeNode), elementType: templateElementName(typeNode) });
     } else if (p.type === "parameter") {
       // C#: type field + name field.
       const typeNode = p.childForFieldName("type");
       const nameNode = p.childForFieldName("name");
-      if (nameNode) out.push({ name: nameNode.text, type: simpleTypeName(typeNode) });
+      if (nameNode) {
+        out.push({ name: nameNode.text, type: simpleTypeName(typeNode), elementType: templateElementName(typeNode) });
+      }
     }
   }
   return out;

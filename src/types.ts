@@ -58,6 +58,13 @@ export interface ParamInfo {
    * them).
    */
   type: string | null;
+  /**
+   * For a single-argument container template (`std::vector<IDamageReceiver*>`),
+   * the simple element type (`IDamageReceiver`). Lets a `for (auto* r : param)`
+   * range-loop type its loop variable. `null` when the type is not such a
+   * template.
+   */
+  elementType?: string | null;
 }
 
 /** A function or method extracted from source. */

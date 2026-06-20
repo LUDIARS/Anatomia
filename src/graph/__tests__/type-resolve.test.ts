@@ -137,6 +137,56 @@ describe("type-aware call resolution", () => {
     expect(callsFrom(g, draw)).not.toContain(cacheRefresh);
   });
 
+  it("types a range-for loop variable from a container parameter's element type", async () => {
+    // The KS pattern: combat owns IDamageReceiver; a hitbox iterates a
+    // vector<IDamageReceiver*> and calls r->alive(). The loop var r is bound by
+    // `auto*`, so its type comes from the container param's element type. The
+    // method has no body on the interface → edge dropped, no false up-spine call.
+    const combat = await fileOf(
+      `class IDamageReceiver { public: virtual bool alive() const = 0; };
+       struct AttackHitbox {
+         int sweep(const std::vector<IDamageReceiver*>& receivers) {
+           int n = 0;
+           for (auto* r : receivers) { if (r->alive()) n++; }
+           return n;
+         }
+       };`,
+      "/repo/src/combat/attack_hitbox.cpp",
+    );
+    const enemy = await fileOf(
+      "class EnemyActor { public: bool alive() const { return true; } };",
+      "/repo/src/enemy/enemy.cpp",
+    );
+
+    const files = [combat.file, enemy.file];
+    const edgeInfo = new Map([...combat.edgeInfo, ...enemy.edgeInfo]);
+    const g = buildGraph(files, edgeInfo);
+
+    const sweep = combat.file.functions.find((f) => f.name === "sweep")!.id!;
+    const enemyAlive = enemy.file.functions[0]!.id!;
+    expect(callsFrom(g, sweep)).not.toContain(enemyAlive);
+  });
+
+  it("types an explicitly-typed range-for loop variable", async () => {
+    const a = await fileOf(
+      `class Widget { public: void paint() {} };
+       void render(const std::vector<Widget*>& ws) { for (Widget* w : ws) { w->paint(); } }`,
+      "/repo/src/ui/render.cpp",
+    );
+    const other = await fileOf(
+      "class Sprite { public: void paint() {} };",
+      "/repo/src/gfx/sprite.cpp",
+    );
+    const files = [a.file, other.file];
+    const edgeInfo = new Map([...a.edgeInfo, ...other.edgeInfo]);
+    const g = buildGraph(files, edgeInfo);
+    const render = a.file.functions.find((f) => f.name === "render")!.id!;
+    const widgetPaint = a.file.functions.find((f) => f.name === "paint")!.id!;
+    const spritePaint = other.file.functions[0]!.id!;
+    expect(callsFrom(g, render)).toContain(widgetPaint);
+    expect(callsFrom(g, render)).not.toContain(spritePaint);
+  });
+
   it("falls back to locality when the receiver type is unknown", async () => {
     // `external` has no extracted type, so the call keeps the by-name/locality
     // resolution — type resolution never makes coverage worse than before.
