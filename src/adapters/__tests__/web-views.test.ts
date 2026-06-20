@@ -105,3 +105,22 @@ describe("GET /api/projects/:id/branches", () => {
     expect(res.status).toBe(404);
   });
 });
+
+describe("GET /api/projects/:id/access-patterns", () => {
+  it("returns an array for a known project", async () => {
+    const app = createApp(mgr);
+    const res = await app.fetch(
+      new Request("http://localhost/api/projects/views/access-patterns"),
+    );
+    expect(res.status).toBe(200);
+    expect(Array.isArray(await res.json())).toBe(true);
+  });
+
+  it("404s on an unknown project", async () => {
+    const app = createApp(mgr);
+    const res = await app.fetch(
+      new Request("http://localhost/api/projects/nope/access-patterns"),
+    );
+    expect(res.status).toBe(404);
+  });
+});

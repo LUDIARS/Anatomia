@@ -271,11 +271,14 @@
       background: rgba(22,27,34,.92); border: 1px solid #30363d; color: #c9d1d9;
       border-radius: 6px; padding: 3px 8px; font-size: 0.72rem;
     }
-    #dv-spec {
-      flex: none; height: 160px; overflow-y: auto; border-top: 1px solid #30363d;
-      background: #161b22; padding: 10px 14px;
+    #dv-bottom {
+      flex: none; height: 170px; display: flex; border-top: 1px solid #30363d;
+      background: #161b22;
     }
-    #dv-spec h4 { font-size: 0.72rem; color: #8b949e; text-transform: uppercase;
+    #dv-spec { flex: 1; overflow-y: auto; padding: 10px 14px; }
+    #dv-access { width: 320px; flex: none; overflow-y: auto; padding: 10px 14px;
+                 border-left: 1px solid #30363d; }
+    #dv-bottom h4 { font-size: 0.72rem; color: #8b949e; text-transform: uppercase;
                   letter-spacing: .05em; margin-bottom: 8px; }
     .dv-spec-ref { padding: 6px 0; border-bottom: 1px solid #21262d; font-size: 0.76rem; }
     .dv-spec-ref:last-child { border-bottom: none; }
@@ -283,6 +286,15 @@
     .dv-spec-file { font-family: monospace; font-size: 0.68rem; color: #6e7681; margin-left: 6px; }
     .dv-spec-excerpt { color: #8b949e; margin-top: 3px; line-height: 1.45; }
     #dv-placeholder { color: #6e7681; font-size: 0.85rem; padding: 24px; text-align: center; }
+    .dv-muted { color: #6e7681; font-size: 0.8rem; font-style: italic; }
+    .dv-acc-row { padding: 5px 0; border-bottom: 1px solid #21262d; font-size: 0.76rem; }
+    .dv-acc-row:last-child { border-bottom: none; }
+    .dv-acc-name { font-family: monospace; font-weight: 600; color: #c9d1d9; }
+    .dv-acc-kind { font-size: 0.66rem; padding: 0 5px; border-radius: 8px; margin-left: 6px; }
+    .dv-acc-singleton { background: #3a2d0a; color: #e3b341; }
+    .dv-acc-service-locator { background: #0d2f4a; color: #58a6ff; }
+    .dv-acc-facade { background: #2d0d4a; color: #bc8cff; }
+    .dv-acc-how { color: #8b949e; margin-left: 6px; font-size: 0.7rem; }
 
     /* ── Common states ──────────────────────────────────────── */
     .loading-msg { color: #6e7681; padding: 24px; text-align: center; }
@@ -448,11 +460,17 @@
             <div id="dv-canvas"></div>
             <div id="dv-graph-loading" style="display:none">Select a domain to focus the graph.</div>
             <div id="dv-graph-note" style="display:none"></div>
-            <div id="dv-spec">
-              <h4>Spec references (日本語補間)</h4>
-              <div id="dv-spec-body"><div id="dv-placeholder">
-                Click a domain on the left to focus its functions and see the linked spec.
-              </div></div>
+            <div id="dv-bottom">
+              <div id="dv-spec">
+                <h4>Spec references (日本語補間)</h4>
+                <div id="dv-spec-body"><div id="dv-placeholder">
+                  Click a domain on the left to focus its functions and see the linked spec.
+                </div></div>
+              </div>
+              <div id="dv-access">
+                <h4>Access patterns (このドメインが触る)</h4>
+                <div id="dv-access-body"><div class="dv-muted">—</div></div>
+              </div>
             </div>
           </div>
         </div>
@@ -557,6 +575,8 @@
     domainViewLoaded: false,
     domainViews: null,
     selectedDomain: null,
+    accessPatterns: null,
+    currentDomainView: null,
   };
 
   // ── Navigation ─────────────────────────────────────────────────────────────
@@ -591,7 +611,10 @@
     state.branchDiff = null;
     state.branchDiffBase = null;
     state.domainViewLoaded = false;
+    state.domainViews = null;
     state.selectedDomain = null;
+    state.currentDomainView = null;
+    state.accessPatterns = null;
     if (state.network) { state.network.destroy(); state.network = null; }
     if (state.domainNetwork) { state.domainNetwork.destroy(); state.domainNetwork = null; }
     renderCrumb();
@@ -813,7 +836,10 @@
       state.branchDiff = null;
       state.branchDiffBase = null;
       state.domainViewLoaded = false;
+      state.domainViews = null;
       state.selectedDomain = null;
+      state.currentDomainView = null;
+      state.accessPatterns = null;
       if (state.network) { state.network.destroy(); state.network = null; }
       if (state.domainNetwork) { state.domainNetwork.destroy(); state.domainNetwork = null; }
       loadDashboard();
@@ -1054,6 +1080,25 @@
     return state.rawVisData;
   }
 
+  async function ensureAccessPatterns(id) {
+    if (state.accessPatterns) return state.accessPatterns;
+    try {
+      state.accessPatterns = await apiFetch('/api/projects/' + encodeURIComponent(id) + '/access-patterns');
+    } catch (e) {
+      state.accessPatterns = [];
+    }
+    return state.accessPatterns;
+  }
+
+  // Map a repo-relative file to its feature-unit (module), mirroring vis-data's groupFor.
+  function unitOfFile(file) {
+    var parts = String(file).split('/');
+    if (parts.length >= 2) return parts.slice(0, -1).join('/');
+    return parts[0].replace(/\.(tsx?|cpp|h|cs)$/, '');
+  }
+
+  var PATTERN_ICON = { singleton: '◆', 'service-locator': '⬡', facade: '▤' };
+
   async function loadDomainView(id) {
     if (state.domainViewLoaded) return;
     var listEl = document.getElementById('dv-list');
@@ -1091,6 +1136,7 @@
       card.onclick = function () { selectDomain(v); };
       listEl.appendChild(card);
     });
+    await ensureAccessPatterns(id);   // singleton/locator/facade overlay data
     selectDomain(data[0]);
   }
 
@@ -1101,7 +1147,30 @@
       c.classList.toggle('selected', c.getAttribute('data-domain') === v.domain);
     });
     renderSpecRefs(v);
+    renderAccess(v);
     focusDomain(v);
+  }
+
+  // List the access patterns (singleton/locator/facade) this domain touches.
+  function renderAccess(v) {
+    var body = document.getElementById('dv-access-body');
+    var pats = (state.accessPatterns || []).map(function (p) {
+      var mine = p.accessors.filter(function (a) { return a.domain === v.domain; });
+      return mine.length ? { p: p, how: [...new Set(mine.map(function (a) { return a.access; }))].join('/') } : null;
+    }).filter(Boolean);
+    if (!pats.length) {
+      body.innerHTML = '<div class="dv-muted">このドメインが触るシングルトン/ロケータ/ファサードは検出されませんでした。</div>';
+      return;
+    }
+    pats.sort(function (a, b) { return a.p.kind.localeCompare(b.p.kind) || a.p.name.localeCompare(b.p.name); });
+    body.innerHTML = pats.map(function (x) {
+      return '<div class="dv-acc-row">' +
+        '<span class="dv-acc-name">' + esc(x.p.name) + '</span>' +
+        '<span class="dv-acc-kind dv-acc-' + x.p.kind + '">' + esc(x.p.kind) + '</span>' +
+        '<span class="dv-acc-how">' + esc(x.how) + '</span>' +
+        '<div class="dv-spec-file">' + esc(x.p.file) + '</div>' +
+      '</div>';
+    }).join('');
   }
 
   function renderSpecRefs(v) {
@@ -1146,6 +1215,15 @@
       if (!unit[g]) unit[g] = { count: 0, color: n.color.background, fns: [] };
       unit[g].count++;
       if (unit[g].fns.length < 12) unit[g].fns.push(n._meta ? n._meta.name : n.label);
+    });
+
+    // Which feature units contain a detected access pattern (singleton/locator/facade).
+    var unitPatterns = {};  // group -> { kinds:Set-like {}, names:[] }
+    (state.accessPatterns || []).forEach(function (p) {
+      var g = unitOfFile(p.file);
+      var up = unitPatterns[g] || (unitPatterns[g] = { kinds: {}, names: [] });
+      up.kinds[p.kind] = 1;
+      if (up.names.length < 8) up.names.push((PATTERN_ICON[p.kind] || '•') + ' ' + p.name + ' (' + p.kind + ')');
     });
 
     var units = Object.keys(unit);
@@ -1221,22 +1299,29 @@
       noteEl.style.display = '';
     }
 
-    // vis nodes: one per feature unit; folded hubs dimmed + marked with ⊟.
+    // vis nodes: one per feature unit; folded hubs dimmed (⊟); units containing a
+    // singleton/locator/facade get its icon(s) + a coloured border so the
+    // cross-cutting access patterns are visible on the map.
     var dsNodes = new vis.DataSet(units.map(function (g) {
       var u = unit[g];
       var isHub = !!hub[g];
+      var pat = unitPatterns[g];
+      var icons = pat ? Object.keys(pat.kinds).map(function (k) { return PATTERN_ICON[k] || '•'; }).join('') : '';
+      var border = pat ? '#e3b341' : (isHub ? '#6e7681' : '#30363d');
       return {
         id: 'unit:' + g,
-        label: g + '\n(' + u.count + ')' + (isHub ? ' ⊟' : ''),
+        label: g + '\n(' + u.count + ')' + (isHub ? ' ⊟' : '') + (icons ? ' ' + icons : ''),
         title: g + '\n' + u.count + ' functions' +
           (isHub ? '\n[hub: ' + degreeOf(g) + ' links folded]' : '') +
+          (pat ? '\n' + pat.names.join('\n') : '') +
           '\n— ' + u.fns.join('\n— ') + (u.count > u.fns.length ? '\n…' : ''),
         shape: 'dot',
         size: Math.max(12, Math.min(60, 12 + Math.sqrt(u.count) * 6)),
+        borderWidth: pat ? 3 : 2,
         color: isHub
-          ? { background: '#30363d', border: '#6e7681',
+          ? { background: '#30363d', border: border,
               highlight: { background: '#484f58', border: '#8b949e' } }
-          : { background: u.color, border: '#30363d',
+          : { background: u.color, border: border,
               highlight: { background: '#ffffff', border: '#58a6ff' } },
         font: { color: isHub ? '#8b949e' : '#e1e4e8', size: 12 },
       };
