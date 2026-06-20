@@ -12,7 +12,7 @@ import { readFile } from "node:fs/promises";
 import { extname } from "node:path";
 import { collectFilesByExt } from "./fs/walk.js";
 import { parse } from "./dag/parser.js";
-import { extractFunctions } from "./dag/extract.js";
+import { extractFunctions, extractTypeDecls } from "./dag/extract.js";
 import { normalize } from "./dag/normalize.js";
 import { assignAnchorId } from "./dag/hash.js";
 import { buildFileNode } from "./dag/merkle.js";
@@ -30,7 +30,7 @@ import type { Providers } from "./providers/index.js";
 import { parseSpecFiles } from "./spec/parse.js";
 import { findExplicitLinks } from "./spec/explicit.js";
 import { findStructuralLinks } from "./spec/structural.js";
-import type { AnchorId, ContextBundle, FileNode, FunctionNode, Link, Rule, SpecClause, Verdict } from "./types.js";
+import type { AnchorId, ContextBundle, FileNode, FunctionNode, Link, Rule, SpecClause, TypeDecl, Verdict } from "./types.js";
 import type { Landing, LandingTask, DomainDetector, LayerRules, SiblingLookup } from "./supply/landing.js";
 import type { DetectionResult } from "./domains/detect.js";
 import type { DiffInput } from "./supply/gates/types.js";
@@ -208,16 +208,18 @@ export async function analyze(
     }
     const lang = langFor(filePath);
     let fns: FunctionNode[];
+    let typeDecls: TypeDecl[] = [];
     try {
       const tree = await parse(src, lang);
       fns = extractFunctions(tree, src, filePath);
+      typeDecls = extractTypeDecls(tree, filePath);
       for (const fn of fns) assignAnchorId(fn, normalize(fn.bodyAst));
     } catch (err) {
       // Parse / extract / normalize failure on one file must not abort the run.
       warn(filePath, `parse/extract failed (${String(err)})`);
       continue;
     }
-    files.push(buildFileNode(filePath, fns));
+    files.push(buildFileNode(filePath, fns, typeDecls));
     allFunctions.push(...fns);
     // NOTE: trees are NOT deleted here so that extractEdgeInfo can walk the AST.
   }
@@ -380,13 +382,14 @@ export async function buildVerdict(
   // これをしないと warm サーバの per-verify で Tree がリークし WASM 枯渇 (Aborted) する。
   try {
   const fns = extractFunctions(tree, source, targetPath ?? "<diff>");
+  const diffTypes = extractTypeDecls(tree, targetPath ?? "<diff>");
   for (const fn of fns) assignAnchorId(fn, normalize(fn.bodyAst));
 
   // Diff-augmented graph: overlay the new functions + their outgoing edges onto
   // the analyzed graph so rule_conformance sees brand-new violating calls (a
   // call into a forbidden layer is invisible against the unmodified graph). Must
   // run while the tree is alive (extractEdgeInfo walks bodyAst), before delete().
-  const diffFile = buildFileNode(targetPath ?? "<diff>", fns);
+  const diffFile = buildFileNode(targetPath ?? "<diff>", fns, diffTypes);
   const diffEdgeInfo = extractEdgeInfo([diffFile]);
   const verifyGraph = new InMemoryCodeGraph(
     augmentGraph(ctx.graph.raw, [diffFile], diffEdgeInfo),

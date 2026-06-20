@@ -47,6 +47,19 @@ export interface SourceRange {
 // Static DAG nodes (G1)
 // ---------------------------------------------------------------------------
 
+/** A formal parameter: binding name + simple (un-qualified) type name. */
+export interface ParamInfo {
+  /** Parameter binding identifier. */
+  name: string;
+  /**
+   * Simple type name (namespace/qualifiers/`const`/`&`/`*` stripped, e.g.
+   * `const combat::HitReceiver&` → `HitReceiver`). `null` for primitive or
+   * unresolvable types (those can never name a class, so type resolution skips
+   * them).
+   */
+  type: string | null;
+}
+
 /** A function or method extracted from source. */
 export interface FunctionNode {
   /** Filled by T06 after normalization + hashing. Null before hash step. */
@@ -61,9 +74,34 @@ export interface FunctionNode {
   name: string;
   /** Full signature text (return type + params). */
   signature: string;
+  /**
+   * Simple name of the class/struct/interface this is a method of, when the
+   * extractor can determine it (in-class definition, `Class::method` out-of-line
+   * definition, or C# member). `undefined` for free functions. Drives type-aware
+   * call resolution (`this`/member-call receiver typing). See graph/type-resolve.
+   */
+  enclosingType?: string;
+  /** Parameters with their simple type names (drives receiver typing). */
+  params?: ParamInfo[];
   sourceRange: SourceRange;
   /** Raw AST subtree for this function body. */
   bodyAst: AstNode;
+}
+
+/**
+ * A declared class/struct/interface and its (simple-named) base types.
+ * Captured independently of method bodies so an abstract interface whose methods
+ * are all pure-virtual (no FunctionNode) is still a *known type* — that lets
+ * type resolution treat a call through such an interface as resolved-to-nothing
+ * (no fan-out to every concrete override) rather than an ambiguous name.
+ */
+export interface TypeDecl {
+  /** Simple type name. */
+  name: string;
+  /** Simple names of direct base classes / interfaces. */
+  bases: string[];
+  /** Absolute path of the declaring file (diagnostics only). */
+  filePath: string;
 }
 
 /** A source file modelled as a Merkle node over its function set. */
@@ -73,6 +111,12 @@ export interface FileNode {
   /** Merkle hash of this file (hash of sorted child function hashes). Filled by T07. */
   hash: string | null;
   functions: FunctionNode[];
+  /**
+   * Class/struct/interface declarations in this file. Metadata for type-aware
+   * call resolution — NOT folded into the Merkle hash (which is over function
+   * bodies only). Optional so callers that build a FileNode by hand can omit it.
+   */
+  types?: TypeDecl[];
 }
 
 // ---------------------------------------------------------------------------
