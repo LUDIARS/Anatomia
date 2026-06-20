@@ -16,7 +16,7 @@ import { extractFunctions } from "./dag/extract.js";
 import { normalize } from "./dag/normalize.js";
 import { assignAnchorId } from "./dag/hash.js";
 import { buildFileNode } from "./dag/merkle.js";
-import { buildGraph, extractEdgeInfo } from "./graph/build.js";
+import { buildGraph, extractEdgeInfo, augmentGraph } from "./graph/build.js";
 import { InMemoryCodeGraph } from "./graph/in-memory.js";
 import { assembleBundle } from "./supply/bundle.js";
 import { verify, buildDefaultGates } from "./supply/verify.js";
@@ -382,6 +382,16 @@ export async function buildVerdict(
   const fns = extractFunctions(tree, source, targetPath ?? "<diff>");
   for (const fn of fns) assignAnchorId(fn, normalize(fn.bodyAst));
 
+  // Diff-augmented graph: overlay the new functions + their outgoing edges onto
+  // the analyzed graph so rule_conformance sees brand-new violating calls (a
+  // call into a forbidden layer is invisible against the unmodified graph). Must
+  // run while the tree is alive (extractEdgeInfo walks bodyAst), before delete().
+  const diffFile = buildFileNode(targetPath ?? "<diff>", fns);
+  const diffEdgeInfo = extractEdgeInfo([diffFile]);
+  const verifyGraph = new InMemoryCodeGraph(
+    augmentGraph(ctx.graph.raw, [diffFile], diffEdgeInfo),
+  );
+
   // Embedder + domain cards.
   //   With providers: real embedder + LLM-distilled domain-card texts, so the
   //     duplication gate actually flags reinvented domains (DESIGN §9.1 ③).
@@ -402,7 +412,9 @@ export async function buildVerdict(
 
   const diffInput: DiffInput = {
     changed: fns,
-    graph: ctx.graph,
+    graph: verifyGraph,
+    // Pre-change graph for delta gates (coupling_delta compares against this).
+    baseGraph: ctx.graph,
     domainCards,
     // Domain + global rules so the rule_conformance gate can evaluate them.
     rules: ctx.rules ?? [],

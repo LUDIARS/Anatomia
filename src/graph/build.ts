@@ -329,16 +329,7 @@ export function buildGraph(
   // Create CodeNode for every function.
   for (const file of files) {
     for (const fn of file.functions) {
-      if (!fn.id) continue;
-      const node: CodeNode = {
-        id: fn.id,
-        name: fn.name,
-        kind: "function",
-        sourceRange: fn.sourceRange,
-      };
-      graph.nodes.set(fn.id, node);
-      if (!graph.adjacency.has(fn.id)) graph.adjacency.set(fn.id, []);
-      if (!graph.reverseAdjacency.has(fn.id)) graph.reverseAdjacency.set(fn.id, []);
+      addFunctionNode(graph, fn);
     }
   }
 
@@ -360,8 +351,35 @@ export function buildGraph(
     }
   }
 
-  // Emit edges from edge info.
-  for (const info of effectiveEdgeInfo.values()) {
+  emitEdges(graph, effectiveEdgeInfo, nameIndex);
+  return graph;
+}
+
+/** Add a CodeNode (+ empty adjacency slots) for a hashed FunctionNode. No-op if unhashed. */
+function addFunctionNode(graph: CodeGraph, fn: FunctionNode): void {
+  if (!fn.id) return;
+  const node: CodeNode = {
+    id: fn.id,
+    name: fn.name,
+    kind: "function",
+    sourceRange: fn.sourceRange,
+  };
+  graph.nodes.set(fn.id, node);
+  if (!graph.adjacency.has(fn.id)) graph.adjacency.set(fn.id, []);
+  if (!graph.reverseAdjacency.has(fn.id)) graph.reverseAdjacency.set(fn.id, []);
+}
+
+/**
+ * Emit calls/writes/reads edges from edge info, resolving callee/field names via
+ * `nameIndex`. Only edges whose source node exists in the graph are emitted.
+ * Shared by buildGraph (full build) and augmentGraph (incremental diff overlay).
+ */
+function emitEdges(
+  graph: CodeGraph,
+  edgeInfo: Map<AnchorId, FunctionEdgeInfo>,
+  nameIndex: Map<string, AnchorId[]>,
+): void {
+  for (const info of edgeInfo.values()) {
     const fromId = info.anchorId;
     if (!graph.nodes.has(fromId)) continue;
 
@@ -397,6 +415,57 @@ export function buildGraph(
       }
     }
   }
+}
 
+/**
+ * Overlay a diff's new functions onto a copy of an existing graph.
+ *
+ * verify needs to evaluate architecture rules against the code AS IF the diff
+ * were applied: the new functions and the edges from them (resolved against the
+ * existing code by name) must be present, or a brand-new violating call is
+ * invisible. A full re-`buildGraph` over the whole repo per verify would defeat
+ * the warm-server latency budget, so this is incremental:
+ *
+ *   1. shallow-copy the base graph (new containers, shared node/edge objects);
+ *   2. add the diff functions as nodes;
+ *   3. resolve the diff functions' outgoing edges against the COMBINED name
+ *      index (base names ∪ diff names) and add them.
+ *
+ * Edges INTO the new functions from existing code are not synthesised (that
+ * would require re-walking every existing body); rules over the diff region key
+ * off the new functions' OUTGOING edges, which is what this captures.
+ *
+ * @param base         the analyzed repo graph (unchanged).
+ * @param diffFiles    FileNodes for the diff (functions hashed → have `id`).
+ * @param diffEdgeInfo edge info for the diff functions (extractEdgeInfo(diffFiles)).
+ */
+export function augmentGraph(
+  base: CodeGraph,
+  diffFiles: FileNode[],
+  diffEdgeInfo: Map<AnchorId, FunctionEdgeInfo>,
+): CodeGraph {
+  const graph: CodeGraph = {
+    nodes: new Map(base.nodes),
+    adjacency: new Map([...base.adjacency].map(([k, v]) => [k, [...v]])),
+    reverseAdjacency: new Map([...base.reverseAdjacency].map(([k, v]) => [k, [...v]])),
+    edges: [...base.edges],
+  };
+
+  // Add diff nodes (a changed function whose id collides with an existing one is
+  // the same content → harmless overwrite with identical data).
+  for (const file of diffFiles) {
+    for (const fn of file.functions) addFunctionNode(graph, fn);
+  }
+
+  // Name index over the combined node set so diff calls resolve to existing
+  // functions AND to sibling diff functions.
+  const nameIndex = new Map<string, AnchorId[]>();
+  for (const node of graph.nodes.values()) {
+    const existing = nameIndex.get(node.name);
+    if (existing) existing.push(node.id);
+    else nameIndex.set(node.name, [node.id]);
+  }
+
+  emitEdges(graph, diffEdgeInfo, nameIndex);
   return graph;
 }
