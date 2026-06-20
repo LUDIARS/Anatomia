@@ -31,11 +31,19 @@
 
 import type { AnchorId, FileNode, FunctionNode, TypeDecl } from "../types.js";
 
+/** A field's resolved type info (simple type + optional container element type). */
+export interface FieldType {
+  type: string | null;
+  elementType?: string | null;
+}
+
 export class TypeRegistry {
   /** type → (method name → AnchorIds of definitions WITH a body on that type). */
   private readonly methods = new Map<string, Map<string, AnchorId[]>>();
   /** type → direct base type names. */
   private readonly bases = new Map<string, string[]>();
+  /** type → (field name → field type info). */
+  private readonly fields = new Map<string, Map<string, FieldType>>();
   /** Every type name seen (declared OR owning a method) — the "known" set. */
   private readonly known = new Set<string>();
 
@@ -53,6 +61,9 @@ export class TypeRegistry {
       reg.methods.set(type, new Map([...byName].map(([n, ids]) => [n, [...ids]])));
     }
     for (const [type, bs] of this.bases) reg.bases.set(type, [...bs]);
+    for (const [type, byName] of this.fields) {
+      reg.fields.set(type, new Map([...byName].map(([n, ft]) => [n, { ...ft }])));
+    }
     for (const t of this.known) reg.known.add(t);
     return reg;
   }
@@ -89,6 +100,36 @@ export class TypeRegistry {
     } else {
       this.bases.set(decl.name, [...decl.bases]);
     }
+    if (decl.fields && decl.fields.length > 0) {
+      let byName = this.fields.get(decl.name);
+      if (!byName) {
+        byName = new Map();
+        this.fields.set(decl.name, byName);
+      }
+      for (const f of decl.fields) {
+        // First declaration wins (forward decls / split headers stay stable).
+        if (!byName.has(f.name)) byName.set(f.name, { type: f.type, elementType: f.elementType });
+      }
+    }
+  }
+
+  /**
+   * Resolve a data member `field` on `type`, walking `type` and its transitive
+   * bases. Returns the field's type info, or null when no such member is known.
+   */
+  fieldType(type: string, field: string): FieldType | null {
+    const seen = new Set<string>();
+    const stack = [type];
+    while (stack.length > 0) {
+      const t = stack.pop()!;
+      if (seen.has(t)) continue;
+      seen.add(t);
+      const ft = this.fields.get(t)?.get(field);
+      if (ft) return ft;
+      const bs = this.bases.get(t);
+      if (bs) for (const b of bs) if (!seen.has(b)) stack.push(b);
+    }
+    return null;
   }
 
   /** Is `type` a class/struct/interface defined in the analyzed code? */
