@@ -28,7 +28,7 @@ import type { AnchorId, FunctionNode } from "../types.js";
 import type { AnalysisContext } from "../core.js";
 import type { DetectionResult } from "../domains/detect.js";
 
-export type AccessPatternKind = "singleton" | "service-locator" | "facade";
+export type AccessPatternKind = "singleton" | "service-locator" | "facade" | "network";
 
 export interface PatternAccessor {
   domain: string;
@@ -43,6 +43,12 @@ export interface AccessPattern {
   line: number;
   kind: AccessPatternKind;
   reason: string;
+  /**
+   * For kind="network": the logical target server category (e.g. "ゲームサーバ",
+   * "APIサーバ", "ログインサーバ"). URLs/hosts are DI'd at runtime so the literal
+   * is not statically available — we classify the role from the client name.
+   */
+  target?: string;
   /** Domains that reach this pattern, with how. */
   accessors: PatternAccessor[];
 }
@@ -78,11 +84,28 @@ const USE_SINGLETON = /\b([A-Z]\w*)\.(?:Instance|GetInstance|getInstance)\b/g;
 const USE_LOCATOR = /\b([A-Z]\w*)\.(?:Resolve|Provide|GetService|Locate)\s*[<(]/g;
 const USE_FACADE = /\b(\w*Facade)\s*\.\s*[A-Za-z_]\w*/g;
 
+// Network/communication: a client class (by name) or a class that touches a
+// known networking API. The literal host is DI'd (not in source), so we classify
+// the *role* of the server from the client name (see classifyServer).
+const NET_CLIENT_CLASS = /\b(?:class|struct)\s+(\w*(?:ApiClient|HttpClient|WebClient|RestClient|ServerClient|WebSocketClient|Gateway))\b/;
+const NET_API = /\b(?:UnityWebRequest|HttpClient|HttpRequestMessage|ClientWebSocket|WebSocket|TcpClient|UdpClient|WebRequest|RestClient|DownloadHandler|UploadHandler|GrpcChannel|XMLHttpRequest)\b|\bSystem\.Net\b|\bfetch\s*\(|\baxios\b/;
+
+/** Classify a network client's logical target server from its name keywords. */
+function classifyServer(name: string): string {
+  if (/login|auth|signin|sign_in|account|credential/i.test(name)) return "ログインサーバ";
+  if (/rank|leaderboard|score/i.test(name)) return "ランキングサーバ";
+  if (/match|lobby|session|realtime|relay|room|multiplay|gameserver/i.test(name)) return "ゲームサーバ";
+  if (/error|report|crash|log|telemetry|analytics/i.test(name)) return "ログ/解析サーバ";
+  if (/store|purchase|billing|iap|payment|shop|serialcode|unlockcode|redeem|coupon/i.test(name)) return "課金/コードサーバ";
+  if (/asset|cdn|download|addressable/i.test(name)) return "アセット配信サーバ";
+  return "APIサーバ";
+}
+
 // ---------------------------------------------------------------------------
 // scanForPatterns (pure)
 // ---------------------------------------------------------------------------
 
-interface Decl { kind: AccessPatternKind; name: string; file: string; line: number; reason: string; }
+interface Decl { kind: AccessPatternKind; name: string; file: string; line: number; reason: string; target?: string; absFile?: string; }
 interface Use { name: string; access: string; absPath: string; line: number; }
 
 /** Nearest enclosing `class/struct/interface` name at or above `idx`. */
@@ -148,6 +171,15 @@ export function scanForPatterns(
         const cls = enclosingClass(lines, i) ?? relFile;
         decls.push({ kind: "service-locator", name: cls, file: relFile, line: i + 1, reason: `resolve method in ${relFile}` });
       }
+      // network: a client class by name, or any class touching a networking API.
+      const netCls = line.match(NET_CLIENT_CLASS);
+      if (netCls) {
+        const n = netCls[1]!;
+        decls.push({ kind: "network", name: n, file: relFile, line: i + 1, target: classifyServer(n), absFile: f.path, reason: `network client class ${n}` });
+      } else if (NET_API.test(line)) {
+        const cls = enclosingClass(lines, i);
+        if (cls) decls.push({ kind: "network", name: cls, file: relFile, line: i + 1, target: classifyServer(cls + " " + relFile), absFile: f.path, reason: `uses networking API in ${cls}` });
+      }
 
       // ── usages ──
       collect(line, USE_SINGLETON, "reads", f.path, i + 1, uses);
@@ -166,22 +198,29 @@ export function scanForPatterns(
   const out: AccessPattern[] = [];
   for (const d of byKey.values()) {
     const byDomain = new Map<string, Set<string>>();
-    for (const u of uses) {
-      if (u.name !== d.name) continue;
-      const anchor = enclosingFn(fnsByFile.get(u.absPath), u.line);
-      if (!anchor) continue;
-      const ds = domainsOf.get(anchor);
-      if (!ds) continue;
-      for (const dom of ds) {
-        let s = byDomain.get(dom);
-        if (!s) byDomain.set(dom, (s = new Set()));
-        s.add(u.access);
+    const add = (dom: string, access: string): void => {
+      let s = byDomain.get(dom);
+      if (!s) byDomain.set(dom, (s = new Set()));
+      s.add(access);
+    };
+    if (d.kind === "network") {
+      // DI'd client instances aren't statically resolvable, so attribute the
+      // communication to the domain(s) that OWN the client (its file's functions).
+      for (const r of fnsByFile.get(d.absFile ?? "") ?? []) {
+        for (const dom of domainsOf.get(r.anchor) ?? []) add(dom, "calls");
+      }
+    } else {
+      for (const u of uses) {
+        if (u.name !== d.name) continue;
+        const anchor = enclosingFn(fnsByFile.get(u.absPath), u.line);
+        if (!anchor) continue;
+        for (const dom of domainsOf.get(anchor) ?? []) add(dom, u.access);
       }
     }
     const accessors: PatternAccessor[] = [];
     for (const [domain, kinds] of byDomain) for (const access of kinds) accessors.push({ domain, access });
     accessors.sort((a, b) => a.domain.localeCompare(b.domain) || a.access.localeCompare(b.access));
-    out.push({ ...d, accessors });
+    out.push({ name: d.name, file: d.file, line: d.line, kind: d.kind, reason: d.reason, target: d.target, accessors });
   }
 
   out.sort((a, b) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name));
