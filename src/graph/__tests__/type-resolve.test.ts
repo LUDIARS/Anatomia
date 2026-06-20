@@ -238,6 +238,69 @@ describe("type-aware call resolution", () => {
     const compute = a.file.functions.find((f) => f.name === "compute")!.id!;
     expect(callsFrom(g, use)).toContain(compute);
   });
+
+  it("resolves a chained receiver through return type + range-for (the KS skill pattern)", async () => {
+    // skill: `for (auto* e : w.spawner.alive()) e->alive();`
+    //   w:World → World.spawner:EnemySpawner → EnemySpawner::alive() returns
+    //   std::vector<Enemy*> → loop var e:Enemy → e->alive() = Enemy::alive
+    //   (skill→enemy down-call), NOT a fan-out to a same-named higher-layer alive.
+    const world = await fileOf(
+      `class EnemySpawner { public: const std::vector<Enemy*>& alive() const { return alive_; } };
+       class World { public: EnemySpawner spawner; };`,
+      "/repo/src/world/world.cpp",
+    );
+    const enemy = await fileOf(
+      "class Enemy { public: bool alive() const { return hp_ > 0; } };",
+      "/repo/src/enemy/enemy.cpp",
+    );
+    const skill = await fileOf(
+      `class CloneSkill { public: void fire(World& w); };
+       void CloneSkill::fire(World& w) { for (auto* e : w.spawner.alive()) { e->alive(); } }`,
+      "/repo/src/skill/clone.cpp",
+    );
+    const decoy = await fileOf(
+      // a same-named alive() in a HIGHER layer the by-name resolution must not hit
+      "class HudWidget { public: bool alive() const { return true; } };",
+      "/repo/src/ui/hud.cpp",
+    );
+
+    const files = [world.file, enemy.file, skill.file, decoy.file];
+    const edgeInfo = new Map([
+      ...world.edgeInfo, ...enemy.edgeInfo, ...skill.edgeInfo, ...decoy.edgeInfo,
+    ]);
+    const g = buildGraph(files, edgeInfo);
+
+    const fire = skill.file.functions.find((f) => f.name.endsWith("fire"))!.id!;
+    const enemyAlive = enemy.file.functions[0]!.id!;
+    const hudAlive = decoy.file.functions[0]!.id!;
+    expect(callsFrom(g, fire)).toContain(enemyAlive); // resolved to Enemy::alive
+    expect(callsFrom(g, fire)).not.toContain(hudAlive); // no fan-out to the decoy
+  });
+
+  it("types an `auto x = call()` local from the callee's return type", async () => {
+    const lib = await fileOf(
+      `class Pool { public: Widget* acquire() { return nullptr; } };
+       class Widget { public: void paint() {} };`,
+      "/repo/src/gfx/pool.cpp",
+    );
+    const caller = await fileOf(
+      `class Pool; class Widget;
+       void run(Pool& p) { auto w = p.acquire(); w->paint(); }`,
+      "/repo/src/app/run.cpp",
+    );
+    const other = await fileOf(
+      "class Canvas { public: void paint() {} };",
+      "/repo/src/gfx/canvas.cpp",
+    );
+    const files = [lib.file, caller.file, other.file];
+    const edgeInfo = new Map([...lib.edgeInfo, ...caller.edgeInfo, ...other.edgeInfo]);
+    const g = buildGraph(files, edgeInfo);
+    const run = caller.file.functions.find((f) => f.name === "run")!.id!;
+    const widgetPaint = lib.file.functions.find((f) => f.name === "paint")!.id!;
+    const canvasPaint = other.file.functions[0]!.id!;
+    expect(callsFrom(g, run)).toContain(widgetPaint);
+    expect(callsFrom(g, run)).not.toContain(canvasPaint);
+  });
 });
 
 describe("TypeRegistry", () => {

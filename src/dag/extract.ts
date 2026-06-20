@@ -107,10 +107,19 @@ export function findDeclaratorName(node: Node): string | null {
     const found = findDeclaratorName(inner);
     if (found) return found;
   }
-  // qualified_identifier inside function_declarator may sit as a named child.
+  // A name node directly under this declarator (e.g. function_declarator's
+  // field_identifier / qualified_identifier).
   for (const child of node.namedChildren) {
     if (!child) continue;
     if (NAME_NODE_TYPES.has(child.type)) return child.text;
+  }
+  // reference_declarator (`& foo()`) and similar expose their inner declarator as
+  // a POSITIONAL child, not a `declarator` field — recurse into nested declarators
+  // so `const X& foo()` resolves to `foo` rather than `<anonymous>`.
+  for (const child of node.namedChildren) {
+    if (!child || !child.type.endsWith("_declarator")) continue;
+    const found = findDeclaratorName(child);
+    if (found) return found;
   }
   return null;
 }
@@ -468,12 +477,20 @@ function collect(node: Node, source: string, filePath: string, out: FunctionNode
     if (body) {
       const enclosingType = extractEnclosingType(node);
       const params = extractParams(node);
+      // Return type (drives `auto x = recv.method()` local typing). The `type`
+      // field is the declared return type for both C++ and C# definitions;
+      // const/&/* live outside it, so simpleType/templateElement see the core type.
+      const retNode = node.childForFieldName("type");
+      const returnType = simpleTypeName(retNode);
+      const returnElementType = templateElementName(retNode);
       out.push({
         id: null,
         name: extractName(node),
         signature: extractSignature(node, body),
         ...(enclosingType ? { enclosingType } : {}),
         ...(params.length > 0 ? { params } : {}),
+        ...(returnType ? { returnType } : {}),
+        ...(returnElementType ? { returnElementType } : {}),
         sourceRange: toRange(node, filePath),
         bodyAst: body,
       });

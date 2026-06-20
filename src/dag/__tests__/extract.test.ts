@@ -17,6 +17,14 @@ describe("T04 extractFunctions", () => {
     expect(await names(src, "cpp")).toEqual(["free", "method"]);
   });
 
+  it("names a reference-returning method (unwraps reference_declarator)", async () => {
+    // `const std::vector<int>& items()` wraps its function_declarator in a
+    // reference_declarator (positional child, no `declarator` field) — the name
+    // must still resolve to `items`, not `<anonymous>`.
+    const src = "struct S {\n  const std::vector<int>& items() const { return v_; }\n};";
+    expect(await names(src, "cpp")).toContain("items");
+  });
+
   it("extracts C++ overloads as separate nodes", async () => {
     const src =
       "int f(int a){ return a; }\n" +
