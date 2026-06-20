@@ -265,6 +265,12 @@
       background: rgba(74,51,13,.92); border: 1px solid #d29922; color: #e3b341;
       border-radius: 6px; padding: 3px 10px; font-size: 0.72rem; pointer-events: none;
     }
+    #dv-fold-ctl {
+      position: absolute; top: 8px; left: 8px; z-index: 6;
+      display: flex; align-items: center; gap: 4px; cursor: pointer;
+      background: rgba(22,27,34,.92); border: 1px solid #30363d; color: #c9d1d9;
+      border-radius: 6px; padding: 3px 8px; font-size: 0.72rem;
+    }
     #dv-spec {
       flex: none; height: 160px; overflow-y: auto; border-top: 1px solid #30363d;
       background: #161b22; padding: 10px 14px;
@@ -436,6 +442,9 @@
             <div id="dv-list"><div class="loading-msg">Loading…</div></div>
           </div>
           <div id="dv-main">
+            <label id="dv-fold-ctl" title="Collapse cross-cutting hub units and weak module links">
+              <input type="checkbox" id="dv-fold" checked> ハブ/弱リンクを畳む
+            </label>
             <div id="dv-canvas"></div>
             <div id="dv-graph-loading" style="display:none">Select a domain to focus the graph.</div>
             <div id="dv-graph-note" style="display:none"></div>
@@ -1087,6 +1096,7 @@
 
   function selectDomain(v) {
     state.selectedDomain = v.domain;
+    state.currentDomainView = v;   // for the fold toggle to re-focus
     document.querySelectorAll('#dv-list .dv-card').forEach(function (c) {
       c.classList.toggle('selected', c.getAttribute('data-domain') === v.domain);
     });
@@ -1162,42 +1172,85 @@
 
     var shown = {}; units.forEach(function (g) { shown[g] = 1; });
 
-    // vis nodes: one per feature unit, size by function count, count in the label.
-    var dsNodes = new vis.DataSet(units.map(function (g) {
-      var u = unit[g];
-      return {
-        id: 'unit:' + g,
-        label: g + '\n(' + u.count + ')',
-        title: g + '\n' + u.count + ' functions\n— ' + u.fns.join('\n— ') +
-          (u.count > u.fns.length ? '\n…' : ''),
-        shape: 'dot',
-        size: Math.max(12, Math.min(60, 12 + Math.sqrt(u.count) * 6)),
-        color: { background: u.color, border: '#30363d',
-                 highlight: { background: '#ffffff', border: '#58a6ff' } },
-        font: { color: '#e1e4e8', size: 12 },
-      };
-    }));
-
-    // vis edges: collapse implementor function edges into module→module, weighted.
+    // Aggregate implementor function edges into module→module, weighted by count.
+    // Nested map keyed by from→to (no string separator, so any module path is safe).
     var agg = {};
     data.edges.forEach(function (e) {
       var ga = nodeUnit[e.from], gb = nodeUnit[e.to];
-      if (!ga || !gb || ga === gb) return;     // intra-domain, cross-module only
-      if (!shown[ga] || !shown[gb]) return;     // both units rendered
-      var key = ga + ' ' + gb;
-      agg[key] = (agg[key] || 0) + 1;
+      if (!ga || !gb || ga === gb) return;       // cross-module only
+      if (!shown[ga] || !shown[gb]) return;       // both units rendered
+      if (!agg[ga]) agg[ga] = {};
+      agg[ga][gb] = (agg[ga][gb] || 0) + 1;
     });
-    var dsEdges = new vis.DataSet(Object.keys(agg).map(function (key) {
-      var parts = key.split(' ');
-      var w = agg[key];
+    var pairs = [];
+    Object.keys(agg).forEach(function (from) {
+      Object.keys(agg[from]).forEach(function (to) {
+        pairs.push({ from: from, to: to, w: agg[from][to] });
+      });
+    });
+
+    // ── Fold unnecessary hubs + weak edges (toggle, default on) ───────────────
+    // Hub  = a unit wired to most other units (utility / cross-cutting, e.g. a
+    //        singleton accessed from everywhere) → its edges are layout noise.
+    // Weak = a module→module link with too few references to be structural.
+    var fold = document.getElementById('dv-fold').checked;
+    var degree = {};
+    pairs.forEach(function (p) {
+      (degree[p.from] = degree[p.from] || {})[p.to] = 1;
+      (degree[p.to]   = degree[p.to]   || {})[p.from] = 1;
+    });
+    var degreeOf = function (g) { return degree[g] ? Object.keys(degree[g]).length : 0; };
+    var dense = pairs.length > units.length;       // enough edges to carry noise
+    var EDGE_MIN = fold && dense ? 2 : 1;          // fold weight-1 links when dense
+    var HUB_DEGREE = Math.max(6, Math.ceil(units.length * 0.6));
+    var hub = {}, foldedHubs = 0;
+    if (fold) {
+      units.forEach(function (g) {
+        if (degreeOf(g) >= HUB_DEGREE) { hub[g] = 1; foldedHubs++; }
+      });
+    }
+    var visiblePairs = pairs.filter(function (p) {
+      if (p.w < EDGE_MIN) return false;            // weak link folded
+      if (hub[p.from] || hub[p.to]) return false;  // hub edges folded
+      return true;
+    });
+    var foldedEdges = pairs.length - visiblePairs.length;
+    if (fold && (foldedHubs || foldedEdges)) {
+      noteEl.textContent += ' · folded ' + foldedHubs + ' hub' + (foldedHubs === 1 ? '' : 's') +
+        ', ' + foldedEdges + ' link' + (foldedEdges === 1 ? '' : 's');
+      noteEl.style.display = '';
+    }
+
+    // vis nodes: one per feature unit; folded hubs dimmed + marked with ⊟.
+    var dsNodes = new vis.DataSet(units.map(function (g) {
+      var u = unit[g];
+      var isHub = !!hub[g];
       return {
-        from: 'unit:' + parts[0], to: 'unit:' + parts[1],
-        value: w, title: w + ' references',
+        id: 'unit:' + g,
+        label: g + '\n(' + u.count + ')' + (isHub ? ' ⊟' : ''),
+        title: g + '\n' + u.count + ' functions' +
+          (isHub ? '\n[hub: ' + degreeOf(g) + ' links folded]' : '') +
+          '\n— ' + u.fns.join('\n— ') + (u.count > u.fns.length ? '\n…' : ''),
+        shape: 'dot',
+        size: Math.max(12, Math.min(60, 12 + Math.sqrt(u.count) * 6)),
+        color: isHub
+          ? { background: '#30363d', border: '#6e7681',
+              highlight: { background: '#484f58', border: '#8b949e' } }
+          : { background: u.color, border: '#30363d',
+              highlight: { background: '#ffffff', border: '#58a6ff' } },
+        font: { color: isHub ? '#8b949e' : '#e1e4e8', size: 12 },
+      };
+    }));
+
+    var dsEdges = new vis.DataSet(visiblePairs.map(function (p) {
+      return {
+        from: 'unit:' + p.from, to: 'unit:' + p.to,
+        value: p.w, title: p.w + ' references',
         arrows: 'to',
         color: { color: '#58a6ff', opacity: 0.5 },
-        width: Math.max(1, Math.min(8, w)),
+        width: Math.max(1, Math.min(8, p.w)),
         font: { size: 9, color: '#6e7681', strokeWidth: 0 },
-        label: String(w),
+        label: String(p.w),
       };
     }));
 
@@ -1318,6 +1371,14 @@
       tbody.appendChild(tr);
     });
   }
+
+  // Re-focus the current domain when the fold toggle flips.
+  (function () {
+    var f = document.getElementById('dv-fold');
+    if (f) f.onchange = function () {
+      if (state.currentDomainView) focusDomain(state.currentDomainView);
+    };
+  })();
 
   // ── Boot ───────────────────────────────────────────────────────────────────
 
