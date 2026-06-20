@@ -90,6 +90,13 @@ export interface FunctionNode {
   enclosingType?: string;
   /** Parameters with their simple type names (drives receiver typing). */
   params?: ParamInfo[];
+  /**
+   * Simple return type name, used to type `auto x = recv.method()` locals.
+   * `null`/`undefined` for primitive/void/constructor returns.
+   */
+  returnType?: string | null;
+  /** Element type when the return is a single-arg container template. */
+  returnElementType?: string | null;
   sourceRange: SourceRange;
   /** Raw AST subtree for this function body. */
   bodyAst: AstNode;

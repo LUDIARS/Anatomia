@@ -37,9 +37,16 @@ export interface FieldType {
   elementType?: string | null;
 }
 
+/** A method definition's anchor + its return type info (for call-result typing). */
+interface MethodInfo {
+  id: AnchorId;
+  returnType?: string | null;
+  returnElementType?: string | null;
+}
+
 export class TypeRegistry {
-  /** type → (method name → AnchorIds of definitions WITH a body on that type). */
-  private readonly methods = new Map<string, Map<string, AnchorId[]>>();
+  /** type → (method name → definitions WITH a body on that type). */
+  private readonly methods = new Map<string, Map<string, MethodInfo[]>>();
   /** type → direct base type names. */
   private readonly bases = new Map<string, string[]>();
   /** type → (field name → field type info). */
@@ -58,7 +65,7 @@ export class TypeRegistry {
   clone(): TypeRegistry {
     const reg = new TypeRegistry();
     for (const [type, byName] of this.methods) {
-      reg.methods.set(type, new Map([...byName].map(([n, ids]) => [n, [...ids]])));
+      reg.methods.set(type, new Map([...byName].map(([n, ms]) => [n, ms.map((m) => ({ ...m }))])));
     }
     for (const [type, bs] of this.bases) reg.bases.set(type, [...bs]);
     for (const [type, byName] of this.fields) {
@@ -79,16 +86,24 @@ export class TypeRegistry {
   private addFunction(fn: FunctionNode): void {
     if (!fn.id || !fn.enclosingType) return;
     this.known.add(fn.enclosingType);
+    // The method name is the terminal name; out-of-line defs carry the `Class::`
+    // qualifier in fn.name, so strip it for the method-table key.
+    const method = fn.name.includes("::") ? fn.name.slice(fn.name.lastIndexOf("::") + 2) : fn.name;
     let byName = this.methods.get(fn.enclosingType);
     if (!byName) {
       byName = new Map();
       this.methods.set(fn.enclosingType, byName);
     }
-    const ids = byName.get(fn.name);
-    if (ids) {
-      if (!ids.includes(fn.id)) ids.push(fn.id);
+    const info: MethodInfo = {
+      id: fn.id,
+      returnType: fn.returnType ?? null,
+      returnElementType: fn.returnElementType ?? null,
+    };
+    const ms = byName.get(method);
+    if (ms) {
+      if (!ms.some((m) => m.id === fn.id)) ms.push(info);
     } else {
-      byName.set(fn.name, [fn.id]);
+      byName.set(method, [info]);
     }
   }
 
@@ -151,11 +166,31 @@ export class TypeRegistry {
       const t = stack.pop()!;
       if (seen.has(t)) continue;
       seen.add(t);
-      const ids = this.methods.get(t)?.get(method);
-      if (ids) for (const id of ids) if (!out.includes(id)) out.push(id);
+      const ms = this.methods.get(t)?.get(method);
+      if (ms) for (const m of ms) if (!out.includes(m.id)) out.push(m.id);
       const bs = this.bases.get(t);
       if (bs) for (const b of bs) if (!seen.has(b)) stack.push(b);
     }
     return out;
+  }
+
+  /**
+   * Return-type info of `method` on `type` (first match walking the hierarchy),
+   * used to type `auto x = recv.method()` locals. null when unresolved.
+   */
+  resolveReturn(type: string, method: string): { type: string | null; elementType: string | null } | null {
+    const seen = new Set<string>();
+    const stack = [type];
+    while (stack.length > 0) {
+      const t = stack.pop()!;
+      if (seen.has(t)) continue;
+      seen.add(t);
+      const ms = this.methods.get(t)?.get(method);
+      const m = ms?.find((x) => x.returnType || x.returnElementType);
+      if (m) return { type: m.returnType ?? null, elementType: m.returnElementType ?? null };
+      const bs = this.bases.get(t);
+      if (bs) for (const b of bs) if (!seen.has(b)) stack.push(b);
+    }
+    return null;
   }
 }
