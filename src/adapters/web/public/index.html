@@ -504,9 +504,10 @@
 (function () {
   'use strict';
 
-  // Max nodes rendered in a single Domain View focus (coarse domains can match
-  // thousands of functions; the rest are trimmed by coupling with a notice).
-  var DV_MAX_NODES = 400;
+  // Domain View renders at FEATURE-UNIT (module) granularity, not per function:
+  // each node is a module with its function count. This caps how many feature
+  // units are drawn (the rest are trimmed by function count with a notice).
+  var DV_MAX_UNITS = 60;
 
   // ── Utilities ──────────────────────────────────────────────────────────────
 
@@ -1118,50 +1119,98 @@
     } catch (e) {
       loadEl.textContent = 'Error: ' + e.message; return;
     }
+    // ── Aggregate to FEATURE UNITS (modules), not individual functions ────────
+    // A "feature unit" is the file group (directory/module) vis-data already
+    // assigns. We collapse the domain's implementor functions into one node per
+    // module, labelled with its function count, and collapse function→function
+    // edges into module→module edges weighted by how many cross them.
     var impl = {};
     v.implementors.forEach(function (a) { impl[a] = 1; });
-    var nodes = data.nodes.filter(function (n) { return impl[n.id]; });
 
-    // Coarse builtin domains can match thousands of functions (e.g. state-machine
-    // on a TS codebase). Rendering all of them is unusable, so cap the focused
-    // subgraph to the most-coupled MAX nodes and tell the user what was trimmed.
+    var unit = {};        // group -> { count, color, fns:[names] }
+    var nodeUnit = {};    // implementor nodeId -> group
+    data.nodes.forEach(function (n) {
+      if (!impl[n.id]) return;
+      var g = n.group || 'unknown';
+      nodeUnit[n.id] = g;
+      if (!unit[g]) unit[g] = { count: 0, color: n.color.background, fns: [] };
+      unit[g].count++;
+      if (unit[g].fns.length < 12) unit[g].fns.push(n._meta ? n._meta.name : n.label);
+    });
+
+    var units = Object.keys(unit);
     var noteEl = document.getElementById('dv-graph-note');
-    var total = nodes.length;
-    if (total > DV_MAX_NODES) {
-      nodes = nodes.slice().sort(function (a, b) {
-        return (b._meta ? b._meta.coupling : 0) - (a._meta ? a._meta.coupling : 0);
-      }).slice(0, DV_MAX_NODES);
-      noteEl.textContent = 'showing top ' + DV_MAX_NODES + ' of ' + total +
-        ' functions (by coupling)';
+    var totalUnits = units.length;
+    var totalFns = v.implementors.length;
+    if (totalUnits > DV_MAX_UNITS) {
+      units = units.sort(function (a, b) { return unit[b].count - unit[a].count; })
+        .slice(0, DV_MAX_UNITS);
+      noteEl.textContent = totalFns + ' functions · showing top ' + DV_MAX_UNITS +
+        ' of ' + totalUnits + ' feature units (by function count)';
+      noteEl.style.display = '';
+    } else if (totalUnits > 0) {
+      noteEl.textContent = totalFns + ' functions across ' + totalUnits + ' feature units';
       noteEl.style.display = '';
     } else {
       noteEl.style.display = 'none';
     }
 
-    var idset = {}; nodes.forEach(function (n) { idset[n.id] = 1; });
-    var edges = data.edges.filter(function (e) { return idset[e.from] && idset[e.to]; });
-
     if (state.domainNetwork) { state.domainNetwork.destroy(); state.domainNetwork = null; }
-    if (!nodes.length) {
-      loadEl.style.display = ''; loadEl.textContent = 'No graph nodes for this domain.'; return;
+    if (!units.length) {
+      loadEl.style.display = ''; loadEl.textContent = 'No feature units for this domain.'; return;
     }
 
-    var dsNodes = new vis.DataSet(nodes.map(function (n) {
-      return { id: n.id, label: n.label, title: n.title,
-               color: n.color, size: n.size, font: n.font, group: n.group };
+    var shown = {}; units.forEach(function (g) { shown[g] = 1; });
+
+    // vis nodes: one per feature unit, size by function count, count in the label.
+    var dsNodes = new vis.DataSet(units.map(function (g) {
+      var u = unit[g];
+      return {
+        id: 'unit:' + g,
+        label: g + '\n(' + u.count + ')',
+        title: g + '\n' + u.count + ' functions\n— ' + u.fns.join('\n— ') +
+          (u.count > u.fns.length ? '\n…' : ''),
+        shape: 'dot',
+        size: Math.max(12, Math.min(60, 12 + Math.sqrt(u.count) * 6)),
+        color: { background: u.color, border: '#30363d',
+                 highlight: { background: '#ffffff', border: '#58a6ff' } },
+        font: { color: '#e1e4e8', size: 12 },
+      };
     }));
-    var dsEdges = new vis.DataSet(edges);
+
+    // vis edges: collapse implementor function edges into module→module, weighted.
+    var agg = {};
+    data.edges.forEach(function (e) {
+      var ga = nodeUnit[e.from], gb = nodeUnit[e.to];
+      if (!ga || !gb || ga === gb) return;     // intra-domain, cross-module only
+      if (!shown[ga] || !shown[gb]) return;     // both units rendered
+      var key = ga + ' ' + gb;
+      agg[key] = (agg[key] || 0) + 1;
+    });
+    var dsEdges = new vis.DataSet(Object.keys(agg).map(function (key) {
+      var parts = key.split(' ');
+      var w = agg[key];
+      return {
+        from: 'unit:' + parts[0], to: 'unit:' + parts[1],
+        value: w, title: w + ' references',
+        arrows: 'to',
+        color: { color: '#58a6ff', opacity: 0.5 },
+        width: Math.max(1, Math.min(8, w)),
+        font: { size: 9, color: '#6e7681', strokeWidth: 0 },
+        label: String(w),
+      };
+    }));
 
     var container = document.getElementById('dv-canvas');
     state.domainNetwork = new vis.Network(container, { nodes: dsNodes, edges: dsEdges }, {
       layout: { improvedLayout: true },
       physics: {
         solver: 'forceAtlas2Based',
-        forceAtlas2Based: { gravitationalConstant: -50, springLength: 100, damping: 0.5 },
+        forceAtlas2Based: { gravitationalConstant: -50, springLength: 120, damping: 0.5 },
         stabilization: { iterations: 150, updateInterval: 25 },
       },
       interaction: { hover: true, tooltipDelay: 120, navigationButtons: true, keyboard: false },
-      nodes: { shape: 'dot', borderWidth: 2 },
+      nodes: { borderWidth: 2 },
       edges: { smooth: { type: 'continuous', roundness: 0.3 } },
     });
     state.domainNetwork.once('stabilizationIterationsDone', function () { loadEl.style.display = 'none'; });
