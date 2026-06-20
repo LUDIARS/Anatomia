@@ -187,19 +187,55 @@ describe("type-aware call resolution", () => {
     expect(callsFrom(g, render)).not.toContain(spritePaint);
   });
 
-  it("falls back to locality when the receiver type is unknown", async () => {
-    // `external` has no extracted type, so the call keeps the by-name/locality
-    // resolution — type resolution never makes coverage worse than before.
+  it("types a bare member-field receiver via the enclosing class", async () => {
+    // `hit_.count()` where `hit_` is a std::unordered_set member: the field is
+    // typed to an external container, so the external method is NOT wired to a
+    // same-named repo function (the false `count` edge is dropped). Works for an
+    // OUT-OF-LINE method definition, whose enclosing class is the `Foo::` scope.
+    const combat = await fileOf(
+      `struct AttackHitbox {
+         std::unordered_set<int> hit_;
+         int sweep();
+       };
+       int AttackHitbox::sweep() { return hit_.count(0); }`,
+      "/repo/src/combat/hitbox.cpp",
+    );
+    const enemy = await fileOf(
+      "struct Roster { public: int count() { return 3; } };",
+      "/repo/src/enemy/roster.cpp",
+    );
+    const files = [combat.file, enemy.file];
+    const edgeInfo = new Map([...combat.edgeInfo, ...enemy.edgeInfo]);
+    const g = buildGraph(files, edgeInfo);
+    const sweep = combat.file.functions.find((f) => f.name.endsWith("sweep"))!.id!;
+    const rosterCount = enemy.file.functions[0]!.id!;
+    expect(callsFrom(g, sweep)).not.toContain(rosterCount);
+  });
+
+  it("drops a call on an external-typed receiver instead of locality fan-out", async () => {
+    // `ext` is typed `SomeExternal` (not a repo class) → the call is external →
+    // it must NOT be wired to a same-named repo function by locality.
     const a = await fileOf(
       `void use(SomeExternal& ext) { ext.compute(); }
        void compute() {}`,
       "/repo/src/mod/a.cpp",
     );
-    const files = [a.file];
-    const g = buildGraph(files, a.edgeInfo);
+    const g = buildGraph([a.file], a.edgeInfo);
     const use = a.file.functions.find((f) => f.name === "use")!.id!;
     const compute = a.file.functions.find((f) => f.name === "compute")!.id!;
-    // SomeExternal is not a known type → fall back; same-file compute() resolves.
+    expect(callsFrom(g, use)).not.toContain(compute);
+  });
+
+  it("falls back to locality for an unqualified (no-receiver) call", async () => {
+    // No receiver to type → the by-name/locality resolution is preserved.
+    const a = await fileOf(
+      `void use() { compute(); }
+       void compute() {}`,
+      "/repo/src/mod/a.cpp",
+    );
+    const g = buildGraph([a.file], a.edgeInfo);
+    const use = a.file.functions.find((f) => f.name === "use")!.id!;
+    const compute = a.file.functions.find((f) => f.name === "compute")!.id!;
     expect(callsFrom(g, use)).toContain(compute);
   });
 });
@@ -222,6 +258,21 @@ describe("TypeRegistry", () => {
     expect(reg.resolveMethod("C", "base")).toEqual([aBase]);
     // A method that exists nowhere in the hierarchy resolves to nothing.
     expect(reg.resolveMethod("C", "ghost")).toEqual([]);
+  });
+
+  it("resolves data-member field types through the hierarchy", async () => {
+    const f = await fileOf(
+      `class Base { protected: Vec3 origin_; };
+       class Widget : public Base { std::vector<Sprite*> sprites_; int n_; };`,
+      "/repo/src/x.cpp",
+    );
+    const reg = TypeRegistry.build([f.file]);
+    expect(reg.fieldType("Widget", "sprites_")).toEqual({ type: "vector", elementType: "Sprite" });
+    // Inherited from Base.
+    expect(reg.fieldType("Widget", "origin_")?.type).toBe("Vec3");
+    // Primitive members are not recorded (cannot name a class).
+    expect(reg.fieldType("Widget", "n_")).toBeNull();
+    expect(reg.fieldType("Widget", "missing")).toBeNull();
   });
 
   it("clone() is independent of the source registry", async () => {
