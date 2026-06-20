@@ -51,6 +51,13 @@ export interface SourceRange {
 export interface FunctionNode {
   /** Filled by T06 after normalization + hashing. Null before hash step. */
   id: AnchorId | null;
+  /**
+   * Path-INDEPENDENT structural hash (normalized body + signature shape, NO file
+   * path). Two identical functions in different files share this hash even though
+   * their `id` (which folds the file path) differs — so it identifies structural
+   * clones. Filled alongside `id` by assignAnchorId.
+   */
+  structuralHash?: string;
   name: string;
   /** Full signature text (return type + params). */
   signature: string;
