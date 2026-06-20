@@ -190,14 +190,17 @@ export function mountAnalysisRoutes(app: Hono, source: WebContextSource): void {
    */
   app.get("/api/projects/:id/vis-data", async (c) => {
     const id = c.req.param("id");
-    let ctx;
     try {
-      ctx = await source.resolve(id);
+      // Served from the fingerprint-keyed render cache when the source is
+      // unchanged — a cold (just-restarted) server answers from disk without
+      // re-analyzing the repo, which is what kept the graph view from toppling
+      // the panel on large C++ projects. buildVisData runs only on a miss.
+      const data = await source.cachedArtifact(id, "vis-data", (ctx) =>
+        buildVisData(ctx),
+      );
+      return c.json(data);
     } catch {
       return c.json({ error: `no such project "${id}"` }, 404);
     }
-
-    const data = await buildVisData(ctx);
-    return c.json(data);
   });
 }
