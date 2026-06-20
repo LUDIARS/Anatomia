@@ -91,4 +91,37 @@ describe("scanForPatterns", () => {
     // lowercase `instance` field is not the public accessor → no singleton.
     expect(out.filter((p) => p.kind === "singleton")).toHaveLength(0);
   });
+
+  it("detects network clients by name suffix and classifies the target server", () => {
+    const files = [
+      file("Ranking/EndlessRankingApiClient.cs", "public class EndlessRankingApiClient {\n  void Post() {}\n}\n"),
+      file("Auth/LoginApiClient.cs", "public class LoginApiClient {\n}\n"),
+      file("Net/OBSWebSocketClient.cs", "public class OBSWebSocketClient {\n}\n"),
+    ];
+    const out = scanForPatterns(files, [], [], ROOT);
+    const byName = Object.fromEntries(out.filter((p) => p.kind === "network").map((p) => [p.name, p.target]));
+    expect(byName["EndlessRankingApiClient"]).toBe("ランキングサーバ");
+    expect(byName["LoginApiClient"]).toBe("ログインサーバ");
+    expect(byName["OBSWebSocketClient"]).toBe("APIサーバ"); // default role
+  });
+
+  it("detects a network class via a networking API token (UnityWebRequest)", () => {
+    const files = [
+      file("Sys/Uploader.cs", "public class Uploader {\n  void Go() { var r = UnityWebRequest.Get(url); }\n}\n"),
+    ];
+    const out = scanForPatterns(files, [], [], ROOT);
+    expect(out.filter((p) => p.kind === "network").map((p) => p.name)).toEqual(["Uploader"]);
+  });
+
+  it("attributes network communication to the domain owning the client", () => {
+    const files = [
+      file("Ranking/RankingApiClient.cs", "public class RankingApiClient {\n  public void Submit() {}\n}\n"),
+    ];
+    const functions = [fn("r1", "Ranking/RankingApiClient.cs", 1, 3)];
+    const domains = [domain("ranking", ["r1"])];
+    const out = scanForPatterns(files, functions, domains, ROOT);
+    const net = out.find((p) => p.kind === "network")!;
+    expect(net.target).toBe("ランキングサーバ");
+    expect(net.accessors).toEqual([{ domain: "ranking", access: "calls" }]);
+  });
 });

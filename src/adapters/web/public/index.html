@@ -294,6 +294,7 @@
     .dv-acc-singleton { background: #3a2d0a; color: #e3b341; }
     .dv-acc-service-locator { background: #0d2f4a; color: #58a6ff; }
     .dv-acc-facade { background: #2d0d4a; color: #bc8cff; }
+    .dv-acc-network { background: #0a3338; color: #39c5cf; }
     .dv-acc-how { color: #8b949e; margin-left: 6px; font-size: 0.7rem; }
 
     /* ── Common states ──────────────────────────────────────── */
@@ -1097,7 +1098,7 @@
     return parts[0].replace(/\.(tsx?|cpp|h|cs)$/, '');
   }
 
-  var PATTERN_ICON = { singleton: '◆', 'service-locator': '⬡', facade: '▤' };
+  var PATTERN_ICON = { singleton: '◆', 'service-locator': '⬡', facade: '▤', network: '☁' };
 
   async function loadDomainView(id) {
     if (state.domainViewLoaded) return;
@@ -1159,14 +1160,15 @@
       return mine.length ? { p: p, how: [...new Set(mine.map(function (a) { return a.access; }))].join('/') } : null;
     }).filter(Boolean);
     if (!pats.length) {
-      body.innerHTML = '<div class="dv-muted">このドメインが触るシングルトン/ロケータ/ファサードは検出されませんでした。</div>';
+      body.innerHTML = '<div class="dv-muted">このドメインが触るシングルトン/ロケータ/ファサード/通信は検出されませんでした。</div>';
       return;
     }
     pats.sort(function (a, b) { return a.p.kind.localeCompare(b.p.kind) || a.p.name.localeCompare(b.p.name); });
     body.innerHTML = pats.map(function (x) {
+      var kindLabel = x.p.kind === 'network' && x.p.target ? 'network → ' + x.p.target : x.p.kind;
       return '<div class="dv-acc-row">' +
         '<span class="dv-acc-name">' + esc(x.p.name) + '</span>' +
-        '<span class="dv-acc-kind dv-acc-' + x.p.kind + '">' + esc(x.p.kind) + '</span>' +
+        '<span class="dv-acc-kind dv-acc-' + x.p.kind + '">' + esc(kindLabel) + '</span>' +
         '<span class="dv-acc-how">' + esc(x.how) + '</span>' +
         '<div class="dv-spec-file">' + esc(x.p.file) + '</div>' +
       '</div>';
@@ -1217,13 +1219,15 @@
       if (unit[g].fns.length < 12) unit[g].fns.push(n._meta ? n._meta.name : n.label);
     });
 
-    // Which feature units contain a detected access pattern (singleton/locator/facade).
-    var unitPatterns = {};  // group -> { kinds:Set-like {}, names:[] }
+    // Which feature units contain a detected access pattern (singleton/locator/facade/network).
+    var unitPatterns = {};  // group -> { kinds:{}, names:[], net:bool, targets:{} }
     (state.accessPatterns || []).forEach(function (p) {
       var g = unitOfFile(p.file);
-      var up = unitPatterns[g] || (unitPatterns[g] = { kinds: {}, names: [] });
+      var up = unitPatterns[g] || (unitPatterns[g] = { kinds: {}, names: [], net: false, targets: {} });
       up.kinds[p.kind] = 1;
-      if (up.names.length < 8) up.names.push((PATTERN_ICON[p.kind] || '•') + ' ' + p.name + ' (' + p.kind + ')');
+      if (p.kind === 'network') { up.net = true; if (p.target) up.targets[p.target] = 1; }
+      var label = p.kind === 'network' && p.target ? p.name + ' → ' + p.target : p.name + ' (' + p.kind + ')';
+      if (up.names.length < 8) up.names.push((PATTERN_ICON[p.kind] || '•') + ' ' + label);
     });
 
     var units = Object.keys(unit);
@@ -1307,10 +1311,13 @@
       var isHub = !!hub[g];
       var pat = unitPatterns[g];
       var icons = pat ? Object.keys(pat.kinds).map(function (k) { return PATTERN_ICON[k] || '•'; }).join('') : '';
-      var border = pat ? '#e3b341' : (isHub ? '#6e7681' : '#30363d');
+      // Network gets its own colour ("通信はアクセスの色を変えて"); other patterns yellow.
+      var netTargets = pat && pat.net ? Object.keys(pat.targets) : [];
+      var border = pat ? (pat.net ? '#39c5cf' : '#e3b341') : (isHub ? '#6e7681' : '#30363d');
+      var netLabel = netTargets.length ? '\n☁ ' + netTargets.join(', ') : '';
       return {
         id: 'unit:' + g,
-        label: g + '\n(' + u.count + ')' + (isHub ? ' ⊟' : '') + (icons ? ' ' + icons : ''),
+        label: g + '\n(' + u.count + ')' + (isHub ? ' ⊟' : '') + (icons ? ' ' + icons : '') + netLabel,
         title: g + '\n' + u.count + ' functions' +
           (isHub ? '\n[hub: ' + degreeOf(g) + ' links folded]' : '') +
           (pat ? '\n' + pat.names.join('\n') : '') +
