@@ -89,6 +89,19 @@ export interface CacheEntry {
 }
 
 /**
+ * Persisted envelope for a derived render artifact (e.g. the vis-network graph
+ * payload). Unlike the AnalysisContext, these artifacts are plain JSON, so they
+ * CAN survive a restart on disk. Keyed by the same pre-analysis `fingerprint`,
+ * so a stale source tree never serves a stale artifact.
+ */
+export interface ArtifactEnvelope<T> {
+  version: 1;
+  fingerprint: string;
+  builtAt: string;
+  data: T;
+}
+
+/**
  * Compute a cheap pre-analysis fingerprint of a project's source tree.
  * Walks the root once collecting {path, size, mtimeMs} for source/spec files,
  * then hashes the sorted stamps. No file contents are read; no parsing.
@@ -185,6 +198,9 @@ export class AnalysisCache {
   /** Counts work skipped vs. performed (observability / test assertions). */
   hits = 0;
   misses = 0;
+  /** Same, for the derived render-artifact cache (vis-data etc). */
+  artifactHits = 0;
+  artifactMisses = 0;
 
   constructor(homeDir?: string) {
     this.home = homeDir;
@@ -254,5 +270,61 @@ export class AnalysisCache {
       JSON.stringify(snap, null, 2) + "\n",
       "utf8",
     );
+  }
+
+  // ── derived render-artifact cache ─────────────────────────────────────────
+  //
+  // The graph view's vis-data is expensive to rebuild (metrics + full edge
+  // walk) and, before this cache, was recomputed from a freshly-analyzed
+  // context on every panel open — which after a warm-server restart meant a
+  // full re-parse of the whole repo. These methods persist the *built* JSON
+  // payload keyed by fingerprint so a cold server can answer the render route
+  // straight from disk, never touching analyze().
+
+  /** Path to a named derived artifact for a project. */
+  private artifactPath(projectId: string, name: string): string {
+    const safe = name.replace(/[^a-z0-9_-]/gi, "_");
+    return join(this.dirFor(projectId), `artifact-${safe}.json`);
+  }
+
+  /**
+   * Read a fingerprint-matched render artifact. Returns null on miss, on a
+   * fingerprint mismatch (source changed since it was built), or when absent.
+   */
+  async readArtifact<T>(
+    projectId: string,
+    name: string,
+    fingerprint: string,
+  ): Promise<T | null> {
+    try {
+      const raw = await readFile(this.artifactPath(projectId, name), "utf8");
+      const env = JSON.parse(raw) as ArtifactEnvelope<T>;
+      if (env && env.version === 1 && env.fingerprint === fingerprint) {
+        this.artifactHits++;
+        return env.data;
+      }
+    } catch {
+      // absent / unreadable / malformed — treat as a miss.
+    }
+    this.artifactMisses++;
+    return null;
+  }
+
+  /** Persist a derived render artifact keyed by the current fingerprint. */
+  async writeArtifact<T>(
+    projectId: string,
+    name: string,
+    fingerprint: string,
+    data: T,
+  ): Promise<void> {
+    const env: ArtifactEnvelope<T> = {
+      version: 1,
+      fingerprint,
+      builtAt: new Date().toISOString(),
+      data,
+    };
+    const dir = this.dirFor(projectId);
+    await mkdir(dir, { recursive: true });
+    await writeFile(this.artifactPath(projectId, name), JSON.stringify(env), "utf8");
   }
 }

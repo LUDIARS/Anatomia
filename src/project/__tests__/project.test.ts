@@ -255,3 +255,79 @@ describe("first-view summary fast path", () => {
     expect(cold.cache.hits).toBe(hitsBefore + 1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Derived render-artifact cache (vis-data etc): serve from disk after restart
+// ---------------------------------------------------------------------------
+
+describe("render-artifact cache", () => {
+  let artHome: string;
+  let artRoot: string;
+
+  const make = async () => {
+    const m = new ProjectManager(new ProjectRegistry(), {
+      homeDir: artHome,
+      analyzeOptions: { quiet: true },
+    });
+    await m.addProject({ name: "Art", rootPath: artRoot });
+    return m;
+  };
+
+  beforeAll(async () => {
+    artHome = await mkdtemp(join(tmpdir(), "anatomia-art-home-"));
+    artRoot = await mkdtemp(join(tmpdir(), "anatomia-art-fixture-"));
+    await mkdir(join(artRoot, "src"), { recursive: true });
+    await writeFile(join(artRoot, "src", "a.cpp"), FIXTURE_CPP, "utf8");
+  });
+
+  afterAll(async () => {
+    await rm(artHome, { recursive: true, force: true });
+    await rm(artRoot, { recursive: true, force: true });
+  });
+
+  it("builds the artifact once, then serves it from disk without analysis", async () => {
+    const warm = await make();
+    let builds = 0;
+    const build = async (ctx: { functions: unknown[] }) => {
+      builds++;
+      return { funcs: ctx.functions.length };
+    };
+
+    // First call: cold disk → analyze + build + persist.
+    const a = await warm.cachedArtifact("art", "vis-data", build);
+    expect(builds).toBe(1);
+    expect(a.funcs).toBeGreaterThan(0);
+
+    // Fresh manager = cold in-memory cache, but the artifact is on disk. The
+    // build fn must NOT run and analyze() must NOT be called (zero cache work).
+    const cold = await make();
+    let coldBuilds = 0;
+    const b = await cold.cachedArtifact("art", "vis-data", async () => {
+      coldBuilds++;
+      return { funcs: -1 };
+    });
+    expect(coldBuilds).toBe(0); // served from disk
+    expect(b).toEqual(a);
+    expect(cold.cache.hits).toBe(0); // analyze() never ran
+    expect(cold.cache.artifactHits).toBe(1);
+  });
+
+  it("rebuilds the artifact when the source changed", async () => {
+    const m = await make();
+    await m.cachedArtifact("art", "vis-data", async () => ({ v: 1 }));
+
+    await writeFile(
+      join(artRoot, "src", "a.cpp"),
+      FIXTURE_CPP + "\nvoid fixtureEpsilon() { }\n",
+      "utf8",
+    );
+
+    let rebuilt = false;
+    const after = await m.cachedArtifact("art", "vis-data", async () => {
+      rebuilt = true;
+      return { v: 2 };
+    });
+    expect(rebuilt).toBe(true); // fingerprint changed → rebuilt, not stale-served
+    expect(after.v).toBe(2);
+  });
+});
