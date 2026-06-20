@@ -26,18 +26,23 @@ LLM 蒸留の `DomainCard`（[feature/domain-detection.md](./domain-detection.md
 ## パネルでの使われ方
 
 `Domain View` タブ。左にドメイン一覧（名前 + 日本語説明 + conforms バッジ + 実装数）、
-ドメインを選ぶと右の専用キャンバスに**そのドメインの実装関数だけ**のサブグラフ（ノード間の
-エッジのみ）を描画し、下部に紐づく spec 節（日本語）を表示する。route は
+ドメインを選ぶと右の専用キャンバスに**機能単位（モジュール = vis-data の `group`）で集約した**
+グラフを描画する。**個々の関数までは下ろさず**、機能単位を 1 ノードとし、ラベルに**その機能に属する
+関数の件数**を出す（ノードサイズも件数スケール）。関数→関数のエッジは**モジュール→モジュール**に畳み込み、
+本数を重みにする（同一モジュール内は描かない）。下部に紐づく spec 節（日本語）を表示。route は
 `GET /api/projects/:id/domain-view`。グラフデータは `/api/projects/:id/vis-data` を共有。
 
-**巨大ドメインの上限**: 粗い builtin ドメイン（例: state-machine が TS リポで数千関数に当たる）は
-そのまま描画すると重く使い物にならないため、フォーカスグラフは coupling 上位 `DV_MAX_NODES`(=400) に
-クランプし、「showing top 400 of N functions (by coupling)」と表示する（残りは間引き）。
+ノードの tooltip には件数 + 代表関数名（最大 12）を出す。キャンバス上部に
+「N functions across M feature units」（または上限超過時は間引き告知）を表示。
+
+**機能単位の上限**: 機能単位（モジュール）はふつう少数だが、念のため件数上位 `DV_MAX_UNITS`(=60) に
+クランプし、超過時は「N functions · showing top 60 of M feature units (by function count)」と表示する。
 
 ## 制約
 
 - 検出ドメインの粒度は builtin オントロジー + プラグインに依存（B-3 ゲームオントロジー未完）。
-  粗いドメインはフォーカスグラフを上位 400 ノードに間引いて描画する（上記）。
+  粗いドメイン（例: state-machine が TS リポで数千関数）も**機能単位集約**なのでノード数は
+  モジュール数で有界、関数件数はラベルに出る。
 - spec リンクが無いドメインは説明 null（「spec リンクなし」と表示）。
 
 ## 関連
