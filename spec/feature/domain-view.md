@@ -30,9 +30,14 @@ LLM 蒸留の `DomainCard`（[feature/domain-detection.md](./domain-detection.md
 エッジのみ）を描画し、下部に紐づく spec 節（日本語）を表示する。route は
 `GET /api/projects/:id/domain-view`。グラフデータは `/api/projects/:id/vis-data` を共有。
 
+**巨大ドメインの上限**: 粗い builtin ドメイン（例: state-machine が TS リポで数千関数に当たる）は
+そのまま描画すると重く使い物にならないため、フォーカスグラフは coupling 上位 `DV_MAX_NODES`(=400) に
+クランプし、「showing top 400 of N functions (by coupling)」と表示する（残りは間引き）。
+
 ## 制約
 
 - 検出ドメインの粒度は builtin オントロジー + プラグインに依存（B-3 ゲームオントロジー未完）。
+  粗いドメインはフォーカスグラフを上位 400 ノードに間引いて描画する（上記）。
 - spec リンクが無いドメインは説明 null（「spec リンクなし」と表示）。
 
 ## 関連

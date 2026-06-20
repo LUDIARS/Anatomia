@@ -86,6 +86,32 @@ export async function resolveBase(
 }
 
 /**
+ * List candidate base refs to diff against: local branches + remote-tracking
+ * branches (e.g. "main", "origin/main"), excluding the current branch and
+ * remote HEAD pointers. The well-known DEFAULT_BASE_CANDIDATES are surfaced
+ * first (in their canonical order); the rest follow sorted. Empty outside a
+ * git repo.
+ */
+export async function listBranches(rootPath: string): Promise<string[]> {
+  const out = await git(rootPath, [
+    "for-each-ref",
+    "--format=%(refname:short)",
+    "refs/heads",
+    "refs/remotes",
+  ]);
+  if (!out) return [];
+  const cur = await currentBranch(rootPath);
+  const refs = out
+    .split(/\r?\n/)
+    .map((s) => s.trim())
+    .filter((r) => r.length > 0 && !r.endsWith("/HEAD") && r !== cur);
+  const seen = new Set(refs);
+  const known = DEFAULT_BASE_CANDIDATES.filter((c) => seen.has(c));
+  const rest = refs.filter((r) => !known.includes(r)).sort();
+  return [...known, ...rest];
+}
+
+/**
  * Source files changed between `mergeBase` and the working tree, plus new
  * untracked files. Paths are absolute-relative to `rootPath` as git reports
  * them (forward slashes). Includes both committed-on-branch and uncommitted
