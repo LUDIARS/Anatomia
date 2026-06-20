@@ -69,36 +69,59 @@ import { TypeRegistry } from "./type-resolve.js";
 // ---------------------------------------------------------------------------
 
 /**
- * A single call site: the callee's terminal name plus the receiver it is called
- * on (the object before `.`/`->`), used for type-aware resolution.
- *   `target.alive()` → { name: "alive", receiver: "target" }
- *   `this->tick()`   → { name: "tick",  receiver: "this" }
- *   `helper()`       → { name: "helper", receiver: null }  (unqualified)
- *   `a.b.run()`      → { name: "run",   receiver: null }  (chained, not typed)
+ * A single call site: the callee's terminal name plus the receiver CHAIN it is
+ * called on (the dotted path before the method), used for type-aware resolution.
+ *   `target.alive()`   → { name: "alive", receiver: ["target"] }
+ *   `this->tick()`     → { name: "tick",  receiver: ["this"] }
+ *   `w.spawner.alive()`→ { name: "alive", receiver: ["w","spawner"] }
+ *   `helper()`         → { name: "helper", receiver: null }  (unqualified)
+ *   `f().run()`        → { name: "run",   receiver: null }  (call result, not typed)
  */
 export interface CallSite {
   name: string;
-  receiver: string | null;
+  receiver: string[] | null;
+}
+
+/** A local declared as `auto[&] name = <recv.method()>` — typed from the call's return. */
+export interface CallLocal {
+  name: string;
+  receiver: string[] | null;
+  method: string;
+}
+
+/** A range-based for loop: `for (TYPE loopVar : container)`. */
+export interface RangeFor {
+  loopVar: string;
+  /** Explicit element type (`for (T x : …)`), else null (`auto`). */
+  explicitType: string | null;
+  /** Container variable name when it is a plain identifier, else null. */
+  container: string | null;
+  /** When the container is a call (`for (auto* e : w.spawner.alive())`), its call site. */
+  containerCall?: { receiver: string[] | null; method: string };
 }
 
 /**
  * Plain-data summary of the edges that originate from one function.
- * Produced by extractEdgeInfo() while the AST is still live.
+ * Produced by extractEdgeInfo() while the AST is still live. Type resolution
+ * (which needs the cross-file TypeRegistry) happens later, in emitEdges.
  */
 export interface FunctionEdgeInfo {
   /** AnchorId of the source function. */
   anchorId: AnchorId;
-  /** Call sites (name + receiver) extracted from call expressions. */
+  /** Call sites (name + receiver chain) extracted from call expressions. */
   calls: CallSite[];
   /** Field/member names read (not assigned). */
   readFieldNames: string[];
   /** Field/member names written (LHS of assignment). */
   writeFieldNames: string[];
-  /**
-   * Receiver-variable → simple type name, merged from the caller's parameters
-   * and local variable declarations. Drives type-aware call resolution.
-   */
+  /** Variable → simple type name, from parameters + explicitly-typed locals. */
   symbolTypes: Record<string, string>;
+  /** Variable → container element type, from parameters + explicitly-typed locals. */
+  containerElem: Record<string, string>;
+  /** `auto x = recv.method()` locals (typed from the call's return in emitEdges). */
+  callLocals: CallLocal[];
+  /** Range-for loops (loop-var typing resolved in emitEdges). */
+  rangeFors: RangeFor[];
   /** Simple name of the class this function is a method of (types `this`). */
   selfType?: string;
 }
@@ -235,14 +258,14 @@ export function extractFunctionEdgeInfo(fn: FunctionNode): FunctionEdgeInfo | nu
   const readFieldNames: string[] = [];
   const writeFieldNames: string[] = [];
 
-  // ── calls (name + receiver) ────────────────────────────────────────────────
+  // ── calls (name + receiver chain) ───────────────────────────────────────────
   const callTypes = new Set(["call_expression", "invocation_expression"]);
   const callNodes = descendantsIterative(body, callTypes);
   const seenCall = new Set<string>();
   for (const call of callNodes) {
     const site = extractCallSite(call);
     if (!site) continue;
-    const key = `${site.name}\0${site.receiver ?? ""}`;
+    const key = `${site.name}\0${site.receiver?.join(".") ?? ""}`;
     if (seenCall.has(key)) continue; // deduplicate at source
     seenCall.add(key);
     calls.push(site);
@@ -270,17 +293,18 @@ export function extractFunctionEdgeInfo(fn: FunctionNode): FunctionEdgeInfo | nu
     }
   }
 
-  // ── symbol types (params + locals + range-for loop vars) ────────────────────
+  // ── symbol types (params + explicitly-typed locals) ─────────────────────────
+  // `auto x = call()` locals and range-for loop vars are captured RAW here and
+  // typed later in emitEdges, where the cross-file TypeRegistry is available.
   const symbolTypes: Record<string, string> = {};
-  // containerElem: var → element type of a container template it holds, used to
-  // type `for (auto* x : container)` loop variables.
   const containerElem: Record<string, string> = {};
   for (const p of fn.params ?? []) {
     if (p.type) symbolTypes[p.name] = p.type;
     if (p.elementType) containerElem[p.name] = p.elementType;
   }
-  collectLocalTypes(body, symbolTypes, containerElem);
-  resolveRangeForTypes(body, symbolTypes, containerElem);
+  const callLocals: CallLocal[] = [];
+  collectLocalTypes(body, symbolTypes, containerElem, callLocals);
+  const rangeFors = collectRangeFors(body);
 
   return {
     anchorId: fn.id,
@@ -288,15 +312,18 @@ export function extractFunctionEdgeInfo(fn: FunctionNode): FunctionEdgeInfo | nu
     readFieldNames: [...new Set(readFieldNames)],
     writeFieldNames: [...new Set(writeFieldNames)],
     symbolTypes,
+    containerElem,
+    callLocals,
+    rangeFors,
     ...(fn.enclosingType ? { selfType: fn.enclosingType } : {}),
   };
 }
 
 /**
  * Extract `{ name, receiver }` from a call/invocation node. `receiver` is the
- * object the method is invoked on when it is a plain identifier or `this`; it is
- * null for an unqualified call or a chained/complex receiver (which we do not
- * type — see Limits).
+ * dotted identifier chain the method is invoked on (`w.spawner` → ["w","spawner"],
+ * `this` → ["this"]); null for an unqualified call or a non-identifier base
+ * (call result, subscript, …) which we do not type — see Limits.
  */
 function extractCallSite(callNode: AstNode): CallSite | null {
   const fnField =
@@ -305,23 +332,41 @@ function extractCallSite(callNode: AstNode): CallSite | null {
   const name = terminalName(fnField);
   if (!name) return null;
 
-  let receiver: string | null = null;
+  let receiver: string[] | null = null;
   if (fnField.type === "field_expression") {
     // C++ `obj.method` / `ptr->method`
-    receiver = simpleReceiver(fnField.childForFieldName("argument"));
+    receiver = receiverChain(fnField.childForFieldName("argument"));
   } else if (fnField.type === "member_access_expression") {
     // C# `obj.Method`
-    receiver = simpleReceiver(fnField.childForFieldName("expression"));
+    receiver = receiverChain(fnField.childForFieldName("expression"));
   }
   return { name, receiver };
 }
 
-/** Reduce a receiver expression to a variable name, `this`, or null. */
-function simpleReceiver(node: AstNode | null): string | null {
+/**
+ * Reduce a receiver expression to a dotted identifier chain (base → fields), or
+ * null if any link is not a plain identifier / field access (`this`, call result,
+ * subscript, etc. break the chain — only the all-identifier prefix is typeable).
+ */
+function receiverChain(node: AstNode | null): string[] | null {
   if (!node) return null;
-  if (node.type === "identifier") return node.text;
-  if (node.type === "this" || node.type === "this_expression") return "this";
-  return null; // chained field_expression, call result, etc. — not typed
+  if (node.type === "identifier") return [node.text];
+  if (node.type === "this" || node.type === "this_expression") return ["this"];
+  if (node.type === "field_expression") {
+    const base = receiverChain(node.childForFieldName("argument"));
+    const field = node.childForFieldName("field");
+    if (base && field && (field.type === "field_identifier" || field.type === "identifier")) {
+      return [...base, field.text];
+    }
+    return null;
+  }
+  if (node.type === "member_access_expression") {
+    const base = receiverChain(node.childForFieldName("expression"));
+    const name = node.childForFieldName("name");
+    if (base && name && name.type === "identifier") return [...base, name.text];
+    return null;
+  }
+  return null;
 }
 
 /** Local declaration node types whose declared variables we type. */
@@ -332,75 +377,87 @@ const LOCAL_DECL_TYPES = new Set<string>([
 
 /**
  * Walk the body collecting local declaration types:
- *   - `out`           : varName → simple class type (for direct receiver typing)
- *   - `containerElem` : varName → element type of a container template it holds
- *                       (for `for (auto* x : var)` loop-variable typing)
+ *   - `out`          : varName → simple class type (direct receiver typing)
+ *   - `containerElem`: varName → container element type (range-for loop typing)
+ *   - `callLocals`   : `auto x = recv.method()` — typed later from the return.
  */
 function collectLocalTypes(
   body: AstNode,
   out: Record<string, string>,
   containerElem: Record<string, string>,
+  callLocals: CallLocal[],
 ): void {
   const decls = descendantsIterative(body, LOCAL_DECL_TYPES);
   for (const decl of decls) {
     const typeNode = decl.childForFieldName("type");
     const typeName = simpleTypeName(typeNode);
     const elemName = templateElementName(typeNode);
-    if (!typeName && !elemName) continue; // primitive / auto / var → not a class
+    const isInferred = !typeName && !elemName; // auto / var → infer from initializer
     if (decl.type === "declaration") {
       // C++: one or more declarators (init_declarator / ref / pointer / id).
-      const declarators = decl.childrenForFieldName("declarator");
-      for (const d of declarators) {
-        const name = d ? findDeclaratorName(d) : null;
+      for (const d of decl.childrenForFieldName("declarator")) {
+        if (!d) continue;
+        const name = findDeclaratorName(d);
         if (!name) continue;
-        if (typeName) out[name] = typeName;
-        if (elemName) containerElem[name] = elemName;
+        if (isInferred) {
+          const cl = callLocalFrom(name, d);
+          if (cl) callLocals.push(cl);
+        } else {
+          if (typeName) out[name] = typeName;
+          if (elemName) containerElem[name] = elemName;
+        }
       }
     } else {
-      // C#: variable_declarator children carry the `name` field.
+      // C#: variable_declarator children carry the `name` field (+ optional value).
       for (const d of decl.namedChildren) {
         if (!d || d.type !== "variable_declarator") continue;
         const nameNode = d.childForFieldName("name") ?? d.namedChildren[0];
         if (!nameNode || nameNode.type !== "identifier") continue;
-        if (typeName) out[nameNode.text] = typeName;
-        if (elemName) containerElem[nameNode.text] = elemName;
+        if (isInferred) {
+          const cl = callLocalFrom(nameNode.text, d);
+          if (cl) callLocals.push(cl);
+        } else {
+          if (typeName) out[nameNode.text] = typeName;
+          if (elemName) containerElem[nameNode.text] = elemName;
+        }
       }
     }
   }
 }
 
-/**
- * Type the loop variables of C++ range-based for loops (`for (T x : container)`):
- *   - explicit element type `T`         → that type;
- *   - `auto`/`auto*`/`auto&` over a var → the container var's element type
- *     (so `for (auto* r : receivers)` types `r` as the vector's element class).
- * Member-field containers (`for (auto& y : items_)`) are not typed — only
- * parameter / local containers we have an element type for.
- */
-function resolveRangeForTypes(
-  body: AstNode,
-  out: Record<string, string>,
-  containerElem: Record<string, string>,
-): void {
+/** If `declarator`'s initializer is a call, return a CallLocal for `name`. */
+function callLocalFrom(name: string, declarator: AstNode): CallLocal | null {
+  const value = declarator.childForFieldName("value");
+  if (!value) return null;
+  if (value.type !== "call_expression" && value.type !== "invocation_expression") return null;
+  const site = extractCallSite(value);
+  if (!site) return null;
+  return { name, receiver: site.receiver, method: site.name };
+}
+
+/** Capture range-based for loops raw (loop-var typing happens in emitEdges). */
+function collectRangeFors(body: AstNode): RangeFor[] {
+  const out: RangeFor[] = [];
   const loops = descendantsIterative(body, new Set(["for_range_loop"]));
   for (const loop of loops) {
     const declarator = loop.childForFieldName("declarator");
     const loopVar = declarator ? findDeclaratorName(declarator) : null;
     if (!loopVar) continue;
     const typeNode = loop.childForFieldName("type");
-    if (typeNode && typeNode.type !== "placeholder_type_specifier") {
-      // Explicit element type, e.g. `for (IDamageReceiver* r : …)`.
-      const explicit = simpleTypeName(typeNode);
-      if (explicit) out[loopVar] = explicit;
-      continue;
-    }
-    // `auto` element: resolve via the container variable's element type.
+    const explicitType =
+      typeNode && typeNode.type !== "placeholder_type_specifier"
+        ? simpleTypeName(typeNode)
+        : null;
     const right = loop.childForFieldName("right");
-    if (right && right.type === "identifier") {
-      const elem = containerElem[right.text];
-      if (elem) out[loopVar] = elem;
+    const container = right && right.type === "identifier" ? right.text : null;
+    let containerCall: RangeFor["containerCall"];
+    if (right && (right.type === "call_expression" || right.type === "invocation_expression")) {
+      const site = extractCallSite(right);
+      if (site) containerCall = { receiver: site.receiver, method: site.name };
     }
+    out.push({ loopVar, explicitType, container, ...(containerCall ? { containerCall } : {}) });
   }
+  return out;
 }
 
 /**
@@ -545,11 +602,15 @@ function emitEdges(
     if (!fromNode) continue;
     const callerPath = fromNode.sourceRange.filePath;
 
+    // Resolve the function's local symbol types (params + explicit locals +
+    // `auto x = call()` results + range-for loop vars) once, then resolve calls.
+    const symbols = buildSymbolTable(info, graph.typeRegistry);
+
     // calls
     for (const call of info.calls) {
       const targets = nameIndex.get(call.name);
       if (!targets) continue;
-      const resolved = resolveCall(graph, callerPath, call, info, targets);
+      const resolved = resolveCall(graph, callerPath, call, symbols, info.selfType, targets);
       for (const toId of resolved) {
         addEdge(graph, { from: fromId, to: toId, kind: "calls" });
       }
@@ -588,18 +649,101 @@ function dirOf(filePath: string): string {
 }
 
 /**
+ * Build a function's local symbol table (variable → simple class type) used to
+ * type call receivers. Sources, in increasing inference depth:
+ *   - parameters + explicitly-typed locals (already on `info`);
+ *   - `auto x = recv.method()` locals — typed from the call's RETURN type, via a
+ *     small fixpoint so a local can depend on an earlier-resolved local;
+ *   - range-for loop variables — explicit element type, or the container's
+ *     element type (param / local / `auto`-from-call container, or a member field).
+ * Element types are tracked separately to type range-for loop vars.
+ */
+function buildSymbolTable(
+  info: FunctionEdgeInfo,
+  registry: TypeRegistry | undefined,
+): Record<string, string> {
+  const symbols: Record<string, string> = { ...info.symbolTypes };
+  const elems: Record<string, string> = { ...info.containerElem };
+  const selfType = info.selfType;
+
+  // `auto x = call()` locals — typed from the callee's return. Fixpoint (bounded)
+  // so `a = x.f(); b = a.g();` chains resolve regardless of source order.
+  if (registry && info.callLocals.length > 0) {
+    for (let pass = 0; pass < 6; pass++) {
+      let changed = false;
+      for (const cl of info.callLocals) {
+        if (cl.name in symbols || cl.name in elems) continue;
+        const recvType = resolveChainType(cl.receiver, symbols, selfType, registry);
+        if (!recvType) continue;
+        const ret = registry.resolveReturn(recvType, cl.method);
+        if (!ret) continue;
+        if (ret.type) symbols[cl.name] = ret.type;
+        if (ret.elementType) elems[cl.name] = ret.elementType;
+        if (ret.type || ret.elementType) changed = true;
+      }
+      if (!changed) break;
+    }
+  }
+
+  // range-for loop variables.
+  for (const rf of info.rangeFors) {
+    if (rf.explicitType) {
+      symbols[rf.loopVar] = rf.explicitType;
+      continue;
+    }
+    let elem: string | undefined;
+    if (rf.container) {
+      elem =
+        elems[rf.container] ??
+        (selfType && registry ? registry.fieldType(selfType, rf.container)?.elementType ?? undefined : undefined);
+    } else if (rf.containerCall && registry) {
+      // `for (auto* e : recv.method())` — element type = the call's return element.
+      const recvType = resolveChainType(rf.containerCall.receiver, symbols, selfType, registry);
+      if (recvType) elem = registry.resolveReturn(recvType, rf.containerCall.method)?.elementType ?? undefined;
+    }
+    if (elem) symbols[rf.loopVar] = elem;
+  }
+
+  return symbols;
+}
+
+/**
+ * Resolve a receiver chain (`["w","spawner"]`) to its static type, or undefined.
+ * The head is typed via the symbol table, `this` → enclosing class, else a data
+ * member of the enclosing class; each subsequent link is a data member of the
+ * running type.
+ */
+function resolveChainType(
+  chain: string[] | null,
+  symbols: Record<string, string>,
+  selfType: string | undefined,
+  registry: TypeRegistry,
+): string | undefined {
+  if (!chain || chain.length === 0) return undefined;
+  const head = chain[0]!;
+  let t: string | undefined =
+    head === "this"
+      ? selfType
+      : symbols[head] ?? (selfType ? registry.fieldType(selfType, head)?.type ?? undefined : undefined);
+  if (!t) return undefined;
+  for (let i = 1; i < chain.length; i++) {
+    t = registry.fieldType(t, chain[i]!)?.type ?? undefined;
+    if (!t) return undefined;
+  }
+  return t;
+}
+
+/**
  * Resolve a call site to its target AnchorId(s).
  *
  * Precedence:
- *   1. TYPE-aware — when the receiver's static type is determined:
- *      - receiver type from parameter / local var / range-for loop var / `this`,
- *        else from a DATA MEMBER of the enclosing class (`hit_.count()`);
+ *   1. TYPE-aware — when the receiver chain's static type is determined:
  *      - if that type is a KNOWN repo class → restrict to `name` on it or its
  *        bases (empty ⇒ drop, the abstract-interface case, see type-resolve.ts);
  *      - if that type is determined but NOT a repo class → it is external
  *        (`std::unordered_set` etc.) → DROP rather than locality-fan-out to a
- *        same-named repo function (kills false edges like `hit_.count` →
- *        some unrelated `count()`).
+ *        same-named repo function (kills false edges like `hit_.count` → some
+ *        unrelated `count()`).
  *   2. LOCALITY — unqualified call, or a receiver whose type we cannot determine:
  *      fall back to same-file/same-directory preference (localityResolve).
  */
@@ -607,17 +751,13 @@ function resolveCall(
   graph: CodeGraph,
   callerPath: string,
   call: CallSite,
-  info: FunctionEdgeInfo,
+  symbols: Record<string, string>,
+  selfType: string | undefined,
   targets: AnchorId[],
 ): AnchorId[] {
   const registry = graph.typeRegistry;
   if (call.receiver !== null && registry) {
-    let recvType =
-      call.receiver === "this" ? info.selfType : info.symbolTypes[call.receiver];
-    // Member-field receiver: a bare identifier that is a field of `this`'s class.
-    if (!recvType && info.selfType) {
-      recvType = registry.fieldType(info.selfType, call.receiver)?.type ?? undefined;
-    }
+    const recvType = resolveChainType(call.receiver, symbols, selfType, registry);
     if (recvType) {
       if (registry.isKnownType(recvType)) {
         // Known repo type → trust hierarchy resolution, even if empty.
