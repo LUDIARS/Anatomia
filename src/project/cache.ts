@@ -35,6 +35,13 @@ import type { AnalysisContext } from "../core.js";
 /** Source extensions whose presence/mtime define a project's fingerprint. */
 const SOURCE_EXTS = new Set([".cpp", ".h", ".cs", ".ts", ".tsx", ".md"]);
 
+/**
+ * Extensions stamped from a project's *config* dirs (ontologyDir / specDirs).
+ * Folding these into the fingerprint means editing an ontology def or a spec
+ * outside the code root busts the cache, so a re-analyze actually re-runs.
+ */
+const CONFIG_EXTS = new Set([".md", ".mjs", ".js", ".json"]);
+
 /** One file's identity contribution to the fingerprint. */
 interface FileStamp {
   path: string;
@@ -86,9 +93,25 @@ export interface CacheEntry {
  * Walks the root once collecting {path, size, mtimeMs} for source/spec files,
  * then hashes the sorted stamps. No file contents are read; no parsing.
  */
-export async function computeFingerprint(rootPath: string): Promise<string> {
-  const stamps = await collectStamps(rootPath);
-  stamps.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+export async function computeFingerprint(
+  rootPath: string,
+  opts: { configDirs?: string[] } = {},
+): Promise<string> {
+  const stamps = await collectStamps(rootPath, SOURCE_EXTS);
+  // Config dirs (ontologyDir / specDirs) outside the code root: stamp their
+  // .md/.mjs/.js/.json so config changes invalidate the cached analysis.
+  for (const dir of opts.configDirs ?? []) {
+    stamps.push(...(await collectStamps(dir, CONFIG_EXTS)));
+  }
+  // A config dir nested under rootPath would double-count; de-dupe by path.
+  const seen = new Set<string>();
+  const unique = stamps.filter((s) => (seen.has(s.path) ? false : (seen.add(s.path), true)));
+  unique.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  return hashStamps(unique);
+}
+
+/** Hash a sorted stamp list into a 32-char fingerprint. */
+function hashStamps(stamps: FileStamp[]): string {
   const h = createHash("sha256");
   for (const s of stamps) {
     h.update(s.path.replace(/\\/g, "/"));
@@ -101,11 +124,11 @@ export async function computeFingerprint(rootPath: string): Promise<string> {
   return h.digest("hex").slice(0, 32);
 }
 
-async function collectStamps(root: string): Promise<FileStamp[]> {
+async function collectStamps(root: string, exts: Set<string>): Promise<FileStamp[]> {
   const out: FileStamp[] = [];
   // Directory-pruning walk (fs/walk.ts): node_modules/dist/.git/.anatomia are
   // never descended into, so the fingerprint scan is O(source tree) not O(repo).
-  const paths = await collectFilesByExt(root, SOURCE_EXTS);
+  const paths = await collectFilesByExt(root, exts);
   for (const full of paths) {
     try {
       const st = await stat(full);

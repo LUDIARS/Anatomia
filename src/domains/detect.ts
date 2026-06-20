@@ -137,6 +137,9 @@ export async function detectDomain(
 function isMeaningfulFilter(f: NodeFilter): boolean {
   if (f.kind !== undefined) return true;
   if (f.tags && f.tags.length > 0) return true;
+  if (f.pathPattern !== undefined && f.pathPattern !== ".*" && f.pathPattern !== "") {
+    return true;
+  }
   if (f.namePattern !== undefined) {
     // ".*" and "" match everything -> not meaningful for implementor scoping.
     return f.namePattern !== ".*" && f.namePattern !== "";
