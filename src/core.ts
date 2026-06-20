@@ -10,6 +10,7 @@
 
 import { readFile } from "node:fs/promises";
 import { extname } from "node:path";
+import type { Tree } from "web-tree-sitter";
 import { collectFilesByExt } from "./fs/walk.js";
 import { parse } from "./dag/parser.js";
 import { extractFunctions, extractTypeDecls } from "./dag/extract.js";
@@ -162,6 +163,15 @@ function shouldSkipTsPath(filePath: string): boolean {
   return segments.some((s) => TS_EXCLUDE_SEGMENTS.has(s));
 }
 
+/**
+ * Detect a tree-sitter WASM `Abort`. Once emscripten aborts the shared module
+ * (typically heap exhaustion at the 2GB ceiling), it stays dead for the life of
+ * the process, so this signals "stop parsing — only a restart recovers".
+ */
+function isWasmAbort(err: unknown): boolean {
+  return /Aborted\(\)/.test(String(err));
+}
+
 // ---------------------------------------------------------------------------
 // analyze — main entry point
 // ---------------------------------------------------------------------------
@@ -189,6 +199,15 @@ export async function analyze(
   const files: FileNode[] = [];
   const allFunctions: FunctionNode[] = [];
   const skipped: { filePath: string; reason: string }[] = [];
+  // Every parsed tree is collected here so its WASM-backed native memory can be
+  // released once the last bodyAst consumer has run (see the freeing step after
+  // phase 4). web-tree-sitter trees own emscripten heap that GC does NOT
+  // reclaim; the heap is capped at 2GB (`maximum: 32768` 64KB pages). A long-
+  // lived warm server that caches many AnalysisContexts would otherwise pin
+  // every project's trees forever, eventually exhausting the shared heap →
+  // tree-sitter aborts mid-parse and the aborted module poisons EVERY
+  // subsequent parse (the cascading `Aborted()` flood seen in server.log).
+  const trees: Tree[] = [];
 
   const warn = (filePath: string, reason: string): void => {
     skipped.push({ filePath, reason });
@@ -211,17 +230,35 @@ export async function analyze(
     let typeDecls: TypeDecl[] = [];
     try {
       const tree = await parse(src, lang);
+      trees.push(tree);
       fns = extractFunctions(tree, src, filePath);
       typeDecls = extractTypeDecls(tree, filePath);
       for (const fn of fns) assignAnchorId(fn, normalize(fn.bodyAst));
     } catch (err) {
       // Parse / extract / normalize failure on one file must not abort the run.
       warn(filePath, `parse/extract failed (${String(err)})`);
+      // A tree-sitter WASM `Abort` is unrecoverable: emscripten marks the shared
+      // module instance dead, so EVERY subsequent parse in this process aborts
+      // too. Continuing would flood the log with tens of thousands of identical
+      // `Aborted()` lines and stall for minutes before returning a near-empty
+      // result. Stop the scan now; the warm server's next restart gets a fresh
+      // module. (The tree-freeing above is what keeps us from reaching this.)
+      if (isWasmAbort(err)) {
+        if (!options.quiet) {
+          console.warn(
+            "[anatomia/analyze] tree-sitter WASM aborted (heap exhausted); " +
+              "stopping scan — restart clears the poisoned module",
+          );
+        }
+        break;
+      }
       continue;
     }
     files.push(buildFileNode(filePath, fns, typeDecls));
     allFunctions.push(...fns);
-    // NOTE: trees are NOT deleted here so that extractEdgeInfo can walk the AST.
+    // NOTE: trees are NOT deleted here so that extractEdgeInfo (phase 2) and
+    // domain template matching (phase 4) can walk the AST. They are freed in
+    // one pass after phase 4 — the last reader of bodyAst.
   }
 
   // Phase 2 — extract edge info while trees are still alive.
@@ -245,6 +282,22 @@ export async function analyze(
       console.warn(`[anatomia/analyze] domain detection failed: ${String(err)}`);
     }
   }
+
+  // Free the WASM-backed trees now that every bodyAst consumer has run
+  // (normalize in phase 1, edge extraction in phase 2, domain template matching
+  // in phase 4). Nothing reads bodyAst after analyze() returns — review,
+  // vis-data, metrics and spec linking all work off the graph / plain FileNode
+  // data — so the returned context keeps its (now-stale) bodyAst references but
+  // pins no native memory. This is what bounds a warm server's tree-sitter heap
+  // to a single analysis instead of the sum of all cached projects.
+  for (const tree of trees) {
+    try {
+      tree.delete();
+    } catch {
+      // A tree from an aborted parse may already be unusable; ignore.
+    }
+  }
+  trees.length = 0;
 
   // Phase 5 — spec linking (G4). Parse markdown, then explicit + structural links.
   let specClauses: SpecClause[] = [];

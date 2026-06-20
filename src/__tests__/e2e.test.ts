@@ -97,6 +97,30 @@ describe("analyze() — mini fixture (always runs)", () => {
     const radius = await getImpactRadius(ctx, withId!.id!);
     expect(Array.isArray(radius)).toBe(true);
   });
+
+  // Regression: analyze() frees every parse tree's WASM memory after phase 4
+  // (the last bodyAst reader) so a warm server doesn't pin every cached
+  // project's trees until the 2GB tree-sitter heap aborts. The freeing must
+  // happen AFTER edge extraction (phase 2) and domain template matching
+  // (phase 4), and must not disturb anything that runs off the graph.
+  it("frees parse trees but leaves graph edges + domains intact", async () => {
+    const ctx = await analyze(FIXTURE, { quiet: true });
+
+    // Phase-2 bodyAst consumer ran before the trees were freed: call/read/write
+    // edges were extracted into the graph.
+    const nodes = await ctx.graph.allNodes();
+    let edgeCount = 0;
+    for (const n of nodes) edgeCount += (await ctx.graph.edgesFrom(n.id)).length;
+    expect(edgeCount).toBeGreaterThan(0);
+
+    // Phase-4 bodyAst consumer (domain template matching) ran before freeing.
+    expect(ctx.domains!.length).toBeGreaterThan(0);
+
+    // Post-analyze graph operations still work after trees are freed — they read
+    // plain FileNode/edge data, never bodyAst.
+    const radius = await getImpactRadius(ctx, ctx.functions.find((f) => f.id)!.id!);
+    expect(Array.isArray(radius)).toBe(true);
+  });
 });
 
 const acDescribe = existsSync(AC_SUBSET) ? describe : describe.skip;
