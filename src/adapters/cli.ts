@@ -35,6 +35,7 @@ import {
   buildVerdict,
 } from "../core.js";
 import { resolveLanding } from "../supply/landing.js";
+import { buildReview, formatReview } from "../review/index.js";
 import { ProjectManager } from "../project/manager.js";
 import { exportGraphHtml } from "./web/export.js";
 import { startServer } from "./web/server.js";
@@ -51,7 +52,7 @@ import type { Verdict } from "../types.js";
 export type ProjectAction = "add" | "list" | "remove" | "analyze";
 
 export interface CliArgs {
-  subcommand: "verify" | "context" | "where" | "project" | "export-graph" | "web" | "cache-stats";
+  subcommand: "verify" | "context" | "where" | "review" | "project" | "export-graph" | "web" | "cache-stats";
   repoPath: string;
   /** For cache-stats: path to the JSONL transcript (defaults to ANATOMIA_CACHE_LOG). */
   logPath?: string;
@@ -87,13 +88,14 @@ export function parseArgs(argv: string[]): CliArgs {
     subcommand !== "verify" &&
     subcommand !== "context" &&
     subcommand !== "where" &&
+    subcommand !== "review" &&
     subcommand !== "project" &&
     subcommand !== "export-graph" &&
     subcommand !== "web" &&
     subcommand !== "cache-stats"
   ) {
     throw new Error(
-      `Unknown subcommand "${subcommand ?? ""}". Expected: verify | context | where | project | export-graph | web | cache-stats`,
+      `Unknown subcommand "${subcommand ?? ""}". Expected: verify | context | where | review | project | export-graph | web | cache-stats`,
     );
   }
 
@@ -276,6 +278,14 @@ export async function runCli(
       stubSiblings,
     );
     return { exitCode: 0, output: JSON.stringify({ landings }, null, 2) };
+  }
+
+  if (args.subcommand === "review") {
+    const report = await buildReview(ctx);
+    if (args.json) {
+      return { exitCode: 0, output: JSON.stringify(report, null, 2) };
+    }
+    return { exitCode: 0, output: formatReview(report) };
   }
 
   if (args.subcommand === "export-graph") {

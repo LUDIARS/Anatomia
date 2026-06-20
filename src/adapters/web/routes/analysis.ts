@@ -19,6 +19,7 @@ import { relative } from "node:path";
 import type { Hono } from "hono";
 import { computeMetrics } from "../../../supply/metrics.js";
 import { buildVisData } from "../vis-data.js";
+import { buildReview } from "../../../review/index.js";
 import type { WebContextSource } from "../context.js";
 import type { AnchorId } from "../../../types.js";
 
@@ -154,6 +155,30 @@ export function mountAnalysisRoutes(app: Hono, source: WebContextSource): void {
     }));
 
     return c.json(items);
+  });
+
+  // ── review ──────────────────────────────────────────────────────────────────
+
+  /**
+   * Deterministic structural review (rules × domain graph × AST graph + spec):
+   * violations / hotspots / cycles / structural duplicates / domain coupling /
+   * orphans / spec gaps, each with source file:line. No LLM.
+   */
+  app.get("/api/projects/:id/review", async (c) => {
+    const id = c.req.param("id");
+    let ctx;
+    try {
+      ctx = await source.resolve(id);
+    } catch {
+      return c.json({ error: `no such project "${id}"` }, 404);
+    }
+    const top = Number(c.req.query("topHotspots"));
+    const max = Number(c.req.query("maxList"));
+    const report = await buildReview(ctx, {
+      topHotspots: Number.isFinite(top) && top > 0 ? top : undefined,
+      maxList: Number.isFinite(max) && max > 0 ? max : undefined,
+    });
+    return c.json(report);
   });
 
   // ── vis-data ──────────────────────────────────────────────────────────────
