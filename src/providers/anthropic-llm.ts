@@ -35,13 +35,19 @@ export interface AnthropicLlmConfig {
 const DEFAULT_MODEL = "claude-opus-4-8";
 const DEFAULT_MAX_TOKENS = 1024;
 
-const SYSTEM_PROMPT =
+/**
+ * Distiller system prompt — shared by every LLM backend (Anthropic SDK, claude
+ * CLI) so the card schema is identical regardless of how the model is reached.
+ */
+export const CARD_DISTILLER_SYSTEM_PROMPT =
   "You are Anatomia's domain-card distiller. You receive a domain detection " +
   "report (the domain name, its implementing functions, and any rule " +
   "violations) and must summarise the domain canonically. Respond with ONLY a " +
   'JSON object of the shape {"summary": string, "rules": string[], ' +
   '"specRefs": string[], "complexity": "low"|"medium"|"high"}. ' +
   "No prose, no markdown fences — JSON only.";
+
+const SYSTEM_PROMPT = CARD_DISTILLER_SYSTEM_PROMPT;
 
 /** Build an LLMClient backed by the Anthropic Messages API. */
 export function createAnthropicLlm(config: AnthropicLlmConfig): LLMClient {

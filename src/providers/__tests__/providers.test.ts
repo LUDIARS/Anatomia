@@ -89,14 +89,25 @@ describe("OpenAI-compatible embedder", () => {
 });
 
 describe("resolveProviders", () => {
-  it("falls back to stub LLM + hash embedder when nothing is configured", async () => {
+  it('defaults the LLM to the claude-cli backend when no key is configured (no stub fallback)', () => {
     const p = resolveProviders({});
-    expect(p.describe()).toContain("stub-llm");
+    expect(p.describe()).toContain("claude-cli(");
+    expect(p.describe()).not.toContain("stub-llm");
     expect(p.describe()).toContain("hash-embedder");
+  });
+
+  it('uses the stub LLM only when explicitly requested (backend="stub")', async () => {
+    const p = resolveProviders({ llmBackend: "stub" });
+    expect(p.describe()).toContain("stub-llm");
+    expect(p.llmModelId).toBe("stub-llm");
     // The stub LLM still returns valid, parseable card JSON.
     const json = JSON.parse(await p.llm("Domain: combat\nImplementing functions (1):"));
     expect(json).toMatchObject({ summary: expect.any(String), complexity: "medium" });
     expect(String(json.summary)).toContain("combat");
+  });
+
+  it('backend="anthropic" without a key fails fast (configuration deficiency is an error)', () => {
+    expect(() => resolveProviders({ llmBackend: "anthropic" })).toThrow(/requires ANTHROPIC_API_KEY/);
   });
 
   it("selects the real backends when configured (without invoking them)", () => {
