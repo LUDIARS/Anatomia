@@ -23,8 +23,10 @@ wired to **stderr** on boot:
 
 | Variable | Effect |
 |---|---|
-| `ANTHROPIC_API_KEY` | Enables the real domain-card distiller. **Unset → offline stub** (cards still populate, but are placeholders). |
-| `ANATOMIA_LLM_MODEL` | Distiller model id. Default `claude-opus-4-8` (set `claude-haiku-4-5` for cheap/fast). |
+| `ANATOMIA_LLM_BACKEND` | LLM backend: `anthropic` \| `claude-cli` \| `stub`. Omit to infer (key set → `anthropic`, else → **`claude-cli`**). `stub` is an EXPLICIT offline placeholder — never an automatic fallback for a missing key (a config deficiency is an error, not a silent downgrade). |
+| `ANTHROPIC_API_KEY` | Selects/enables the Anthropic SDK distiller. **Unset → `claude -p` subscription CLI** (the default real distiller; no key needed). |
+| `ANATOMIA_CLAUDE_BIN` | `claude` executable path for the `claude-cli` backend (default resolves on PATH). |
+| `ANATOMIA_LLM_MODEL` | Distiller model id (SDK + CLI). Default `claude-opus-4-8` (set `claude-haiku-4-5` for cheap/fast). |
 | `ANATOMIA_EMBED_BASE_URL` | OpenAI-compatible embeddings base URL incl. `/v1`. **Unset → deterministic hash embedder** (lexical-overlap only, not semantic). |
 | `ANATOMIA_EMBED_API_KEY` | Bearer key for the embeddings endpoint (omit for keyless local servers). |
 | `ANATOMIA_EMBED_MODEL` | Embeddings model id. Default `text-embedding-3-small`. |

@@ -39,10 +39,19 @@ export interface Providers {
  * Secrets (API keys) are read from the environment, never committed.
  */
 export interface ProviderConfig {
-  /** Anthropic API key. Absent -> offline stub LLM. */
+  /**
+   * LLM backend selection. When omitted it is inferred: `anthropicApiKey` set
+   * -> "anthropic", else -> "claude-cli" (the subscription CLI). "stub" is the
+   * offline placeholder and must be requested EXPLICITLY — it is never an
+   * automatic fallback for a missing key (RULE_CODE §7 / §9).
+   */
+  llmBackend?: "anthropic" | "claude-cli" | "stub";
+  /** Anthropic API key. Required only when the backend resolves to "anthropic". */
   anthropicApiKey?: string;
-  /** Anthropic model id for card distillation. Default claude-opus-4-8. */
+  /** Model id for card distillation (Anthropic SDK or claude CLI). Default claude-opus-4-8. */
   llmModel?: string;
+  /** `claude` CLI executable for the "claude-cli" backend. Default resolves on PATH. */
+  claudeBin?: string;
   /** OpenAI-compatible embeddings base URL (e.g. local Ollama `/v1`). Absent -> hash embedder. */
   embedBaseUrl?: string;
   /** Bearer key for the embeddings endpoint (omit for keyless local servers). */

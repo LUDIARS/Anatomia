@@ -44,13 +44,17 @@ npm run build      # tsc → dist/  （bin は dist/ をロードするため必
 
 ### 実 LLM / embedder（任意）
 
-未設定なら hash-embedder + mock カードで動作（hermetic・API 不要）。実プロバイダを入れると
-duplication ゲートが「車輪の再発明」を実検出する。
+LLM 蒸留は既定で **`claude -p` サブスク CLI** を使う（API キー不要）。`ANTHROPIC_API_KEY` を
+入れると Anthropic SDK 経路に切り替わる。embedder 未設定なら hash-embedder（hermetic）。
+**設定不備（例: backend=anthropic でキー無し）は黙ってスタブに落とさず即エラー**にする
+（オフラインの placeholder が欲しいテスト時のみ `ANATOMIA_LLM_BACKEND=stub` で明示）。
 
 | 変数 | 効果 |
 |---|---|
-| `ANTHROPIC_API_KEY` | LLM 蒸留を有効化（既定モデル `claude-opus-4-8`） |
-| `ANATOMIA_LLM_MODEL` | LLM モデル上書き |
+| `ANATOMIA_LLM_BACKEND` | LLM backend を明示選択：`anthropic` / `claude-cli` / `stub`。未指定は推論（キーあり→anthropic、無し→**claude-cli**）。`stub` は明示時のみ（自動フォールバックしない） |
+| `ANTHROPIC_API_KEY` | Anthropic SDK 経路を選択／有効化（既定モデル `claude-opus-4-8`） |
+| `ANATOMIA_CLAUDE_BIN` | `claude-cli` backend が使う `claude` 実行ファイルパス（既定は PATH 解決） |
+| `ANATOMIA_LLM_MODEL` | LLM モデル上書き（SDK・CLI 共通） |
 | `ANATOMIA_EMBED_BASE_URL` / `_API_KEY` / `_MODEL` / `_DIM` | OpenAI 互換 embedder（ローカル Ollama 可） |
 | `ANATOMIA_CACHE_REDIS` | `redis://…` を設定すると LLM 蒸留キャッシュを **Redis（org 横断共有）** に置く。どこかのマシンが蒸留したカードを全員が引けるので命中率が上がり、Redis の `maxmemory`+`allkeys-lfu` で eviction も自動。`redis` は optionalDependency（未導入/到達不可なら無言で no-op に degrade）。`ANATOMIA_CACHE_REDIS_TTL`（秒）で保持上限も可。backend 優先度 = **Redis > File > memory** |
 | `ANATOMIA_CACHE_DIR` | 設定すると LLM 蒸留キャッシュ（ドメインカード）を**永続・共有**ストア（per-machine file）に置く。content-addressed なので呼び出し/セッション/リポを跨いでヒットする。未設定はプロセス内メモリ（hermetic） |
