@@ -3,7 +3,7 @@
  * facade declarations, plus accessor-domain attribution via enclosing function.
  */
 import { describe, it, expect } from "vitest";
-import { scanForPatterns, type ScanFile } from "./detect.js";
+import { scanForPatterns, type ScanFile, type ClassFanOut } from "./detect.js";
 import type { AnchorId, AstNode, FunctionNode } from "../types.js";
 import type { DetectionResult } from "../domains/detect.js";
 
@@ -123,5 +123,89 @@ describe("scanForPatterns", () => {
     const net = out.find((p) => p.kind === "network")!;
     expect(net.target).toBe("ランキングサーバ");
     expect(net.accessors).toEqual([{ domain: "ranking", access: "calls" }]);
+  });
+
+  // ── #321: trace network clients to their calling domains via DI ────────────
+
+  it("traces a network client to the domain that resolves it through a DI-bound interface", () => {
+    const files = [
+      // Owner: the client class itself, in the ranking domain.
+      file("Ranking/RankingApiClient.cs", "public class RankingApiClient {\n  public void Submit() {}\n}\n"),
+      // DI wiring: binds the interface to the concrete client. No analyzed
+      // function here → the concrete token on this line attributes nothing.
+      file("Core/Bindings.cs", "Register<IRankingClient, RankingApiClient>();\n"),
+      // Consumer: the ui domain resolves the *interface* and calls it.
+      file("Ui/Leaderboard.cs", "void Show() {\n  var c = Resolve<IRankingClient>();\n  c.Fetch();\n}\n"),
+    ];
+    const functions = [
+      fn("r1", "Ranking/RankingApiClient.cs", 1, 3),
+      fn("u1", "Ui/Leaderboard.cs", 1, 4),
+    ];
+    const domains = [domain("ranking", ["r1"]), domain("ui", ["u1"])];
+    const out = scanForPatterns(files, functions, domains, ROOT);
+    const net = out.find((p) => p.kind === "network")!;
+    // Owner (ranking) AND the resolving consumer (ui) are now both attributed.
+    expect(net.accessors).toEqual([
+      { domain: "ranking", access: "calls" },
+      { domain: "ui", access: "calls" },
+    ]);
+  });
+
+  it("traces a network client referenced as a typed field at class scope", () => {
+    const files = [
+      file("Net/GameServerClient.cs", "public class GameServerClient {\n  public void Send() {}\n}\n"),
+      // A combat class holds the concrete client as an injected field (class
+      // scope, not inside a function) → attributed to the file's domain.
+      file("Combat/Battle.cs", "public class Battle {\n  GameServerClient _client;\n  void Tick() {}\n}\n"),
+    ];
+    const functions = [
+      fn("g1", "Net/GameServerClient.cs", 1, 3),
+      fn("b1", "Combat/Battle.cs", 3, 3), // Tick(); the field decl on line 2 is class-scope
+    ];
+    const domains = [domain("net", ["g1"]), domain("combat", ["b1"])];
+    const out = scanForPatterns(files, functions, domains, ROOT);
+    const net = out.find((p) => p.kind === "network")!;
+    expect(net.accessors).toEqual([
+      { domain: "combat", access: "calls" },
+      { domain: "net", access: "calls" },
+    ]);
+  });
+
+  // ── #323: structural facades from graph fan-out ────────────────────────────
+
+  it("flags a high fan-out class as a structural facade with caller domains", () => {
+    const classFanOut = new Map<string, ClassFanOut>([
+      ["BigHub", { distinctCallees: 15, calleeDomains: 3, callerDomains: ["ui", "combat"], file: "Hub/BigHub.cs", line: 2 }],
+      ["Small", { distinctCallees: 3, calleeDomains: 1, callerDomains: ["ui"], file: "X/Small.cs", line: 1 }],
+    ]);
+    const out = scanForPatterns([], [], [], ROOT, { classFanOut });
+    const facades = out.filter((p) => p.kind === "facade");
+    expect(facades.map((p) => p.name)).toEqual(["BigHub"]); // Small is below threshold
+    const hub = facades[0]!;
+    expect(hub.reason).toContain("structural facade");
+    expect(hub.file).toBe("Hub/BigHub.cs");
+    expect(hub.accessors).toEqual([
+      { domain: "combat", access: "calls" },
+      { domain: "ui", access: "calls" },
+    ]);
+  });
+
+  it("does not flag a high fan-out class that spans only one domain", () => {
+    const classFanOut = new Map<string, ClassFanOut>([
+      ["MonoHub", { distinctCallees: 20, calleeDomains: 1, callerDomains: ["ui"], file: "X/MonoHub.cs", line: 1 }],
+    ]);
+    const out = scanForPatterns([], [], [], ROOT, { classFanOut });
+    expect(out.filter((p) => p.kind === "facade")).toHaveLength(0);
+  });
+
+  it("does not relabel an already name-detected facade as a structural one", () => {
+    const files = [file("Ui/UiFacade.cs", "public class UiFacade {\n  public void Open() {}\n}\n")];
+    const classFanOut = new Map<string, ClassFanOut>([
+      ["UiFacade", { distinctCallees: 99, calleeDomains: 5, callerDomains: ["combat"], file: "Ui/UiFacade.cs", line: 1 }],
+    ]);
+    const out = scanForPatterns(files, [], [], ROOT, { classFanOut });
+    const facades = out.filter((p) => p.kind === "facade");
+    expect(facades).toHaveLength(1); // single entry, no structural duplicate
+    expect(facades[0]!.reason).toContain("facade-named"); // the named detection wins
   });
 });
