@@ -233,6 +233,16 @@ describe("GET / (single-context)", () => {
   });
 });
 
+describe("GET /domain-view-logic.js", () => {
+  it("serves the pure panel logic as JavaScript (browser loads it as a module)", async () => {
+    const res = await singleApp.fetch(new Request("http://localhost/domain-view-logic.js"));
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type") ?? "").toContain("javascript");
+    const body = await res.text();
+    expect(body).toContain("export function buildDomainUnitGraph");
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Suite B — manager mode (project CRUD)
 // ---------------------------------------------------------------------------
