@@ -96,29 +96,31 @@ export interface WebServerOptions {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-function loadIndexHtml(): string {
-  try {
-    return readFileSync(join(__dirname, "public", "index.html"), "utf8");
-  } catch {
+/**
+ * Read a file from the panel's `public/` dir. Tries the dist-relative location
+ * first, then the src tree (tsc does not copy public/), so the same server runs
+ * from either. Returns null when absent.
+ */
+function loadPublicAsset(name: string): string | null {
+  const candidates = [
+    join(__dirname, "public", name),
+    join(__dirname, "..", "..", "..", "src", "adapters", "web", "public", name),
+  ];
+  for (const path of candidates) {
     try {
-      return readFileSync(
-        join(
-          __dirname,
-          "..",
-          "..",
-          "..",
-          "src",
-          "adapters",
-          "web",
-          "public",
-          "index.html",
-        ),
-        "utf8",
-      );
+      return readFileSync(path, "utf8");
     } catch {
-      return "<html><body>Anatomia Web Viz (index.html not found)</body></html>";
+      // try next candidate
     }
   }
+  return null;
+}
+
+function loadIndexHtml(): string {
+  return (
+    loadPublicAsset("index.html") ??
+    "<html><body>Anatomia Web Viz (index.html not found)</body></html>"
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -247,6 +249,13 @@ export function createApp(
   app.get("/", (c) => {
     const html = loadIndexHtml();
     return c.html(html);
+  });
+
+  // Pure panel logic, loaded by index.html as an ES module (and unit-tested).
+  app.get("/domain-view-logic.js", (c) => {
+    const js = loadPublicAsset("domain-view-logic.js");
+    if (js == null) return c.text("// domain-view-logic.js not found", 404);
+    return c.body(js, 200, { "content-type": "text/javascript; charset=utf-8" });
   });
 
   return app;

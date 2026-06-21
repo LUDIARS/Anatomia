@@ -5,6 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Anatomia — Management Panel</title>
   <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+  <!-- Pure Domain-View logic; publishes window.DomainViewLogic for the inline
+       scripts below. Module scripts are deferred, so it is set before any
+       renderAccess/focusDomain call (which only fire on interaction/load). -->
+  <script type="module" src="/domain-view-logic.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     html, body { height: 100%; font-family: system-ui, -apple-system, sans-serif;
@@ -1091,12 +1095,7 @@
     return state.accessPatterns;
   }
 
-  // Map a repo-relative file to its feature-unit (module), mirroring vis-data's groupFor.
-  function unitOfFile(file) {
-    var parts = String(file).split('/');
-    if (parts.length >= 2) return parts.slice(0, -1).join('/');
-    return parts[0].replace(/\.(tsx?|cpp|h|cs)$/, '');
-  }
+  // unitOfFile moved to domain-view-logic.js (DomainViewLogic.unitOfFile).
 
   var PATTERN_ICON = { singleton: '◆', 'service-locator': '⬡', facade: '▤', network: '☁' };
 
@@ -1155,22 +1154,18 @@
   // List the access patterns (singleton/locator/facade) this domain touches.
   function renderAccess(v) {
     var body = document.getElementById('dv-access-body');
-    var pats = (state.accessPatterns || []).map(function (p) {
-      var mine = p.accessors.filter(function (a) { return a.domain === v.domain; });
-      return mine.length ? { p: p, how: [...new Set(mine.map(function (a) { return a.access; }))].join('/') } : null;
-    }).filter(Boolean);
-    if (!pats.length) {
+    var rows = DomainViewLogic.accessRowsFor(state.accessPatterns, v.domain);
+    if (!rows.length) {
       body.innerHTML = '<div class="dv-muted">このドメインが触るシングルトン/ロケータ/ファサード/通信は検出されませんでした。</div>';
       return;
     }
-    pats.sort(function (a, b) { return a.p.kind.localeCompare(b.p.kind) || a.p.name.localeCompare(b.p.name); });
-    body.innerHTML = pats.map(function (x) {
-      var kindLabel = x.p.kind === 'network' && x.p.target ? 'network → ' + x.p.target : x.p.kind;
+    body.innerHTML = rows.map(function (x) {
+      var kindLabel = x.kind === 'network' && x.target ? 'network → ' + x.target : x.kind;
       return '<div class="dv-acc-row">' +
-        '<span class="dv-acc-name">' + esc(x.p.name) + '</span>' +
-        '<span class="dv-acc-kind dv-acc-' + x.p.kind + '">' + esc(kindLabel) + '</span>' +
+        '<span class="dv-acc-name">' + esc(x.name) + '</span>' +
+        '<span class="dv-acc-kind dv-acc-' + x.kind + '">' + esc(kindLabel) + '</span>' +
         '<span class="dv-acc-how">' + esc(x.how) + '</span>' +
-        '<div class="dv-spec-file">' + esc(x.p.file) + '</div>' +
+        '<div class="dv-spec-file">' + esc(x.file) + '</div>' +
       '</div>';
     }).join('');
   }
@@ -1200,29 +1195,23 @@
     } catch (e) {
       loadEl.textContent = 'Error: ' + e.message; return;
     }
-    // ── Aggregate to FEATURE UNITS (modules), not individual functions ────────
-    // A "feature unit" is the file group (directory/module) vis-data already
-    // assigns. We collapse the domain's implementor functions into one node per
-    // module, labelled with its function count, and collapse function→function
-    // edges into module→module edges weighted by how many cross them.
-    var impl = {};
-    v.implementors.forEach(function (a) { impl[a] = 1; });
-
-    var unit = {};        // group -> { count, color, fns:[names] }
-    var nodeUnit = {};    // implementor nodeId -> group
-    data.nodes.forEach(function (n) {
-      if (!impl[n.id]) return;
-      var g = n.group || 'unknown';
-      nodeUnit[n.id] = g;
-      if (!unit[g]) unit[g] = { count: 0, color: n.color.background, fns: [] };
-      unit[g].count++;
-      if (unit[g].fns.length < 12) unit[g].fns.push(n._meta ? n._meta.name : n.label);
+    // ── Aggregate to FEATURE UNITS (modules) + fold hubs/weak edges ───────────
+    // A "feature unit" is the file group (directory/module) vis-data assigns.
+    // The pure core (domain-view-logic.js) collapses the domain's implementor
+    // functions into one node per module and function→function edges into
+    // weighted module→module edges, then folds out cross-cutting hubs / weak
+    // links. We keep only the vis/DOM glue here.
+    var fold = document.getElementById('dv-fold').checked;
+    var gr = DomainViewLogic.buildDomainUnitGraph(v.implementors, data.nodes, data.edges, {
+      fold: fold, maxUnits: DV_MAX_UNITS,
     });
+    var unit = gr.unit, units = gr.units, hub = gr.hub, visiblePairs = gr.visiblePairs;
+    var degreeOf = function (g) { return gr.degreeByGroup[g] || 0; };
 
     // Which feature units contain a detected access pattern (singleton/locator/facade/network).
     var unitPatterns = {};  // group -> { kinds:{}, names:[], net:bool, targets:{} }
     (state.accessPatterns || []).forEach(function (p) {
-      var g = unitOfFile(p.file);
+      var g = DomainViewLogic.unitOfFile(p.file);
       var up = unitPatterns[g] || (unitPatterns[g] = { kinds: {}, names: [], net: false, targets: {} });
       up.kinds[p.kind] = 1;
       if (p.kind === 'network') { up.net = true; if (p.target) up.targets[p.target] = 1; }
@@ -1230,18 +1219,13 @@
       if (up.names.length < 8) up.names.push((PATTERN_ICON[p.kind] || '•') + ' ' + label);
     });
 
-    var units = Object.keys(unit);
     var noteEl = document.getElementById('dv-graph-note');
-    var totalUnits = units.length;
-    var totalFns = v.implementors.length;
-    if (totalUnits > DV_MAX_UNITS) {
-      units = units.sort(function (a, b) { return unit[b].count - unit[a].count; })
-        .slice(0, DV_MAX_UNITS);
-      noteEl.textContent = totalFns + ' functions · showing top ' + DV_MAX_UNITS +
-        ' of ' + totalUnits + ' feature units (by function count)';
+    if (gr.totalUnits > DV_MAX_UNITS) {
+      noteEl.textContent = gr.totalFns + ' functions · showing top ' + DV_MAX_UNITS +
+        ' of ' + gr.totalUnits + ' feature units (by function count)';
       noteEl.style.display = '';
-    } else if (totalUnits > 0) {
-      noteEl.textContent = totalFns + ' functions across ' + totalUnits + ' feature units';
+    } else if (gr.totalUnits > 0) {
+      noteEl.textContent = gr.totalFns + ' functions across ' + gr.totalUnits + ' feature units';
       noteEl.style.display = '';
     } else {
       noteEl.style.display = 'none';
@@ -1252,54 +1236,9 @@
       loadEl.style.display = ''; loadEl.textContent = 'No feature units for this domain.'; return;
     }
 
-    var shown = {}; units.forEach(function (g) { shown[g] = 1; });
-
-    // Aggregate implementor function edges into module→module, weighted by count.
-    // Nested map keyed by from→to (no string separator, so any module path is safe).
-    var agg = {};
-    data.edges.forEach(function (e) {
-      var ga = nodeUnit[e.from], gb = nodeUnit[e.to];
-      if (!ga || !gb || ga === gb) return;       // cross-module only
-      if (!shown[ga] || !shown[gb]) return;       // both units rendered
-      if (!agg[ga]) agg[ga] = {};
-      agg[ga][gb] = (agg[ga][gb] || 0) + 1;
-    });
-    var pairs = [];
-    Object.keys(agg).forEach(function (from) {
-      Object.keys(agg[from]).forEach(function (to) {
-        pairs.push({ from: from, to: to, w: agg[from][to] });
-      });
-    });
-
-    // ── Fold unnecessary hubs + weak edges (toggle, default on) ───────────────
-    // Hub  = a unit wired to most other units (utility / cross-cutting, e.g. a
-    //        singleton accessed from everywhere) → its edges are layout noise.
-    // Weak = a module→module link with too few references to be structural.
-    var fold = document.getElementById('dv-fold').checked;
-    var degree = {};
-    pairs.forEach(function (p) {
-      (degree[p.from] = degree[p.from] || {})[p.to] = 1;
-      (degree[p.to]   = degree[p.to]   || {})[p.from] = 1;
-    });
-    var degreeOf = function (g) { return degree[g] ? Object.keys(degree[g]).length : 0; };
-    var dense = pairs.length > units.length;       // enough edges to carry noise
-    var EDGE_MIN = fold && dense ? 2 : 1;          // fold weight-1 links when dense
-    var HUB_DEGREE = Math.max(6, Math.ceil(units.length * 0.6));
-    var hub = {}, foldedHubs = 0;
-    if (fold) {
-      units.forEach(function (g) {
-        if (degreeOf(g) >= HUB_DEGREE) { hub[g] = 1; foldedHubs++; }
-      });
-    }
-    var visiblePairs = pairs.filter(function (p) {
-      if (p.w < EDGE_MIN) return false;            // weak link folded
-      if (hub[p.from] || hub[p.to]) return false;  // hub edges folded
-      return true;
-    });
-    var foldedEdges = pairs.length - visiblePairs.length;
-    if (fold && (foldedHubs || foldedEdges)) {
-      noteEl.textContent += ' · folded ' + foldedHubs + ' hub' + (foldedHubs === 1 ? '' : 's') +
-        ', ' + foldedEdges + ' link' + (foldedEdges === 1 ? '' : 's');
+    if (fold && (gr.foldedHubs || gr.foldedEdges)) {
+      noteEl.textContent += ' · folded ' + gr.foldedHubs + ' hub' + (gr.foldedHubs === 1 ? '' : 's') +
+        ', ' + gr.foldedEdges + ' link' + (gr.foldedEdges === 1 ? '' : 's');
       noteEl.style.display = '';
     }
 
