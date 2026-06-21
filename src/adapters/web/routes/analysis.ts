@@ -51,54 +51,55 @@ export function mountAnalysisRoutes(app: Hono, source: WebContextSource): void {
 
   app.get("/api/projects/:id/hotspots", async (c) => {
     const id = c.req.param("id");
-    let ctx;
     try {
-      ctx = await source.resolve(id);
+      // Fingerprint-keyed disk cache (same rationale as vis-data below): a cold
+      // just-restarted server answers from disk without re-analyzing the repo;
+      // the metrics walk + node enumeration runs only on a miss.
+      const hotspots = await source.cachedArtifact(id, "hotspots", async (ctx) => {
+        const membershipMap = new Map<string, AnchorId[]>();
+        for (const d of ctx.domains ?? []) {
+          membershipMap.set(d.domain, d.implementors);
+        }
+        const metrics = await computeMetrics(ctx.graph, membershipMap);
+        const nodes = await ctx.graph.allNodes();
+        const nodeById = new Map(nodes.map((n) => [n.id, n]));
+
+        const sorted = [...metrics]
+          .sort((a, b) => b.coupling - a.coupling || b.cyclomatic - a.cyclomatic)
+          .slice(0, TOP_N);
+
+        return sorted.map((m) => {
+          const node = nodeById.get(m.anchor);
+          const relPath = node
+            ? (() => {
+                try {
+                  return relative(
+                    ctx.repoPath,
+                    node.sourceRange.filePath,
+                  ).replace(/\\/g, "/");
+                } catch {
+                  return node.sourceRange.filePath;
+                }
+              })()
+            : "";
+          return {
+            anchor: m.anchor,
+            name: node?.name ?? m.anchor,
+            file: relPath,
+            line: node?.sourceRange.start.line ?? 0,
+            coupling: m.coupling,
+            cyclomatic: m.cyclomatic,
+            fanIn: m.fanIn,
+            fanOut: m.fanOut,
+            domainOverlap: m.domainOverlap,
+            crossDomainDepth: m.crossDomainDepth,
+          };
+        });
+      });
+      return c.json(hotspots);
     } catch {
       return c.json({ error: `no such project "${id}"` }, 404);
     }
-
-    const membershipMap = new Map<string, AnchorId[]>();
-    for (const d of ctx.domains ?? []) {
-      membershipMap.set(d.domain, d.implementors);
-    }
-    const metrics = await computeMetrics(ctx.graph, membershipMap);
-    const nodes = await ctx.graph.allNodes();
-    const nodeById = new Map(nodes.map((n) => [n.id, n]));
-
-    const sorted = [...metrics]
-      .sort((a, b) => b.coupling - a.coupling || b.cyclomatic - a.cyclomatic)
-      .slice(0, TOP_N);
-
-    const hotspots = sorted.map((m) => {
-      const node = nodeById.get(m.anchor);
-      const relPath = node
-        ? (() => {
-            try {
-              return relative(ctx.repoPath, node.sourceRange.filePath).replace(
-                /\\/g,
-                "/",
-              );
-            } catch {
-              return node.sourceRange.filePath;
-            }
-          })()
-        : "";
-      return {
-        anchor: m.anchor,
-        name: node?.name ?? m.anchor,
-        file: relPath,
-        line: node?.sourceRange.start.line ?? 0,
-        coupling: m.coupling,
-        cyclomatic: m.cyclomatic,
-        fanIn: m.fanIn,
-        fanOut: m.fanOut,
-        domainOverlap: m.domainOverlap,
-        crossDomainDepth: m.crossDomainDepth,
-      };
-    });
-
-    return c.json(hotspots);
   });
 
   // ── spec-links ────────────────────────────────────────────────────────────
@@ -140,21 +141,20 @@ export function mountAnalysisRoutes(app: Hono, source: WebContextSource): void {
 
   app.get("/api/projects/:id/domains", async (c) => {
     const id = c.req.param("id");
-    let ctx;
     try {
-      ctx = await source.resolve(id);
+      // Cached so a cold server lists domains from disk without re-analysing.
+      const items = await source.cachedArtifact(id, "domains", async (ctx) =>
+        (ctx.domains ?? []).map((d) => ({
+          domain: d.domain,
+          implementorCount: d.implementors.length,
+          conforms: d.conforms,
+          violationCount: d.violations.length,
+        })),
+      );
+      return c.json(items);
     } catch {
       return c.json({ error: `no such project "${id}"` }, 404);
     }
-
-    const items = (ctx.domains ?? []).map((d) => ({
-      domain: d.domain,
-      implementorCount: d.implementors.length,
-      conforms: d.conforms,
-      violationCount: d.violations.length,
-    }));
-
-    return c.json(items);
   });
 
   // ── review ──────────────────────────────────────────────────────────────────
@@ -166,19 +166,26 @@ export function mountAnalysisRoutes(app: Hono, source: WebContextSource): void {
    */
   app.get("/api/projects/:id/review", async (c) => {
     const id = c.req.param("id");
-    let ctx;
+    const top = Number(c.req.query("topHotspots"));
+    const max = Number(c.req.query("maxList"));
+    const topHotspots = Number.isFinite(top) && top > 0 ? top : undefined;
+    const maxList = Number.isFinite(max) && max > 0 ? max : undefined;
+    // Each (topHotspots, maxList) variant gets its own cache key so a
+    // parameterised request still answers from disk on a cold server; the
+    // default (both unset) collapses to the bare "review" key. The params are
+    // small bounded ints, so they go straight into the key (no hashing needed).
+    const cacheName =
+      topHotspots === undefined && maxList === undefined
+        ? "review"
+        : `review-t${topHotspots ?? "d"}-m${maxList ?? "d"}`;
     try {
-      ctx = await source.resolve(id);
+      const report = await source.cachedArtifact(id, cacheName, (ctx) =>
+        buildReview(ctx, { topHotspots, maxList }),
+      );
+      return c.json(report);
     } catch {
       return c.json({ error: `no such project "${id}"` }, 404);
     }
-    const top = Number(c.req.query("topHotspots"));
-    const max = Number(c.req.query("maxList"));
-    const report = await buildReview(ctx, {
-      topHotspots: Number.isFinite(top) && top > 0 ? top : undefined,
-      maxList: Number.isFinite(max) && max > 0 ? max : undefined,
-    });
-    return c.json(report);
   });
 
   // ── vis-data ──────────────────────────────────────────────────────────────
