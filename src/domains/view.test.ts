@@ -106,4 +106,51 @@ describe("buildDomainView", () => {
     expect(views[0]!.implementors).toEqual(["a", "b"]);
     expect(views[0]!.implementorCount).toBe(2);
   });
+
+  // ── #324: bridge file-anchored spec links to function-anchored implementors ──
+
+  it("reaches a domain via a FILE-anchored link when given an implementor→file map", () => {
+    // Spec links are file-anchored (`from` = a source file path), but the
+    // domain's implementors are function anchors in that file. Without the map
+    // the join misses; with it the Japanese description surfaces.
+    const anchorToFile = new Map<string, string>([
+      ["fnA", "/repo/src/combat.cpp"],
+      ["fnB", "/repo/src/combat.cpp"],
+    ]);
+    const views = buildDomainView(
+      [domain("combat", ["fnA", "fnB"])],
+      [link("/repo/src/combat.cpp", "c1", 1, "explicit")], // file-anchored
+      [clause("c1", "§2 / 戦闘", "戦闘ドメインの中核。")],
+      anchorToFile,
+    );
+    expect(views[0]!.description).toBe("§2 / 戦闘: 戦闘ドメインの中核。");
+    expect(views[0]!.specRefs).toHaveLength(1);
+  });
+
+  it("still returns null for a file-anchored link when no map is supplied (legacy)", () => {
+    const views = buildDomainView(
+      [domain("combat", ["fnA"])],
+      [link("/repo/src/combat.cpp", "c1", 1, "explicit")],
+      [clause("c1", "§2 / 戦闘", "戦闘ドメインの中核。")],
+      // no anchorToFile → file-anchored link cannot reach the function anchor
+    );
+    expect(views[0]!.specRefs).toHaveLength(0);
+    expect(views[0]!.description).toBeNull();
+  });
+
+  it("matches both anchor-level and file-level links for the same domain", () => {
+    const anchorToFile = new Map<string, string>([["fnA", "/repo/src/x.cpp"]]);
+    const views = buildDomainView(
+      [domain("d", ["fnA"])],
+      [
+        link("fnA", "c-fn", 0.5), // function-anchored (e.g. a future linker)
+        link("/repo/src/x.cpp", "c-file", 0.9, "explicit"), // file-anchored
+      ],
+      [clause("c-fn", "§fn", "関数リンク。"), clause("c-file", "§file", "ファイルリンク。")],
+      anchorToFile,
+    );
+    const headings = views[0]!.specRefs.map((r) => r.heading).sort();
+    expect(headings).toEqual(["§file", "§fn"]);
+    expect(views[0]!.description).toBe("§file: ファイルリンク。"); // higher confidence
+  });
 });
