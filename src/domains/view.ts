@@ -10,6 +10,15 @@
  *
  * SRP: pure data shaping over (domains × links × specClauses). No graph access,
  * no HTTP, no LLM — the LLM-distilled DomainCard is a separate, optional layer.
+ *
+ * Anchor granularity (why `anchorToFile` exists): every spec linker (explicit,
+ * structural, semantic) anchors a link at FILE level — `link.from` is a source
+ * file path. Domain implementors, however, are FUNCTION-level anchors. Joining
+ * `implementorSet.has(link.from)` therefore never matches on a real codebase, so
+ * every domain description came back null even when the spec was richly linked
+ * (observed on KuzuSurvivors: 231 Japanese-headed links, all descriptions empty
+ * — task #324). We bridge the two by mapping each implementor function to its
+ * file and matching links against the domain's file set as well as its anchors.
  */
 
 import type { Link, SpecClause } from "../types.js";
@@ -57,6 +66,10 @@ function excerptOf(text: string): string {
  * @param domains      Detection results from analyze().
  * @param links        Code↔spec links from analyze() (explicit + structural).
  * @param specClauses  Parsed spec clauses, looked up by link.to.
+ * @param anchorToFile Implementor function anchor → its source file path. Lets a
+ *                     file-anchored link reach a domain via any implementor that
+ *                     lives in that file. Omit (legacy/test) for anchor-only
+ *                     matching.
  * @returns One DomainView per domain that has at least one implementor,
  *          sorted by implementor count (descending).
  */
@@ -64,18 +77,29 @@ export function buildDomainView(
   domains: DetectionResult[],
   links: Link[],
   specClauses: SpecClause[],
+  anchorToFile?: ReadonlyMap<string, string>,
 ): DomainView[] {
   const clauseById = new Map(specClauses.map((c) => [c.id, c]));
 
   const views: DomainView[] = [];
   for (const d of domains) {
     if (d.implementors.length === 0) continue;
-    const implementorSet = new Set(d.implementors);
+    const implementorSet = new Set<string>(d.implementors);
+    // The files those implementors live in — spec links are file-anchored, so a
+    // link reaches the domain when its `from` is the domain's anchor OR one of
+    // these files. Empty when no map is supplied (anchor-only legacy behaviour).
+    const fileSet = new Set<string>();
+    if (anchorToFile) {
+      for (const a of d.implementors) {
+        const f = anchorToFile.get(a);
+        if (f) fileSet.add(f);
+      }
+    }
 
-    // Highest-confidence link per clause among this domain's implementors.
+    // Highest-confidence link per clause among this domain's implementors/files.
     const bestByClause = new Map<string, Link>();
     for (const link of links) {
-      if (!implementorSet.has(link.from)) continue;
+      if (!implementorSet.has(link.from) && !fileSet.has(link.from)) continue;
       const prev = bestByClause.get(link.to);
       if (!prev || link.confidence > prev.confidence) bestByClause.set(link.to, link);
     }
