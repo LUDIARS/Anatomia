@@ -19,7 +19,8 @@
  * SRP: scene lookup only (domain↔scene). No graph access, no LLM, no HTTP.
  */
 
-import type { PhaseSignature } from "../dynamic/phase/signature.js";
+import { frameSignature, type PhaseSignature } from "../dynamic/phase/signature.js";
+import type { TraceSource } from "../dynamic/viz/trace-source.js";
 
 /** A scene = an id, an optional human label, and the domains it activates. */
 export interface SceneRef {
@@ -82,4 +83,23 @@ export function scenesFromPhaseSignatures(signatures: PhaseSignature[]): SceneRe
   }
   // Deterministic order: by id.
   return [...byId.values()].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+}
+
+/**
+ * Derive scenes straight from a (recorded or live) trace source: take the recent
+ * stitched frames, compress each to a phase signature (signature.ts), and fold
+ * to scenes. This is the live wiring point — `anatomia web` already holds a
+ * TraceSource, so once a game records a trace, its 局面 become integral-search
+ * scenes with no extra plumbing. An empty trace yields [] (graceful: integral
+ * search stays structure + domain). LLM-free + deterministic.
+ */
+export function scenesFromTrace(trace: TraceSource, windowN = 512): SceneRef[] {
+  const frames = trace.recentFrames(windowN);
+  if (frames.length === 0) return [];
+  return scenesFromPhaseSignatures(frames.map((f) => frameSignature(f)));
+}
+
+/** Build a SceneModel directly from a trace source (empty trace → empty model). */
+export function sceneModelFromTrace(trace: TraceSource, windowN = 512): SceneModel {
+  return createSceneModel(scenesFromTrace(trace, windowN));
 }

@@ -33,6 +33,8 @@ export {
   createSceneModel,
   emptySceneModel,
   scenesFromPhaseSignatures,
+  scenesFromTrace,
+  sceneModelFromTrace,
   type SceneModel,
   type SceneRef,
 } from "./scene.js";
