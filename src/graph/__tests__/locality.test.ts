@@ -64,6 +64,55 @@ describe("call resolution locality", () => {
     expect(outs).toContain(makeOrtho);
   });
 
+  it("disambiguates a method call when several files define the SAME-NAMED local type", async () => {
+    // Anonymous-namespace `struct Parser { void skip_ws(); }` is copy-pasted into
+    // multiple serializers. The TypeRegistry keys methods by type NAME, so all the
+    // Parser::skip_ws defs collapse and resolveMethod fans the call to every file —
+    // a phantom cross-layer edge. A receiver-typed call must still localize.
+    const visus = await fileOf(
+      "struct Parser { const char* p; void skip_ws() { } };\n" +
+        "bool parse_ref(Parser& pr) { pr.skip_ws(); return true; }",
+      "/repo/src/visus/visus_serializer.cpp",
+    );
+    const pipeline = await fileOf(
+      "struct Parser { const char* p; void skip_ws() { } };",
+      "/repo/src/pipeline/pipeline_serializer.cpp",
+    );
+
+    const files = [visus.file, pipeline.file];
+    const edgeInfo = new Map([...visus.edgeInfo, ...pipeline.edgeInfo]);
+    const g = buildGraph(files, edgeInfo);
+
+    const parseRef = visus.file.functions.find((f) => f.name === "parse_ref")!.id!;
+    const visusSkip = visus.file.functions.find((f) => f.name === "skip_ws")!.id!;
+    const pipelineSkip = pipeline.file.functions.find((f) => f.name === "skip_ws")!.id!;
+
+    const outs = (g.adjacency.get(parseRef) ?? []).filter((e) => e.kind === "calls").map((e) => e.to);
+    expect(outs).toContain(visusSkip);
+    expect(outs).not.toContain(pipelineSkip);
+  });
+
+  it("DROPS a method call to a foreign-layer function when the receiver type is undetermined", async () => {
+    // `reg.find(...)` where reg's type we cannot determine (e.g. a std::map member)
+    // must NOT bind to a lone `find` defined only in another layer — that is the
+    // `map_.find()` -> pipeline `find` phantom. A method call (has a receiver) is
+    // dropped when no same-file/dir candidate exists, unlike a free call.
+    const pipeline = await fileOf("int find() { return 0; }", "/repo/src/pipeline/builder.cpp");
+    const scene = await fileOf(
+      "int lookup() { return reg.find(); }",
+      "/repo/src/scene/registry.cpp",
+    );
+
+    const files = [pipeline.file, scene.file];
+    const edgeInfo = new Map([...pipeline.edgeInfo, ...scene.edgeInfo]);
+    const g = buildGraph(files, edgeInfo);
+
+    const lookup = scene.file.functions[0]!.id!;
+    const pipelineFind = pipeline.file.functions[0]!.id!;
+    const outs = (g.adjacency.get(lookup) ?? []).filter((e) => e.kind === "calls").map((e) => e.to);
+    expect(outs).not.toContain(pipelineFind);
+  });
+
   it("prefers the same DIRECTORY when no same-file match (.h/.cpp split)", async () => {
     // alive() declared/defined in a combat header; the combat .cpp caller should
     // resolve to it (same dir) rather than to an enemy-layer alive().

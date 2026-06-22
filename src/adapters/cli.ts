@@ -90,6 +90,10 @@ export interface CliArgs {
   logPath?: string;
   /** For verify: path to diff file, or "-" to read stdin. */
   diff?: string;
+  /** For verify: the changed file's repo-relative path, used to attribute the
+   *  diff's new functions to a layer so `by:path` rules apply. Defaults to the
+   *  first `+++ b/<path>` parsed from the diff. */
+  file?: string;
   /** For context/where. */
   task?: string;
   /** --json flag: output raw JSON without human summary. */
@@ -186,6 +190,7 @@ export function parseArgs(argv: string[]): CliArgs {
 
   let repoPath = process.cwd();
   let diff: string | undefined;
+  let file: string | undefined;
   let task: string | undefined;
   let json = false;
   let project: string | undefined;
@@ -197,6 +202,8 @@ export function parseArgs(argv: string[]): CliArgs {
       repoPath = args[++i] ?? repoPath;
     } else if (flag === "--diff" || flag === "-d") {
       diff = args[++i];
+    } else if (flag === "--file" || flag === "-f") {
+      file = args[++i];
     } else if (flag === "--task" || flag === "-t") {
       task = args[++i];
     } else if (flag === "--json" || flag === "-j") {
@@ -217,7 +224,24 @@ export function parseArgs(argv: string[]): CliArgs {
     }
   }
 
-  return { subcommand, repoPath, diff, task, json, project, output };
+  return { subcommand, repoPath, diff, file, task, json, project, output };
+}
+
+/**
+ * Pull the changed file path(s) out of a unified diff's `+++ b/<path>` headers.
+ * Returns the de-duplicated list in order of appearance. `/dev/null` (deletions)
+ * is skipped. Used to attribute a diff to a layer so `by:path` rules apply.
+ */
+export function diffTargetPaths(diff: string): string[] {
+  const out: string[] = [];
+  for (const line of diff.split(/\r?\n/)) {
+    if (!line.startsWith("+++ ")) continue;
+    let p = line.slice(4).trim();
+    if (p === "/dev/null") continue;
+    p = p.replace(/^b\//, "").replace(/\t.*$/, "");
+    if (p && !out.includes(p)) out.push(p);
+  }
+  return out;
 }
 
 function parseWebArgs(args: string[]): CliArgs {
@@ -408,7 +432,20 @@ export async function runCli(
       diffSource = await readFile(diffArg, "utf8");
     }
 
-    const verdict = await buildVerdict(ctx, diffSource);
+    // Attribute the diff to a file path so `by:path` architecture rules apply to
+    // the new functions (otherwise they land at "<diff>" and never match a layer).
+    // Prefer an explicit --file; else derive it from the diff's +++ headers.
+    const targetPaths = args.file ? [args.file] : diffTargetPaths(diffSource);
+    const targetPath = targetPaths[0];
+    if (!args.file && targetPaths.length > 1) {
+      console.error(
+        `[anatomia/verify] diff touches ${targetPaths.length} files; path-based rules ` +
+          `are evaluated against the first (${targetPath}). Pass --file <path> or verify ` +
+          `per-file (or use the warm /api/verify) for the rest.`,
+      );
+    }
+
+    const verdict = await buildVerdict(ctx, diffSource, targetPath);
     const exitCode = verdict.pass ? 0 : 1;
 
     if (args.json) {
