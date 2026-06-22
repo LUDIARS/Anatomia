@@ -21,16 +21,17 @@
 
 import type { Hono } from "hono";
 import { runIntegral } from "../../../integral/run.js";
-import { emptySceneModel } from "../../../integral/scene.js";
+import { emptySceneModel, sceneModelFromTrace, type SceneModel } from "../../../integral/scene.js";
 import type { IntegralCache } from "../../../integral/cache.js";
 import type { IntegralQuery, IntegralScope } from "../../../integral/types.js";
 import { evaluateModulesFromGraph } from "../../../modules/evaluate.js";
 import type { ModuleEvaluation } from "../../../modules/types.js";
 import type { LLMClient } from "../../../domains/card.js";
 import { runWithSession } from "../../../cache/session-context.js";
+import type { TraceSource } from "../../../dynamic/viz/trace-source.js";
 import type { WebContextSource } from "../context.js";
 
-/** Dependencies for the integral route (judge LLM + path cache). */
+/** Dependencies for the integral route (judge LLM + path cache + trace source). */
 export interface IntegralRouteDeps {
   /** Judge LLM (Sonnet). Absent → the judge cannot run; deterministic-only. */
   judgeLlm?: LLMClient;
@@ -38,6 +39,11 @@ export interface IntegralRouteDeps {
   judgeModelId?: string;
   /** Persistent integral path cache (survives restarts when file/redis backed). */
   pathCache?: IntegralCache;
+  /**
+   * Live/recorded trace source. When it holds frames, the scene layer is derived
+   * from its 局面 (phase signatures); empty trace → empty scenes (graceful).
+   */
+  traceSource?: TraceSource;
 }
 
 const SCOPES = new Set<IntegralScope>(["function", "domain", "scene"]);
@@ -92,10 +98,15 @@ export function mountIntegralRoutes(app: Hono, source: WebContextSource, deps: I
       source.fingerprint(project),
     ]);
 
+    // Scene layer from the trace source (局面). No frames → empty (graceful).
+    const scenes: SceneModel = deps.traceSource
+      ? sceneModelFromTrace(deps.traceSource)
+      : emptySceneModel();
+
     const session = typeof body.session === "string" ? body.session : undefined;
     const report = await runWithSession(session, () =>
       runIntegral(ctx, query, {
-        scenes: emptySceneModel(),
+        scenes,
         moduleEval,
         fingerprint,
         llm: judge ? deps.judgeLlm : undefined,

@@ -163,7 +163,8 @@ export function createApp(
   mountDomainViewRoute(app, source);
 
   // ── Integral-search + module routes (3-layer scoped retrieval + 機能 eval) ─
-  mountIntegralRoutes(app, source, resolveIntegralDeps());
+  // The trace source feeds the scene layer (局面) when it holds frames.
+  mountIntegralRoutes(app, source, { ...resolveIntegralDeps(), traceSource: trace });
 
   // ── Access-pattern route (heuristic singleton/locator/facade + accessors) ──
   mountPatternRoutes(app, source);
