@@ -9,7 +9,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { parseArgs, runCli } from "../cli.js";
+import { parseArgs, runCli, diffTargetPaths } from "../cli.js";
 import type { CliArgs } from "../cli.js";
 
 // ---------------------------------------------------------------------------
@@ -50,6 +50,39 @@ describe("parseArgs", () => {
   it("defaults repoPath to cwd when --repo is absent", () => {
     const args = parseArgs(["context"]);
     expect(args.repoPath).toBe(process.cwd());
+  });
+
+  it("parses verify --file / -f (changed path for by:path rules)", () => {
+    expect(parseArgs(["verify", "-d", "-", "--file", "src/scene/x.cpp"]).file).toBe("src/scene/x.cpp");
+    expect(parseArgs(["verify", "-d", "-", "-f", "src/gpu/y.cpp"]).file).toBe("src/gpu/y.cpp");
+    expect(parseArgs(["verify", "-d", "-"]).file).toBeUndefined();
+  });
+});
+
+describe("diffTargetPaths", () => {
+  it("extracts changed file paths from +++ b/ headers (strips b/, dedups, in order)", () => {
+    const diff = [
+      "diff --git a/src/scene/s.cpp b/src/scene/s.cpp",
+      "--- a/src/scene/s.cpp",
+      "+++ b/src/scene/s.cpp",
+      "@@ -1 +1,2 @@",
+      "+void f() {}",
+      "--- a/src/gpu/g.cpp",
+      "+++ b/src/gpu/g.cpp",
+      "@@ -1 +1,2 @@",
+      "+void h() {}",
+    ].join("\n");
+    expect(diffTargetPaths(diff)).toEqual(["src/scene/s.cpp", "src/gpu/g.cpp"]);
+  });
+
+  it("skips /dev/null (deletions) and handles new-file diffs", () => {
+    const diff = [
+      "--- /dev/null",
+      "+++ b/src/scene/new.cpp",
+      "@@ -0,0 +1,2 @@",
+      "+void g() {}",
+    ].join("\n");
+    expect(diffTargetPaths(diff)).toEqual(["src/scene/new.cpp"]);
   });
 });
 
