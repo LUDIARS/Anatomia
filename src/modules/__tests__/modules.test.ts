@@ -94,3 +94,23 @@ describe("evaluateModulesFromGraph — cohesion / misfit / modularity", () => {
     expect(evaluation.modularity).toBeLessThanOrEqual(1);
   });
 });
+
+describe("buildModules — class granularity merges .h/.cpp of one class", () => {
+  it("folds a class split across header + translation unit into one module", async () => {
+    // Inline method in the header + out-of-line definition in the .cpp, same dir.
+    const hdr = await makeFile(
+      "struct Hit { int inline_m() { return 1; } };",
+      "/proj/combat/hit.h",
+    );
+    const impl = await makeFile("int Hit::out_m() { return 2; }", "/proj/combat/hit.cpp");
+    const fns = [...hdr.functions, ...impl.functions];
+
+    const classMods = buildModules(fns, "class");
+    const hitMods = classMods.filter((m) => m.label === "Hit");
+    // One Hit module (dir-scoped), holding both the inline and out-of-line method.
+    expect(hitMods.length).toBe(1);
+    expect(hitMods[0]!.id).toBe("/proj/combat#Hit");
+    expect(hitMods[0]!.anchors.length).toBe(2);
+    expect(hitMods[0]!.files.length).toBe(2);
+  });
+});

@@ -40,7 +40,12 @@ function moduleKeyFor(
 ): { id: string; label: string; kind: ModuleGranularity } {
   const file = fwd(fn.sourceRange.filePath);
   if (granularity === "class" && fn.enclosingType) {
-    return { id: `${file}::${fn.enclosingType}`, label: fn.enclosingType, kind: "class" };
+    // Key by DIRECTORY + class, not file + class, so a class split across its
+    // header/translation-unit (`foo.h` declaration + `foo.cpp` definition, which
+    // live in the same directory) folds into ONE module instead of two. A
+    // same-named class in a different directory stays distinct (the dir scopes it).
+    const dir = dirOf(file);
+    return { id: `${dir}#${fn.enclosingType}`, label: fn.enclosingType, kind: "class" };
   }
   const dir = dirOf(file);
   return { id: dir, label: lastSeg(dir), kind: "dir" };
