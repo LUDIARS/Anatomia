@@ -22,6 +22,7 @@
 import type { Hono } from "hono";
 import { runIntegral } from "../../../integral/run.js";
 import { emptySceneModel, sceneModelFromTrace, type SceneModel } from "../../../integral/scene.js";
+import { sceneModelFromTraceFile } from "../../../dynamic/record/ingest.js";
 import type { IntegralCache } from "../../../integral/cache.js";
 import type { IntegralQuery, IntegralScope } from "../../../integral/types.js";
 import { evaluateModulesFromGraph } from "../../../modules/evaluate.js";
@@ -44,6 +45,13 @@ export interface IntegralRouteDeps {
    * from its 局面 (phase signatures); empty trace → empty scenes (graceful).
    */
   traceSource?: TraceSource;
+  /**
+   * Recorded-trace JSONL body (from ANATOMIA_TRACE_FILE). When set, scenes are
+   * decoded from it per-request against THIS project's domains — so a warm server
+   * configured with a recorded game trace surfaces real scenes without a live
+   * transport. Takes precedence over traceSource.
+   */
+  traceJsonl?: string;
 }
 
 const SCOPES = new Set<IntegralScope>(["function", "domain", "scene"]);
@@ -98,10 +106,13 @@ export function mountIntegralRoutes(app: Hono, source: WebContextSource, deps: I
       source.fingerprint(project),
     ]);
 
-    // Scene layer from the trace source (局面). No frames → empty (graceful).
-    const scenes: SceneModel = deps.traceSource
-      ? sceneModelFromTrace(deps.traceSource)
-      : emptySceneModel();
+    // Scene layer (局面): a recorded trace file (decoded against this project's
+    // domains) wins; else a live/recorded trace source; else empty (graceful).
+    const scenes: SceneModel = deps.traceJsonl
+      ? sceneModelFromTraceFile(deps.traceJsonl, ctx.domains ?? [])
+      : deps.traceSource
+        ? sceneModelFromTrace(deps.traceSource)
+        : emptySceneModel();
 
     const session = typeof body.session === "string" ? body.session : undefined;
     const report = await runWithSession(session, () =>

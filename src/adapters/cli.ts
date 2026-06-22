@@ -56,9 +56,13 @@ import {
   reconcileDrafts,
   type DomainDraft,
 } from "../domains/authoring/index.js";
+import { generateCppHeader, generateCppPatches, type DomainEntryPoint } from "../dynamic/inject-cpp.js";
+import { sceneModelFromTraceFile } from "../dynamic/record/ingest.js";
+import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
 import type { IntegralQuery, IntegralReport } from "../integral/types.js";
 import type { AnalysisContext } from "../core.js";
-import type { Verdict } from "../types.js";
+import type { AnchorId, Verdict } from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -66,6 +70,7 @@ import type { Verdict } from "../types.js";
 
 export type ProjectAction = "add" | "list" | "remove" | "analyze";
 export type DomainsAction = "draft" | "list" | "reconstruct";
+export type TraceAction = "plan" | "ingest";
 
 export interface CliArgs {
   subcommand:
@@ -78,7 +83,8 @@ export interface CliArgs {
     | "web"
     | "cache-stats"
     | "integral"
-    | "domains";
+    | "domains"
+    | "trace";
   repoPath: string;
   /** For cache-stats: path to the JSONL transcript (defaults to ANATOMIA_CACHE_LOG). */
   logPath?: string;
@@ -117,6 +123,12 @@ export interface CliArgs {
   noLlm?: boolean;
   /** For domains: explicit domains dir (default <repoRoot>/.anatomia/domains). */
   dir?: string;
+  /** For trace: action (plan | ingest). */
+  traceAction?: TraceAction;
+  /** For trace plan: output dir for the generated header. */
+  traceOut?: string;
+  /** For trace ingest: recorded JSONL trace file path. */
+  traceFile?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -137,10 +149,11 @@ export function parseArgs(argv: string[]): CliArgs {
     subcommand !== "web" &&
     subcommand !== "cache-stats" &&
     subcommand !== "integral" &&
-    subcommand !== "domains"
+    subcommand !== "domains" &&
+    subcommand !== "trace"
   ) {
     throw new Error(
-      `Unknown subcommand "${subcommand ?? ""}". Expected: verify | context | where | review | project | export-graph | web | cache-stats | integral | domains`,
+      `Unknown subcommand "${subcommand ?? ""}". Expected: verify | context | where | review | project | export-graph | web | cache-stats | integral | domains | trace`,
     );
   }
 
@@ -155,6 +168,10 @@ export function parseArgs(argv: string[]): CliArgs {
 
   if (subcommand === "domains") {
     return parseDomainsArgs(args);
+  }
+
+  if (subcommand === "trace") {
+    return parseTraceArgs(args);
   }
 
   // The `web` subcommand has its own flag set.
@@ -308,6 +325,31 @@ function parseDomainsArgs(args: string[]): CliArgs {
   return { subcommand: "domains", repoPath, project, domainsAction: action, dir, only, force, noLlm, json };
 }
 
+function parseTraceArgs(args: string[]): CliArgs {
+  const action = args.shift();
+  if (action !== "plan" && action !== "ingest") {
+    throw new Error(`Unknown trace action "${action ?? ""}". Expected: plan | ingest`);
+  }
+  let repoPath = process.cwd();
+  let project: string | undefined;
+  let traceOut: string | undefined;
+  let traceFile: string | undefined;
+  let entry: string | undefined;
+  let scope: CliArgs["scope"] = "function";
+  let json = false;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === "--repo" || a === "-r") repoPath = args[++i] ?? repoPath;
+    else if (a === "--project" || a === "-p") project = args[++i];
+    else if (a === "--out") traceOut = args[++i];
+    else if (a === "--file" || a === "-f") traceFile = args[++i];
+    else if (a === "--entry" || a === "-e") entry = args[++i];
+    else if (a === "--scope" || a === "-s") scope = args[++i] as CliArgs["scope"];
+    else if (a === "--json" || a === "-j") json = true;
+  }
+  return { subcommand: "trace", repoPath, project, traceAction: action, traceOut, traceFile, entry, scope, json };
+}
+
 // ---------------------------------------------------------------------------
 // Human summary for verify
 // ---------------------------------------------------------------------------
@@ -347,6 +389,10 @@ export async function runCli(
 
   if (args.subcommand === "domains") {
     return runDomains(args);
+  }
+
+  if (args.subcommand === "trace") {
+    return runTrace(args);
   }
 
   const ctx = await resolveContext(args);
@@ -685,6 +731,89 @@ function summarizeReconcile(r: ReturnType<typeof reconcileDrafts>): {
   preserved: string[];
 } {
   return { added: r.added, updated: r.updated, preserved: r.preserved };
+}
+
+// ---------------------------------------------------------------------------
+// trace subcommand — recording path (marker plan + recorded-trace ingest)
+// ---------------------------------------------------------------------------
+
+async function runTrace(args: CliArgs): Promise<{ exitCode: number; output: string }> {
+  let ctx: AnalysisContext;
+  let mgr: ProjectManager | undefined;
+  if (args.project) {
+    mgr = await ProjectManager.load();
+    ctx = await mgr.getContext(args.project);
+  } else {
+    ctx = await analyze(args.repoPath);
+  }
+  const domains = (ctx.domains ?? []).filter((d) => d.implementors.length > 0);
+
+  if (args.traceAction === "plan") {
+    // Entry points = each domain's implementor functions, resolved to source
+    // locations + the AnchorId baked into the generated ANATOMIA_ZONE marker.
+    const entryPoints: DomainEntryPoint[] = [];
+    for (const d of domains) {
+      for (const anchor of d.implementors) {
+        const node = await ctx.graph.getNode(anchor as AnchorId);
+        if (!node) continue;
+        entryPoints.push({
+          filePath: node.sourceRange.filePath,
+          line: node.sourceRange.start.line,
+          anchorId: anchor,
+          name: node.name,
+        });
+      }
+    }
+    const header = generateCppHeader(true);
+    const patches = generateCppPatches(entryPoints);
+    if (args.traceOut) {
+      await mkdir(args.traceOut, { recursive: true });
+      const headerPath = join(args.traceOut, "anatomia_zones.h");
+      await writeFile(headerPath, header, "utf8");
+      await writeFile(join(args.traceOut, "anatomia_zones.patches.json"), JSON.stringify(patches, null, 2), "utf8");
+    }
+    if (args.json) {
+      return { exitCode: 0, output: JSON.stringify({ entryPoints: entryPoints.length, patches, out: args.traceOut ?? null }, null, 2) };
+    }
+    return {
+      exitCode: 0,
+      output:
+        `trace plan — ${domains.length} domains, ${entryPoints.length} zone markers\n` +
+        (args.traceOut
+          ? `  wrote ${join(args.traceOut, "anatomia_zones.h")} + patches.json\n`
+          : "  (pass --out <dir> to write the header + patch list)\n") +
+        "  build the game with -DANATOMIA_MEASUREMENT_BUILD and set ANATOMIA_TRACE_FILE to record\n" +
+        "  (add ANATOMIA_FRAME_BEGIN/END around the main-loop frame).",
+    };
+  }
+
+  // ingest: recorded JSONL → scenes (+ optional integral run with those scenes).
+  if (!args.traceFile) {
+    return { exitCode: 1, output: "usage: anatomia trace ingest --file <trace.jsonl> [--project <id>] [--entry <ref> --scope ...]" };
+  }
+  const jsonl = await readFile(args.traceFile, "utf8");
+  const scenes = sceneModelFromTraceFile(jsonl, domains);
+  const sceneList = scenes.scenes();
+
+  if (args.entry) {
+    const { evaluation } = await evaluateModulesFromGraph(ctx.graph, ctx.functions);
+    const query: IntegralQuery = { entry: { ref: args.entry, scope: args.scope ?? "function" }, range: { climb: "scene-adjacent" } };
+    const report = await runIntegral(ctx, query, { scenes, moduleEval: evaluation });
+    if (args.json) return { exitCode: 0, output: JSON.stringify({ scenes: sceneList, report }, null, 2) };
+    return {
+      exitCode: 0,
+      output:
+        `trace ingest — ${sceneList.length} scenes from ${args.traceFile}\n` +
+        formatIntegral(report),
+    };
+  }
+
+  if (args.json) return { exitCode: 0, output: JSON.stringify({ scenes: sceneList }, null, 2) };
+  const lines = [`trace ingest — ${sceneList.length} scenes from ${args.traceFile}`];
+  for (const s of sceneList.slice(0, 20)) {
+    lines.push(`  - ${s.id.slice(0, 8)}… ${s.label ? `(${s.label}) ` : ""}domains=[${s.domains.join(", ")}]`);
+  }
+  return { exitCode: 0, output: lines.join("\n") };
 }
 
 // ---------------------------------------------------------------------------

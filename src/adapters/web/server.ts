@@ -315,7 +315,19 @@ function resolveIntegralDeps(): IntegralRouteDeps {
   const judgeModel = process.env["ANATOMIA_INTEGRAL_JUDGE_MODEL"] || "claude-sonnet-4-6";
   const providers = resolveProviders({ ...envConfig(), llmModel: judgeModel });
   const pathCache = resolveCacheStore<CachedIntegral>();
-  return { judgeLlm: providers.llm, judgeModelId: providers.llmModelId, pathCache };
+  // A recorded game trace (ANATOMIA_TRACE_FILE) lights up the scene layer on the
+  // warm server without a live transport. Read once at wiring time; a missing /
+  // unreadable file just leaves scenes empty (graceful).
+  let traceJsonl: string | undefined;
+  const traceFile = process.env["ANATOMIA_TRACE_FILE"];
+  if (traceFile && traceFile.trim()) {
+    try {
+      traceJsonl = readFileSync(traceFile.trim(), "utf8");
+    } catch {
+      traceJsonl = undefined;
+    }
+  }
+  return { judgeLlm: providers.llm, judgeModelId: providers.llmModelId, pathCache, traceJsonl };
 }
 
 /**
