@@ -760,12 +760,27 @@ function resolveCall(
     const recvType = resolveChainType(call.receiver, symbols, selfType, registry);
     if (recvType) {
       if (registry.isKnownType(recvType)) {
-        // Known repo type → trust hierarchy resolution, even if empty.
-        return registry.resolveMethod(recvType, call.name);
+        // Known repo type → trust hierarchy resolution, even if empty. But the
+        // registry keys methods by type NAME, so distinct file-local types that
+        // share a name (e.g. an anonymous-namespace `struct Parser { skip_ws();
+        // ... }` copy-pasted into several serializers) collapse, and resolveMethod
+        // fans the call to EVERY file's same-named method — manufacturing phantom
+        // cross-layer edges. Disambiguate with caller locality, exactly as the
+        // by-name path does: a same-file/same-dir definition wins, otherwise all
+        // candidates are kept so a genuine cross-module method call still surfaces.
+        return localityResolve(graph, callerPath, registry.resolveMethod(recvType, call.name));
       }
       // Determined but external type → external method, no repo edge.
       return [];
     }
+    // Receiver present but its type is undetermined — commonly an external/std
+    // container (`map_.find(...)`, `vec_.size()`) we can't type, or a repo type
+    // whose declaration we failed to extract. Binding such a call to a foreign
+    // layer's same-named function is the dominant phantom (e.g. every `.find()`
+    // drawing an edge to a lone `find` in pipeline/). Keep only a same-file/
+    // same-dir definition; if none, DROP rather than fan out. Real cross-module
+    // edges are unqualified free calls, handled below.
+    return localityResolve(graph, callerPath, targets, /* dropForeign */ true);
   }
   return localityResolve(graph, callerPath, targets);
 }
@@ -783,13 +798,23 @@ function resolveCall(
  *   3. else ALL candidates — a genuinely cross-module call (e.g. a skill calling
  *      a render-only helper) keeps its edge, so real violations still surface.
  *
+ * `dropForeign` flips step 3 to return [] instead of all candidates: used for a
+ * method call whose receiver type we couldn't determine, where a foreign-layer
+ * same-named function is almost always a mis-resolved external/std call rather
+ * than a real edge.
+ *
  * Tradeoff: when the caller's own layer ALSO defines the name, a real call to a
  * different layer's same-named function is collapsed to the local one (a rare
  * false negative). For an advisory architecture linter, fewer false positives
  * (trust) is worth that.
  */
-function localityResolve(graph: CodeGraph, callerPath: string, candidates: AnchorId[]): AnchorId[] {
-  if (candidates.length <= 1) return candidates;
+function localityResolve(
+  graph: CodeGraph,
+  callerPath: string,
+  candidates: AnchorId[],
+  dropForeign = false,
+): AnchorId[] {
+  if (candidates.length <= 1 && !dropForeign) return candidates;
   const caller = callerPath.replace(/\\/g, "/");
   const callerDir = dirOf(caller);
 
@@ -802,7 +827,7 @@ function localityResolve(graph: CodeGraph, callerPath: string, candidates: Ancho
   const sameDir = candidates.filter((id) => dirOf(pathOf(id)) === callerDir);
   if (sameDir.length > 0) return sameDir;
 
-  return candidates;
+  return dropForeign ? [] : candidates;
 }
 
 /**
