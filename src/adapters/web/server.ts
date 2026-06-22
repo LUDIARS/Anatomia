@@ -56,10 +56,12 @@ import { mountCostRoute } from "./routes/cost.js";
 import { mountHarnessRoutes } from "./routes/harness.js";
 import { mountBranchRoutes } from "./routes/branch.js";
 import { mountDomainViewRoute } from "./routes/domain-view.js";
+import { mountIntegralRoutes, type IntegralRouteDeps } from "./routes/integral.js";
 import { mountPatternRoutes } from "./routes/patterns.js";
 import { resolveIdleMs, checkIntervalMs, shouldShutdown } from "./idle.js";
-import { resolveProviders } from "../../providers/index.js";
+import { resolveProviders, envConfig } from "../../providers/index.js";
 import type { DomainCard } from "../../domains/card.js";
+import type { CachedIntegral } from "../../integral/cache.js";
 import { resolveCacheStore } from "../../cache/resolve.js";
 import { instrumentStore } from "../../cache/instrumented.js";
 import { resolveTranscript } from "../../cache/transcript.js";
@@ -159,6 +161,9 @@ export function createApp(
 
   // ── Domain-view route (per-domain focus + spec-derived JP descriptions) ───
   mountDomainViewRoute(app, source);
+
+  // ── Integral-search + module routes (3-layer scoped retrieval + 機能 eval) ─
+  mountIntegralRoutes(app, source, resolveIntegralDeps());
 
   // ── Access-pattern route (heuristic singleton/locator/facade + accessors) ──
   mountPatternRoutes(app, source);
@@ -296,6 +301,20 @@ export async function startServer(options: WebServerOptions): Promise<void> {
     // Don't let the idle timer itself keep the event loop alive.
     timer.unref?.();
   }
+}
+
+/**
+ * Resolve the integral route's deps: a Sonnet judge LLM (the scope-judging agent
+ * runs inside Anatomia, so it works headless from HTTP, not only inside an IDE)
+ * and a persistent path cache (file/redis-backed via resolveCacheStore, so a
+ * judged exploration survives restarts — the design's Phase C). The judge model
+ * defaults to Sonnet (cheaper than the Opus card distiller) and is overridable.
+ */
+function resolveIntegralDeps(): IntegralRouteDeps {
+  const judgeModel = process.env["ANATOMIA_INTEGRAL_JUDGE_MODEL"] || "claude-sonnet-4-6";
+  const providers = resolveProviders({ ...envConfig(), llmModel: judgeModel });
+  const pathCache = resolveCacheStore<CachedIntegral>();
+  return { judgeLlm: providers.llm, judgeModelId: providers.llmModelId, pathCache };
 }
 
 /**

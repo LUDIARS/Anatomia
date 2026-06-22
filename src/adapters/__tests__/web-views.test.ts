@@ -40,14 +40,18 @@ afterAll(async () => {
 });
 
 describe("GET /api/projects/:id/domain-view", () => {
-  it("returns an array for a known project", async () => {
+  it("returns the enriched payload (views + module breakdown) for a known project", async () => {
     const app = createApp(mgr);
     const res = await app.fetch(
       new Request("http://localhost/api/projects/views/domain-view"),
     );
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(Array.isArray(body)).toBe(true);
+    // The route now returns { views, modulesByDomain, modularity, granularity, misfits }
+    // (the 機能/module layer added for the right-pane list), not a bare array.
+    expect(Array.isArray(body.views)).toBe(true);
+    expect(typeof body.modulesByDomain).toBe("object");
+    expect(typeof body.modularity).toBe("number");
   });
 
   it("404s on an unknown project", async () => {
@@ -56,6 +60,64 @@ describe("GET /api/projects/:id/domain-view", () => {
       new Request("http://localhost/api/projects/nope/domain-view"),
     );
     expect(res.status).toBe(404);
+  });
+});
+
+describe("GET /api/projects/:id/modules", () => {
+  it("returns the module evaluation for a known project", async () => {
+    const app = createApp(mgr);
+    const res = await app.fetch(
+      new Request("http://localhost/api/projects/views/modules"),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      modules: unknown[];
+      cohesion: unknown[];
+      modularity: number;
+      granularity: string;
+    };
+    expect(Array.isArray(body.modules)).toBe(true);
+    expect(typeof body.modularity).toBe("number");
+    expect(body.granularity).toBe("dir");
+  });
+
+  it("404s on an unknown project", async () => {
+    const app = createApp(mgr);
+    const res = await app.fetch(new Request("http://localhost/api/projects/nope/modules"));
+    expect(res.status).toBe(404);
+  });
+});
+
+describe("POST /api/integral", () => {
+  it("runs a deterministic search (no judge) for a known project", async () => {
+    const app = createApp(mgr);
+    const res = await app.fetch(
+      new Request("http://localhost/api/integral", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          project: "views",
+          entry: { ref: "two", scope: "function" },
+          range: { climb: "module" },
+        }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { result: { seeds: string[] }; decision: unknown; cached: boolean };
+    expect(body.result.seeds.length).toBeGreaterThan(0);
+    expect(body.decision).toBeNull(); // judge not requested → deterministic only
+  });
+
+  it("400s on a missing entry", async () => {
+    const app = createApp(mgr);
+    const res = await app.fetch(
+      new Request("http://localhost/api/integral", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ project: "views" }),
+      }),
+    );
+    expect(res.status).toBe(400);
   });
 });
 
