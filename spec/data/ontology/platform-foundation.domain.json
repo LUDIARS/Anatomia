@@ -1,0 +1,18 @@
+{
+  "name": "platform-foundation",
+  "description": "Foundational filesystem access used across analyzers: directory walking and extension-based file collection (collectFilesByExt) plus its unit tests.",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    {
+      "pathPattern": "(^|/)src/fs/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/fs/__tests__/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/__tests__/fixtures/mini/[^/]+$"
+    }
+  ],
+  "cardTemplate": "Summarise the \"platform-foundation\" domain: Foundational filesystem access used across analyzers: directory walking and extension-based file collection (collectFilesByExt) plus its unit tests."
+}

@@ -6,7 +6,8 @@
     "build": "tsc",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "measure": "node scripts/measure.mjs"
+    "measure": "node scripts/measure.mjs",
+    "retune": "node scripts/retune.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.104.1",

@@ -19,6 +19,7 @@ import { relative } from "node:path";
 import type { Hono } from "hono";
 import { computeMetrics } from "../../../supply/metrics.js";
 import { buildVisData } from "../vis-data.js";
+import { loadTaxonomyResolver } from "../../../domains/retune/load-taxonomy.js";
 import { buildReview } from "../../../review/index.js";
 import type { WebContextSource } from "../context.js";
 import type { AnchorId } from "../../../types.js";
@@ -202,8 +203,10 @@ export function mountAnalysisRoutes(app: Hono, source: WebContextSource): void {
       // unchanged — a cold (just-restarted) server answers from disk without
       // re-analyzing the repo, which is what kept the graph view from toppling
       // the panel on large C++ projects. buildVisData runs only on a miss.
-      const data = await source.cachedArtifact(id, "vis-data", (ctx) =>
-        buildVisData(ctx),
+      const data = await source.cachedArtifact(id, "vis-data", async (ctx) =>
+        buildVisData(ctx, undefined, {
+          moduleResolver: await loadTaxonomyResolver(ctx.repoPath),
+        }),
       );
       return c.json(data);
     } catch {

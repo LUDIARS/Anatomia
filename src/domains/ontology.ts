@@ -17,6 +17,7 @@ import { join, resolve, extname } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { PresetId } from "./presets.js";
 import type { TemplateRule } from "./template.js";
+import type { NodeFilter } from "../types.js";
 import { resolvePluginDir } from "../plugins/loader.js";
 
 /** A preset configured with concrete parameters. */
@@ -31,6 +32,14 @@ export interface DomainDef {
   description: string;
   presetRules: ConfiguredPreset[];
   templateRules: TemplateRule[];
+  /**
+   * Declarative node OWNERSHIP, orthogonal to presetRules (which express
+   * *rules* that can violate). A domain's `membership` filters contribute their
+   * matched nodes to the domain's implementors WITHOUT emitting any violation —
+   * so a taxonomy domain (domain-retune) can drive the Domain View even when it
+   * carries zero rules. ANDed semantics within a NodeFilter, OR across the array.
+   */
+  membership?: NodeFilter[];
   /** Optional LLM card-summary template (T20). */
   cardTemplate?: string;
 }
@@ -97,6 +106,7 @@ export const BUILTIN_DOMAINS: DomainDef[] = [
 function isDomainDef(x: unknown): x is DomainDef {
   if (!x || typeof x !== "object") return false;
   const d = x as Record<string, unknown>;
+  if (d.membership !== undefined && !Array.isArray(d.membership)) return false;
   return (
     typeof d.name === "string" &&
     typeof d.description === "string" &&
