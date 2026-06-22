@@ -42,6 +42,21 @@ import { startServer } from "./web/server.js";
 import { readEvents } from "../cache/transcript.js";
 import { aggregate, formatReport } from "../cache/stats.js";
 import { estimateCost, formatCost } from "../cache/cost-estimate.js";
+import { runIntegral } from "../integral/run.js";
+import { emptySceneModel } from "../integral/scene.js";
+import { evaluateModulesFromGraph } from "../modules/evaluate.js";
+import { resolveProviders, envConfig } from "../providers/index.js";
+import { resolveCacheStore } from "../cache/resolve.js";
+import {
+  domainsDir,
+  loadEditableDomains,
+  saveEditableDomains,
+  synthesizeDomainDrafts,
+  seedDraftsFromStructure,
+  reconcileDrafts,
+  type DomainDraft,
+} from "../domains/authoring/index.js";
+import type { IntegralQuery, IntegralReport } from "../integral/types.js";
 import type { AnalysisContext } from "../core.js";
 import type { Verdict } from "../types.js";
 
@@ -50,9 +65,20 @@ import type { Verdict } from "../types.js";
 // ---------------------------------------------------------------------------
 
 export type ProjectAction = "add" | "list" | "remove" | "analyze";
+export type DomainsAction = "draft" | "list" | "reconstruct";
 
 export interface CliArgs {
-  subcommand: "verify" | "context" | "where" | "review" | "project" | "export-graph" | "web" | "cache-stats";
+  subcommand:
+    | "verify"
+    | "context"
+    | "where"
+    | "review"
+    | "project"
+    | "export-graph"
+    | "web"
+    | "cache-stats"
+    | "integral"
+    | "domains";
   repoPath: string;
   /** For cache-stats: path to the JSONL transcript (defaults to ANATOMIA_CACHE_LOG). */
   logPath?: string;
@@ -74,6 +100,23 @@ export interface CliArgs {
   port?: number;
   /** For web: Anatomia home dir (registry + cache). */
   homeDir?: string;
+  /** For integral: entry ref + scope + range + judge flag. */
+  entry?: string;
+  scope?: "function" | "domain" | "scene";
+  climb?: "function" | "module" | "domain" | "scene" | "scene-adjacent";
+  maxHops?: number;
+  maxNodes?: number;
+  judge?: boolean;
+  /** For domains: action + options. */
+  domainsAction?: DomainsAction;
+  /** For domains draft/reconstruct: only these domain names (comma list). */
+  only?: string[];
+  /** For domains reconstruct: overwrite locked/manual defs. */
+  force?: boolean;
+  /** For domains draft: use the deterministic skeleton seed (no LLM). */
+  noLlm?: boolean;
+  /** For domains: explicit domains dir (default <repoRoot>/.anatomia/domains). */
+  dir?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -92,16 +135,26 @@ export function parseArgs(argv: string[]): CliArgs {
     subcommand !== "project" &&
     subcommand !== "export-graph" &&
     subcommand !== "web" &&
-    subcommand !== "cache-stats"
+    subcommand !== "cache-stats" &&
+    subcommand !== "integral" &&
+    subcommand !== "domains"
   ) {
     throw new Error(
-      `Unknown subcommand "${subcommand ?? ""}". Expected: verify | context | where | review | project | export-graph | web | cache-stats`,
+      `Unknown subcommand "${subcommand ?? ""}". Expected: verify | context | where | review | project | export-graph | web | cache-stats | integral | domains`,
     );
   }
 
   // The `project` subcommand has its own positional grammar.
   if (subcommand === "project") {
     return parseProjectArgs(args);
+  }
+
+  if (subcommand === "integral") {
+    return parseIntegralArgs(args);
+  }
+
+  if (subcommand === "domains") {
+    return parseDomainsArgs(args);
   }
 
   // The `web` subcommand has its own flag set.
@@ -205,6 +258,56 @@ function parseProjectArgs(args: string[]): CliArgs {
   };
 }
 
+function parseIntegralArgs(args: string[]): CliArgs {
+  let repoPath = process.cwd();
+  let project: string | undefined;
+  let entry: string | undefined;
+  let scope: CliArgs["scope"] = "function";
+  let climb: CliArgs["climb"];
+  let maxHops: number | undefined;
+  let maxNodes: number | undefined;
+  let judge = false;
+  let json = false;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === "--repo" || a === "-r") repoPath = args[++i] ?? repoPath;
+    else if (a === "--project" || a === "-p") project = args[++i];
+    else if (a === "--entry" || a === "-e") entry = args[++i];
+    else if (a === "--scope" || a === "-s") scope = args[++i] as CliArgs["scope"];
+    else if (a === "--climb") climb = args[++i] as CliArgs["climb"];
+    else if (a === "--max-hops") maxHops = parseInt(args[++i] ?? "", 10);
+    else if (a === "--max-nodes") maxNodes = parseInt(args[++i] ?? "", 10);
+    else if (a === "--judge") judge = true;
+    else if (a === "--json" || a === "-j") json = true;
+  }
+  return { subcommand: "integral", repoPath, project, entry, scope, climb, maxHops, maxNodes, judge, json };
+}
+
+function parseDomainsArgs(args: string[]): CliArgs {
+  const action = args.shift();
+  if (action !== "draft" && action !== "list" && action !== "reconstruct") {
+    throw new Error(`Unknown domains action "${action ?? ""}". Expected: draft | list | reconstruct`);
+  }
+  let repoPath = process.cwd();
+  let project: string | undefined;
+  let dir: string | undefined;
+  let only: string[] | undefined;
+  let force = false;
+  let noLlm = false;
+  let json = false;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === "--repo" || a === "-r") repoPath = args[++i] ?? repoPath;
+    else if (a === "--project" || a === "-p") project = args[++i];
+    else if (a === "--dir") dir = args[++i];
+    else if (a === "--only") only = (args[++i] ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+    else if (a === "--force") force = true;
+    else if (a === "--no-llm") noLlm = true;
+    else if (a === "--json" || a === "-j") json = true;
+  }
+  return { subcommand: "domains", repoPath, project, domainsAction: action, dir, only, force, noLlm, json };
+}
+
 // ---------------------------------------------------------------------------
 // Human summary for verify
 // ---------------------------------------------------------------------------
@@ -236,6 +339,14 @@ export async function runCli(
 
   if (args.subcommand === "cache-stats") {
     return runCacheStats(args);
+  }
+
+  if (args.subcommand === "integral") {
+    return runIntegralCli(args);
+  }
+
+  if (args.subcommand === "domains") {
+    return runDomains(args);
   }
 
   const ctx = await resolveContext(args);
@@ -417,6 +528,163 @@ async function runProject(
     default:
       return { exitCode: 1, output: "Unknown project action" };
   }
+}
+
+// ---------------------------------------------------------------------------
+// integral subcommand — 3-layer scoped retrieval (integral search)
+// ---------------------------------------------------------------------------
+
+async function runIntegralCli(args: CliArgs): Promise<{ exitCode: number; output: string }> {
+  if (!args.entry) {
+    return { exitCode: 1, output: "usage: anatomia integral --entry <ref> [--scope function|domain|scene] [--judge]" };
+  }
+  let ctx: AnalysisContext;
+  let fingerprint = "nofp";
+  if (args.project) {
+    const mgr = await ProjectManager.load();
+    ctx = await mgr.getContext(args.project);
+    fingerprint = await mgr.fingerprint(args.project);
+  } else {
+    ctx = await analyze(args.repoPath);
+  }
+
+  const { evaluation } = await evaluateModulesFromGraph(ctx.graph, ctx.functions);
+  const query: IntegralQuery = {
+    entry: { ref: args.entry, scope: args.scope ?? "function" },
+    range: {
+      climb: args.climb,
+      maxHops: args.maxHops,
+      maxNodes: args.maxNodes,
+    },
+  };
+
+  // The judge runs the Sonnet agent inside Anatomia; only wired when --judge.
+  let llm; let modelId;
+  if (args.judge) {
+    const judgeModel = process.env["ANATOMIA_INTEGRAL_JUDGE_MODEL"] || "claude-sonnet-4-6";
+    const providers = resolveProviders({ ...envConfig(), llmModel: judgeModel });
+    llm = providers.llm;
+    modelId = providers.llmModelId;
+  }
+
+  const report = await runIntegral(ctx, query, {
+    scenes: emptySceneModel(),
+    moduleEval: evaluation,
+    fingerprint,
+    llm,
+    modelId,
+    cache: args.judge ? resolveCacheStore() : undefined,
+  });
+
+  if (args.json) return { exitCode: 0, output: JSON.stringify(report, null, 2) };
+  return { exitCode: 0, output: formatIntegral(report) };
+}
+
+function formatIntegral(report: IntegralReport): string {
+  const r = report.result;
+  const lines: string[] = [];
+  lines.push(`integral search — entry=${r.query.entry.ref} scope=${r.query.entry.scope}`);
+  lines.push(`  seeds: ${r.seeds.length}  anchors: ${r.anchors.length}  modules: ${r.modules.length}  domains: ${r.domains.length}  scenes: ${r.scenes.length}`);
+  lines.push(`  elapsed ${r.elapsedMs}ms${r.truncated ? ` (truncated: ${r.stopReason})` : ""}`);
+  if (r.modules.length) {
+    lines.push("  機能(modules):");
+    for (const m of r.modules.slice(0, 12)) {
+      const coh = m.cohesion == null ? "n/a" : `${Math.round(m.cohesion * 100)}%`;
+      lines.push(`    - ${m.label} (${m.anchors.length} fn, 凝集 ${coh})${m.isHome ? " [home]" : ""}`);
+    }
+  }
+  if (r.domains.length) {
+    lines.push("  domains: " + r.domains.map((d) => `${d.name}[${d.via}]`).join(", "));
+  }
+  if (report.decision) {
+    lines.push("");
+    lines.push(`judge: sufficientScope=${report.decision.sufficientScope} confidence=${report.decision.confidence}${report.cached ? " (cached)" : ""}`);
+    lines.push(`  ${report.decision.reason}`);
+    if (report.decision.answer) lines.push(`  answer: ${report.decision.answer}`);
+  }
+  return lines.join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// domains subcommand — spec-seeded, human-editable domain authoring
+// ---------------------------------------------------------------------------
+
+async function runDomains(args: CliArgs): Promise<{ exitCode: number; output: string }> {
+  // Resolve the repo root + domains dir + (optional) project for ontologyDir wiring.
+  let repoRoot = args.repoPath;
+  let mgr: ProjectManager | undefined;
+  let projectId: string | undefined;
+  if (args.project) {
+    mgr = await ProjectManager.load();
+    projectId = mgr.resolveId(args.project);
+    repoRoot = mgr.get(projectId)!.rootPath;
+  }
+  const dir = args.dir ?? domainsDir(repoRoot);
+
+  if (args.domainsAction === "list") {
+    const defs = await loadEditableDomains(dir);
+    if (args.json) return { exitCode: 0, output: JSON.stringify({ dir, domains: defs }, null, 2) };
+    if (!defs.length) return { exitCode: 0, output: `(no editable domains in ${dir})` };
+    const lines = defs.map(
+      (d) => `${d.name}\t[${d.source}]\t${d.presetRules.length} rules${d.mechanics?.length ? `\tmech: ${d.mechanics.join(",")}` : ""}`,
+    );
+    return { exitCode: 0, output: lines.join("\n") };
+  }
+
+  // draft / reconstruct: analyze → synthesise → reconcile → save.
+  const ctx = args.project
+    ? await mgr!.getContext(projectId)
+    : await analyze(repoRoot);
+  const inputs = {
+    specClauses: ctx.specClauses ?? [],
+    filePaths: ctx.files.map((f) => f.path),
+  };
+
+  let drafts: DomainDraft[];
+  if (args.noLlm) {
+    drafts = seedDraftsFromStructure(inputs);
+  } else {
+    const providers = resolveProviders();
+    const cache = resolveCacheStore<DomainDraft[]>();
+    drafts = await synthesizeDomainDrafts(inputs, providers.llm, cache, providers.llmModelId);
+  }
+  if (args.only && args.only.length) {
+    const want = new Set(args.only);
+    drafts = drafts.filter((d) => want.has(d.name));
+  }
+
+  const existing = await loadEditableDomains(dir);
+  const result = reconcileDrafts(existing, drafts, { force: args.force });
+  await saveEditableDomains(dir, result.merged);
+
+  // Wire the project's ontologyDir to the domains dir so detection loads them.
+  if (mgr && projectId && !mgr.get(projectId)!.ontologyDir) {
+    const proj = mgr.get(projectId)!;
+    (proj as { ontologyDir?: string }).ontologyDir = dir;
+    await mgr.save();
+  }
+
+  if (args.json) {
+    return { exitCode: 0, output: JSON.stringify({ dir, ...summarizeReconcile(result) }, null, 2) };
+  }
+  const s = summarizeReconcile(result);
+  return {
+    exitCode: 0,
+    output:
+      `domains ${args.domainsAction} → ${dir}\n` +
+      `  drafted: ${drafts.length}  added: ${s.added.length}  updated: ${s.updated.length}  preserved: ${s.preserved.length}\n` +
+      (s.added.length ? `  + ${s.added.join(", ")}\n` : "") +
+      (s.updated.length ? `  ~ ${s.updated.join(", ")}\n` : "") +
+      `  total on disk: ${result.merged.length}`,
+  };
+}
+
+function summarizeReconcile(r: ReturnType<typeof reconcileDrafts>): {
+  added: string[];
+  updated: string[];
+  preserved: string[];
+} {
+  return { added: r.added, updated: r.updated, preserved: r.preserved };
 }
 
 // ---------------------------------------------------------------------------

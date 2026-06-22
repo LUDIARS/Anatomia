@@ -247,6 +247,24 @@
     }
     #dv-sidebar h3 { font-size: 0.75rem; color: #8b949e; text-transform: uppercase;
                      letter-spacing: .05em; margin-bottom: 10px; }
+    /* Right pane: the selected domain's 機能(module) list. */
+    #dv-right {
+      width: 320px; flex: none; overflow-y: auto; padding: 14px;
+      border-left: 1px solid #30363d; background: #0f1117;
+    }
+    #dv-right h3, #dv-right h4 { font-size: 0.75rem; color: #8b949e; text-transform: uppercase;
+                                 letter-spacing: .05em; margin: 4px 0 8px; }
+    #dv-modularity { font-size: 0.72rem; margin-bottom: 10px; }
+    .dv-mod-row {
+      background: #161b22; border: 1px solid #30363d; border-radius: 7px;
+      padding: 8px 10px; margin-bottom: 8px;
+    }
+    .dv-mod-name { font-weight: 600; font-size: 0.82rem; word-break: break-all; }
+    .dv-mod-stats { display: flex; gap: 10px; margin-top: 4px; font-size: 0.72rem; color: #8b949e; }
+    .dv-coh-bar { height: 4px; border-radius: 2px; background: #30363d; margin-top: 6px; overflow: hidden; }
+    .dv-coh-fill { height: 100%; }
+    .dv-misfit-row { font-size: 0.72rem; color: #c9d1d9; padding: 4px 0; border-bottom: 1px solid #21262d; }
+    .dv-misfit-row .arrow { color: #e3b341; }
     .dv-card {
       background: #161b22; border: 1px solid #30363d; border-radius: 8px;
       padding: 10px 12px; margin-bottom: 10px; cursor: pointer; transition: border-color .12s;
@@ -477,6 +495,13 @@
                 <div id="dv-access-body"><div class="dv-muted">—</div></div>
               </div>
             </div>
+          </div>
+          <div id="dv-right">
+            <h3>機能 (modules)</h3>
+            <div id="dv-modularity" class="dv-muted"></div>
+            <div id="dv-modules-body"><div class="dv-muted">ドメインを選ぶと、その機能(module)群を凝集度つきで一覧します。</div></div>
+            <h4 id="dv-misfit-head" style="display:none">misfit 関数 (別機能に強く結合)</h4>
+            <div id="dv-misfit-body"></div>
           </div>
         </div>
 
@@ -1111,13 +1136,25 @@
       return;
     }
     state.domainViewLoaded = true;
-    state.domainViews = data;
-    if (!data.length) {
+    // The payload carries the domain views plus the 機能(module) breakdown +
+    // module-aggregation evaluation. (Older shape was a bare DomainView[].)
+    var views = Array.isArray(data) ? data : (data.views || []);
+    state.domainViews = views;
+    state.domainModules = (data && data.modulesByDomain) || {};
+    state.domainMisfits = (data && data.misfits) || [];
+    state.domainModularity = data && typeof data.modularity === 'number' ? data.modularity : null;
+    var modEl = document.getElementById('dv-modularity');
+    if (modEl) {
+      modEl.textContent = state.domainModularity != null
+        ? 'modularity Q = ' + state.domainModularity.toFixed(3) + ' · granularity: ' + ((data && data.granularity) || 'dir')
+        : '';
+    }
+    if (!views.length) {
       listEl.innerHTML = '<div class="empty-msg">No domains with implementors detected.</div>';
       return;
     }
     listEl.innerHTML = '';
-    data.forEach(function (v) {
+    views.forEach(function (v) {
       var card = document.createElement('div');
       card.className = 'dv-card';
       card.setAttribute('data-domain', v.domain);
@@ -1137,7 +1174,7 @@
       listEl.appendChild(card);
     });
     await ensureAccessPatterns(id);   // singleton/locator/facade overlay data
-    selectDomain(data[0]);
+    selectDomain(views[0]);
   }
 
   function selectDomain(v) {
@@ -1148,7 +1185,55 @@
     });
     renderSpecRefs(v);
     renderAccess(v);
+    renderModules(v);
     focusDomain(v);
+  }
+
+  // Right pane: the selected domain's 機能(module) list, each with cohesion, and
+  // the misfit functions (those tied more strongly to another module).
+  function renderModules(v) {
+    var body = document.getElementById('dv-modules-body');
+    var refs = (state.domainModules && state.domainModules[v.domain]) || [];
+    if (!refs.length) {
+      body.innerHTML = '<div class="dv-muted">このドメインの機能(module)は検出されませんでした。</div>';
+    } else {
+      body.innerHTML = refs.map(function (m) {
+        var coh = m.cohesion == null ? null : Math.round(m.cohesion * 100);
+        var hue = coh == null ? 0 : Math.round(coh * 1.2);  // red→green 0..120
+        var bar = coh == null ? '' :
+          '<div class="dv-coh-bar"><div class="dv-coh-fill" style="width:' + coh +
+          '%;background:hsl(' + hue + ',60%,45%)"></div></div>';
+        var cohLabel = coh == null ? '凝集 n/a' : '凝集 ' + coh + '%';
+        return '<div class="dv-mod-row">' +
+          '<div class="dv-mod-name">' + esc(m.label) + '</div>' +
+          '<div class="dv-mod-stats">' +
+            '<span>' + m.domainAnchors + '/' + m.moduleAnchors + ' fn</span>' +
+            '<span>' + cohLabel + '</span>' +
+          '</div>' + bar +
+        '</div>';
+      }).join('');
+    }
+    // Misfits that involve this domain's modules.
+    var myMods = {};
+    refs.forEach(function (m) { myMods[m.moduleId] = 1; });
+    var mine = (state.domainMisfits || []).filter(function (x) {
+      return myMods[x.homeModule] || myMods[x.attractedTo];
+    });
+    var head = document.getElementById('dv-misfit-head');
+    var mbody = document.getElementById('dv-misfit-body');
+    if (!mine.length) { head.style.display = 'none'; mbody.innerHTML = ''; return; }
+    head.style.display = '';
+    mbody.innerHTML = mine.slice(0, 20).map(function (x) {
+      return '<div class="dv-misfit-row">' + esc(x.name) +
+        ' <span class="arrow">→</span> ' + esc(shortMod(x.attractedTo)) +
+        ' (' + x.homeTies + '→' + x.attractedTies + ')</div>';
+    }).join('');
+  }
+
+  function shortMod(id) {
+    var s = String(id);
+    var parts = s.split('/');
+    return parts.length > 2 ? '…/' + parts.slice(-2).join('/') : s;
   }
 
   // List the access patterns (singleton/locator/facade) this domain touches.

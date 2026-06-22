@@ -173,6 +173,17 @@ export class ProjectManager {
   }
 
   /**
+   * The current source fingerprint for a project (folds rootPath + config dirs).
+   * Exposed so callers that content-key derived results on the source — e.g. the
+   * integral path cache — invalidate naturally when the tree changes.
+   */
+  async fingerprint(id?: string): Promise<string> {
+    const projectId = this.resolveId(id);
+    const project = this.registry.get(projectId)!;
+    return computeFingerprint(project.rootPath, { configDirs: configDirsOf(project) });
+  }
+
+  /**
    * Resolve a fingerprint-keyed derived render artifact (e.g. the graph view's
    * vis-data), building it from the analyzed context only on a cache miss.
    *
