@@ -19,8 +19,8 @@
  *                     violation (a forbidden shape, e.g. $SKILL.mutate($STATE)).
  */
 
-import type { Node, Tree } from "web-tree-sitter";
-import type { Lang, Predicate, Violation } from "../types.js";
+import type { Tree } from "web-tree-sitter";
+import type { AstNode, Lang, Predicate, Violation } from "../types.js";
 import type { CodeGraphQuery } from "../graph/query.js";
 import { parse } from "../dag/parser.js";
 import { extractFunctions } from "../dag/extract.js";
@@ -64,7 +64,7 @@ export function compileTemplate(tpl: TemplateRule): Predicate {
  * meaningful statement / expression so the pattern is the fragment itself
  * (not the synthetic wrapper).
  */
-function extractPatternRoot(tree: Tree): Node {
+function extractPatternRoot(tree: Tree): AstNode {
   // The fragment was wrapped as: void __anatomia_tpl__() { <fragment> }
   // Find that function, then its body, then the first meaningful child.
   const fns = extractFunctions(tree, "", "<template>");
@@ -86,7 +86,7 @@ function extractPatternRoot(tree: Tree): Node {
 }
 
 /** Parse + encode a template fragment into its pattern root AST node. */
-async function compilePatternAst(tpl: TemplateRule): Promise<{ tree: Tree; root: Node }> {
+async function compilePatternAst(tpl: TemplateRule): Promise<{ tree: Tree; root: AstNode }> {
   const encoded = encodePattern(tpl.pattern);
   // Terminate a bare expression so it parses as a statement (not an ERROR).
   const trimmed = encoded.trimEnd();

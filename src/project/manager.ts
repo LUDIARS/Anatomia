@@ -30,6 +30,8 @@ export class ProjectManager {
   readonly cache: AnalysisCache;
   private readonly homeDir?: string;
   private readonly analyzeOptions: AnalyzeOptions;
+  /** Project ids with an in-flight background revalidation (SWR de-dup). */
+  private readonly revalidating = new Set<string>();
 
   constructor(registry?: ProjectRegistry, options: ProjectManagerOptions = {}) {
     this.registry = registry ?? new ProjectRegistry();
@@ -144,10 +146,27 @@ export class ProjectManager {
    *   3. changed / never-analysed → full analyze(), then summarise.
    * Only tier 3 pays for parsing + graph build, so an unchanged workspace
    * repaints from cache after a fingerprint walk alone.
+   *
+   * `{ stale: true }` switches to STALE-WHILE-REVALIDATE: when a persisted
+   * snapshot exists it is returned immediately WITHOUT even the fingerprint
+   * stat-walk (which is itself the dominant first-paint cost on a many-repo
+   * workspace), and a background revalidation refreshes the cache so the NEXT
+   * call serves fresh counts. With no snapshot yet, it falls back to the normal
+   * (blocking) tiers so the first-ever view is still correct.
    */
-  async summary(id?: string): Promise<SummaryCounts> {
+  async summary(id?: string, opts: { stale?: boolean } = {}): Promise<SummaryCounts> {
     const projectId = this.resolveId(id);
     const project = this.registry.get(projectId)!;
+
+    if (opts.stale) {
+      const snap = await this.cache.readSnapshot(projectId);
+      if (snap?.summary) {
+        this.revalidateInBackground(projectId, project);
+        return snap.summary;
+      }
+      // No snapshot yet → fall through to the blocking path (first analyze).
+    }
+
     const fingerprint = await computeFingerprint(project.rootPath, {
       configDirs: configDirsOf(project),
     });
@@ -161,6 +180,33 @@ export class ProjectManager {
     }
 
     return summarize(await this.analyzeWith(projectId, project, fingerprint));
+  }
+
+  /**
+   * Background freshness check for the SWR summary path: recompute the
+   * fingerprint and, when the cache is stale, re-analyze so the NEXT summary()
+   * serves fresh counts. Fire-and-forget but de-duplicated per project and
+   * fully self-contained (it never rejects) so a failure can't surface as an
+   * unhandled rejection or crash the warm server.
+   */
+  private revalidateInBackground(projectId: string, project: Project): void {
+    if (this.revalidating.has(projectId)) return;
+    this.revalidating.add(projectId);
+    void (async () => {
+      try {
+        const fingerprint = await computeFingerprint(project.rootPath, {
+          configDirs: configDirsOf(project),
+        });
+        if (this.cache.getIfFresh(projectId, fingerprint)) return; // in-memory fresh
+        const snap = await this.cache.readSnapshot(projectId);
+        if (snap && snap.fingerprint === fingerprint) return; // disk already fresh
+        await this.analyzeWith(projectId, project, fingerprint);
+      } catch {
+        // Best-effort: the next summary() call retries; surface nothing.
+      } finally {
+        this.revalidating.delete(projectId);
+      }
+    })();
   }
 
   /**

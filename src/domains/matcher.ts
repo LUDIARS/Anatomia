@@ -22,7 +22,7 @@
  * that `a + b` does not match `a - b`.
  */
 
-import type { Node } from "web-tree-sitter";
+import type { AstNode } from "../types.js";
 
 /** A successful match binds metavar name -> matched source text. */
 export interface MatchResult {
@@ -44,7 +44,7 @@ export function isMetavar(text: string): boolean {
 }
 
 /** Is this node a wildcard placeholder (encoded ...). */
-function isWildcardNode(node: Node): boolean {
+function isWildcardNode(node: AstNode): boolean {
   return node.text.trim() === ENCODED_DOTS;
 }
 
@@ -53,8 +53,8 @@ function isWildcardNode(node: Node): boolean {
  * named children plus anonymous operator/keyword tokens (text kept), dropping
  * pure punctuation like parentheses, commas and semicolons and any comments.
  */
-function meaningfulChildren(node: Node): Node[] {
-  const out: Node[] = [];
+function meaningfulChildren(node: AstNode): AstNode[] {
+  const out: AstNode[] = [];
   for (const child of node.children) {
     if (!child) continue;
     if (child.isExtra || child.type === "comment") continue;
@@ -81,8 +81,8 @@ const PUNCTUATION = new Set<string>([
  * (bindings may be partially mutated; caller discards on failure).
  */
 function matchNode(
-  pat: Node,
-  code: Node,
+  pat: AstNode,
+  code: AstNode,
   bindings: Map<string, string>,
 ): boolean {
   // Metavariable: matches any single node, binds consistently.
@@ -114,8 +114,8 @@ function matchNode(
  * single "..." wildcard that consumes zero-or-more code children.
  */
 function matchSequence(
-  pats: Node[],
-  codes: Node[],
+  pats: AstNode[],
+  codes: AstNode[],
   bindings: Map<string, string>,
 ): boolean {
   const wildIndex = pats.findIndex((p) => isWildcardNode(p));
@@ -151,10 +151,10 @@ function matchSequence(
  * `$SKILL.mutate($STATE)` matches a call buried inside the body.
  */
 export function matchTemplateAst(
-  patternRoot: Node,
-  codeRoot: Node,
+  patternRoot: AstNode,
+  codeRoot: AstNode,
 ): MatchResult | null {
-  const stack: Node[] = [codeRoot];
+  const stack: AstNode[] = [codeRoot];
   while (stack.length > 0) {
     const node = stack.pop()!;
     const bindings = new Map<string, string>();

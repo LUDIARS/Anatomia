@@ -257,6 +257,66 @@ describe("first-view summary fast path", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Stale-while-revalidate summary (#225): instant snapshot serve + bg refresh
+// ---------------------------------------------------------------------------
+
+describe("stale-while-revalidate summary", () => {
+  let swrHome: string;
+  let swrRoot: string;
+
+  const make = async () => {
+    const m = new ProjectManager(new ProjectRegistry(), {
+      homeDir: swrHome,
+      analyzeOptions: { quiet: true },
+    });
+    await m.addProject({ name: "Swr", rootPath: swrRoot });
+    return m;
+  };
+
+  beforeAll(async () => {
+    swrHome = await mkdtemp(join(tmpdir(), "anatomia-swr-home-"));
+    swrRoot = await mkdtemp(join(tmpdir(), "anatomia-swr-fixture-"));
+    await mkdir(join(swrRoot, "src"), { recursive: true });
+    await writeFile(join(swrRoot, "src", "a.cpp"), FIXTURE_CPP, "utf8");
+    // Prime the on-disk snapshot.
+    const warm = await make();
+    await warm.analyzeProject("swr");
+  });
+
+  afterAll(async () => {
+    await rm(swrHome, { recursive: true, force: true });
+    await rm(swrRoot, { recursive: true, force: true });
+  });
+
+  it("serves the snapshot summary immediately and never analyzes in the foreground", async () => {
+    const cold = await make();
+    const counts = await cold.summary("swr", { stale: true });
+    expect(counts.functions).toBeGreaterThan(0);
+    // The foreground path must not analyze (that would populate the in-memory
+    // cache and register a hit on the next call); it serves the snapshot only.
+    expect(cold.cache.hits).toBe(0);
+    const again = await cold.summary("swr", { stale: true });
+    expect(again).toEqual(counts);
+  });
+
+  it("falls back to the blocking path when no snapshot exists yet", async () => {
+    const freshHome = await mkdtemp(join(tmpdir(), "anatomia-swr-empty-"));
+    try {
+      const m = new ProjectManager(new ProjectRegistry(), {
+        homeDir: freshHome,
+        analyzeOptions: { quiet: true },
+      });
+      await m.addProject({ name: "Swr", rootPath: swrRoot });
+      // No snapshot under freshHome → stale must still return correct counts.
+      const counts = await m.summary("swr", { stale: true });
+      expect(counts.functions).toBeGreaterThan(0);
+    } finally {
+      await rm(freshHome, { recursive: true, force: true });
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Derived render-artifact cache (vis-data etc): serve from disk after restart
 // ---------------------------------------------------------------------------
 
