@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Anatomia — spec ↔ コード対応レビュー</title>
+<style>
+  :root{--bg:#0f1117;--panel:#161b22;--panel2:#1c2230;--border:#30363d;--fg:#e1e4e8;
+        --muted:#8b949e;--dim:#6e7681;--accent:#58a6ff;--green:#3fb950;--amber:#d29922;}
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--fg);font-size:15px;line-height:1.65;}
+  a{color:var(--accent);text-decoration:none;}a:hover{text-decoration:underline;}
+  code{font-family:ui-monospace,Menlo,monospace;background:#21262d;border:1px solid var(--border);
+       border-radius:4px;padding:.08em .4em;font-size:.84em;}
+  nav{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:18px;flex-wrap:wrap;padding:10px 22px;
+      background:rgba(22,27,34,.95);border-bottom:1px solid var(--border);backdrop-filter:blur(6px);}
+  nav .logo{font-weight:700;color:var(--accent);font-size:1rem;}
+  nav a.navlink{color:var(--muted);font-size:.85rem;}nav a.navlink:hover{color:var(--fg);text-decoration:none;}
+  .wrap{max-width:920px;margin:0 auto;padding:34px 22px 70px;}
+  h1{font-size:1.9rem;margin-bottom:6px;}
+  .sub{color:var(--muted);font-size:.9rem;margin-bottom:24px;}
+  h2{font-size:1.35rem;margin:34px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--border);}
+  h3{font-size:1.05rem;margin:22px 0 8px;color:#c9d1d9;}
+  p{margin:10px 0;}ul{margin:10px 0 10px 22px;}li{margin:5px 0;}
+  .banner{display:flex;gap:18px;align-items:center;background:var(--panel);border:1px solid var(--border);
+          border-left:3px solid var(--green);border-radius:10px;padding:20px 22px;margin:18px 0;}
+  .banner .num{font-size:2.4rem;font-weight:700;color:var(--green);line-height:1;white-space:nowrap;}
+  .banner .t{font-size:.92rem;color:var(--muted);}.banner .t b{color:var(--fg);}
+  table{width:100%;border-collapse:collapse;font-size:.86rem;margin:12px 0;}
+  th,td{text-align:left;padding:8px 11px;border-bottom:1px solid var(--border);vertical-align:top;}
+  th{color:var(--muted);font-size:.74rem;text-transform:uppercase;letter-spacing:.04em;background:var(--panel);}
+  tr td:first-child{white-space:nowrap;font-family:ui-monospace,monospace;color:#c9d1d9;}
+  .ok{color:var(--green);font-weight:700;}
+  .hold{color:var(--amber);font-weight:700;}
+  td code{font-size:.78rem;}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px;margin:14px 0;}
+  .kpi{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px;text-align:center;}
+  .kpi .v{font-size:1.5rem;font-weight:700;color:var(--accent);}.kpi .l{font-size:.76rem;color:var(--muted);}
+</style>
+</head>
+<body>
+<nav>
+  <span class="logo">Anatomia</span>
+  <a class="navlink" href="index.html">← 概要</a>
+  <a class="navlink" href="architecture.html">アーキテクチャ／グラフ</a>
+  <a class="navlink" href="api.html">API</a>
+  <a class="navlink" href="spec-code-review.html">spec↔code レビュー</a>
+</nav>
+<div class="wrap">
+  <h1>spec ↔ コード対応レビュー</h1>
+  <div class="sub">DESIGN.md（設計正本）/ TASKS.md（T01–T49）/ spec/usage/analysis-procedure.md / README.md の記述と、
+    実際の <code>src/</code> 実装の対応をレビューした結果。レビュー日: 2026-06-18。</div>
+
+  <div class="banner">
+    <div class="num">48/49</div>
+    <div class="t"><b>タスクがフル実装・テスト済み。</b> 残り 1 件は DESIGN §13 に明記された意図的な保留
+      （実ゲームのトレース録画経路の配線）。仕様材料の記述と実装は整合しており、設計が「将来作業」と
+      明記したもの以外に齟齬は見つからなかった。</div>
+  </div>
+  <div class="kpis">
+    <div class="kpi"><div class="v">178</div><div class="l">TS ソースファイル</div></div>
+    <div class="kpi"><div class="v">74</div><div class="l">テストファイル</div></div>
+    <div class="kpi"><div class="v">G0–G10</div><div class="l">全ゲート配線済</div></div>
+    <div class="kpi"><div class="v">7 / 7</div><div class="l">CLI / MCP ツール</div></div>
+  </div>
+
+  <h2>ゲート別 対応表</h2>
+
+  <h3>G0 — scaffold / 横断（T01–T02）</h3>
+  <table><thead><tr><th>タスク</th><th>状態</th><th>実装 / 根拠</th></tr></thead><tbody>
+    <tr><td>T01 scaffold</td><td class="ok">✅</td><td><code>package.json</code> / <code>tsconfig.json</code> / vitest / <code>src/plugins/loader.ts</code></td></tr>
+    <tr><td>T02 共通型 + Anchor ID</td><td class="ok">✅</td><td><code>src/types.ts</code></td></tr>
+  </tbody></table>
+
+  <h3>G1 — 静的層・コンテンツアドレス DAG（T03–T10）</h3>
+  <table><thead><tr><th>タスク</th><th>状態</th><th>実装 / 根拠</th></tr></thead><tbody>
+    <tr><td>T03 パーサ wrapper</td><td class="ok">✅</td><td><code>src/dag/parser.ts</code>（cpp/c_sharp/ts/tsx）</td></tr>
+    <tr><td>T04 関数抽出</td><td class="ok">✅</td><td><code>src/dag/extract.ts</code></td></tr>
+    <tr><td>T05 正規化（α）</td><td class="ok">✅</td><td><code>src/dag/normalize.ts</code></td></tr>
+    <tr><td>T06 ハッシュ（Anchor ID）</td><td class="ok">✅</td><td><code>src/dag/hash.ts</code></td></tr>
+    <tr><td>T07 Merkle DAG</td><td class="ok">✅</td><td><code>src/dag/merkle.ts</code></td></tr>
+    <tr><td>T08 差分判定</td><td class="ok">✅</td><td><code>src/dag/diff.ts</code></td></tr>
+    <tr><td>T09 インクリメンタル</td><td class="ok">✅</td><td><code>src/dag/incremental.ts</code></td></tr>
+    <tr><td>T10 命中率計測</td><td class="ok">✅</td><td><code>src/dag/measure.ts</code> / <code>scripts/measure.mjs</code></td></tr>
+  </tbody></table>
+
+  <h3>G2 — グラフ + KG（T11–T13）</h3>
+  <table><thead><tr><th>タスク</th><th>状態</th><th>実装 / 根拠</th></tr></thead><tbody>
+    <tr><td>T11 インメモリグラフ</td><td class="ok">✅</td><td><code>src/graph/in-memory.ts</code> / <code>build.ts</code></td></tr>
+    <tr><td>T12 query 層 interface</td><td class="ok">✅</td><td><code>src/graph/query.ts</code></td></tr>
+    <tr><td>T13 Kuzu KG 射影</td><td class="ok">✅</td><td><code>src/graph/kuzu.ts</code></td></tr>
+  </tbody></table>
+
+  <h3>G3 — ドメイン + ルール（T14–T20）</h3>
+  <table><thead><tr><th>タスク</th><th>状態</th><th>実装 / 根拠</th></tr></thead><tbody>
+    <tr><td>T14 述語エンジン</td><td class="ok">✅</td><td><code>src/domains/engine.ts</code> / <code>predicate.ts</code></td></tr>
+    <tr><td>T15 preset カタログ</td><td class="ok">✅</td><td><code>src/domains/presets.ts</code></td></tr>
+    <tr><td>T16 template ルール</td><td class="ok">✅</td><td><code>src/domains/template.ts</code> / <code>matcher.ts</code></td></tr>
+    <tr><td>T17 ルール逆生成</td><td class="ok">✅</td><td><code>src/domains/mining.ts</code></td></tr>
+    <tr><td>T18 ontology loader</td><td class="ok">✅</td><td><code>src/domains/ontology.ts</code></td></tr>
+    <tr><td>T19 ドメイン検出</td><td class="ok">✅</td><td><code>src/domains/detect.ts</code></td></tr>
+    <tr><td>T20 ドメインカード</td><td class="ok">✅</td><td><code>src/domains/card.ts</code></td></tr>
+  </tbody></table>
+
+  <h3>G4 — コード ↔ 仕様（T21–T25）</h3>
+  <table><thead><tr><th>タスク</th><th>状態</th><th>実装 / 根拠</th></tr></thead><tbody>
+    <tr><td>T21 仕様パーサ</td><td class="ok">✅</td><td><code>src/spec/parse.ts</code></td></tr>
+    <tr><td>T22 明示リンカ</td><td class="ok">✅</td><td><code>src/spec/explicit.ts</code></td></tr>
+    <tr><td>T23 構造リンカ</td><td class="ok">✅</td><td><code>src/spec/structural.ts</code></td></tr>
+    <tr><td>T24 意味リンカ</td><td class="ok">✅</td><td><code>src/spec/semantic.ts</code></td></tr>
+    <tr><td>T25 硬化ループ</td><td class="ok">✅</td><td><code>src/spec/harden.ts</code> / <code>link-store.ts</code></td></tr>
+  </tbody></table>
+
+  <h3>G5 — supply / verify（重心、T26–T29）</h3>
+  <table><thead><tr><th>タスク</th><th>状態</th><th>実装 / 根拠</th></tr></thead><tbody>
+    <tr><td>T26 メトリクス + 相対閾値</td><td class="ok">✅</td><td><code>src/supply/metrics.ts</code> / <code>thresholds.ts</code></td></tr>
+    <tr><td>T27 着地点決定</td><td class="ok">✅</td><td><code>src/supply/landing.ts</code></td></tr>
+    <tr><td>T28 supply 束組み</td><td class="ok">✅</td><td><code>src/supply/bundle.ts</code></td></tr>
+    <tr><td>T29 verify（5 ゲート）</td><td class="ok">✅</td><td><code>src/supply/verify.ts</code> + <code>gates/*.ts</code></td></tr>
+  </tbody></table>
+
+  <h3>G6 — アダプタ（T30–T32）</h3>
+  <table><thead><tr><th>タスク</th><th>状態</th><th>実装 / 根拠</th></tr></thead><tbody>
+    <tr><td>T30 MCP アダプタ</td><td class="ok">✅</td><td><code>src/adapters/mcp.ts</code>（4 core + 3 project = 7 tool）</td></tr>
+    <tr><td>T31 CLI ゲート</td><td class="ok">✅</td><td><code>src/adapters/cli.ts</code>（block で exit 1）</td></tr>
+    <tr><td>T32 Web viz</td><td class="ok">✅</td><td><code>src/adapters/web/server.ts</code> + <code>routes/*</code></td></tr>
+  </tbody></table>
+
+  <h3>G7 — 動的トレース（T33–T39）</h3>
+  <table><thead><tr><th>タスク</th><th>状態</th><th>実装 / 根拠</th></tr></thead><tbody>
+    <tr><td>T33 ループ骨格抽出</td><td class="ok">✅</td><td><code>src/dynamic/skeleton.ts</code></td></tr>
+    <tr><td>T34 マーカー注入 (C++)</td><td class="ok">✅</td><td><code>src/dynamic/inject-cpp.ts</code></td></tr>
+    <tr><td>T35 マーカー注入 (C#)</td><td class="ok">✅</td><td><code>src/dynamic/inject-csharp.ts</code></td></tr>
+    <tr><td>T36 計測ランタイム</td><td class="ok">✅</td><td><code>src/dynamic/protocol.ts</code> / <code>ringbuffer.ts</code></td></tr>
+    <tr><td>T37 trace 配信 transport</td><td class="ok">✅</td><td><code>src/dynamic/transport.ts</code></td></tr>
+    <tr><td>T38 zone ↔ カード 縫合</td><td class="ok">✅</td><td><code>src/dynamic/stitch.ts</code></td></tr>
+    <tr><td>T39 計測ビルド戦略</td><td class="ok">✅</td><td><code>src/dynamic/build-strategy.ts</code></td></tr>
+  </tbody></table>
+
+  <h3>G8 — 動的可視化（T40–T42）</h3>
+  <table><thead><tr><th>タスク</th><th>状態</th><th>実装 / 根拠</th></tr></thead><tbody>
+    <tr><td>T40 タイムライン</td><td class="ok">✅</td><td><code>src/dynamic/viz/timeline.ts</code>（<code>GET /api/trace/timeline</code>）</td></tr>
+    <tr><td>T41 光るグラフ</td><td class="ok">✅</td><td><code>src/dynamic/viz/active.ts</code>（<code>GET /api/trace/active</code>）</td></tr>
+    <tr><td>T42 You are here</td><td class="ok">✅</td><td><code>src/dynamic/viz/where.ts</code>（<code>GET /api/trace/where</code>）</td></tr>
+  </tbody></table>
+
+  <h3>G9 — 配線 + 結合テスト（T43–T44）</h3>
+  <table><thead><tr><th>タスク</th><th>状態</th><th>実装 / 根拠</th></tr></thead><tbody>
+    <tr><td>T43 e2e 配線</td><td class="ok">✅</td><td><code>src/core.ts</code> の <code>analyze()</code> パイプライン</td></tr>
+    <tr><td>T44 結合テスト + 計測</td><td class="ok">✅</td><td><code>src/__tests__/e2e.test.ts</code> / <code>scripts/measure.mjs</code></td></tr>
+  </tbody></table>
+
+  <h3>G10 — 局面の学習（T45–T49）</h3>
+  <table><thead><tr><th>タスク</th><th>状態</th><th>実装 / 根拠</th></tr></thead><tbody>
+    <tr><td>T45 局面署名</td><td class="ok">✅</td><td><code>src/dynamic/phase/signature.ts</code></td></tr>
+    <tr><td>T46 局面発見</td><td class="ok">✅</td><td><code>src/dynamic/phase/discover.ts</code></td></tr>
+    <tr><td>T47 FSM induction</td><td class="ok">✅</td><td><code>src/dynamic/phase/fsm.ts</code></td></tr>
+    <tr><td>T48 局面ラベル</td><td class="ok">✅</td><td><code>src/dynamic/phase/label.ts</code></td></tr>
+    <tr><td>T49 局面分類</td><td class="ok">✅</td><td><code>src/dynamic/phase/classify.ts</code></td></tr>
+    <tr><td>残: 実ゲーム録画経路の配線</td><td class="hold">⏸ 保留</td><td><code>src/dynamic/viz/trace-source.ts</code>（<code>RecordedTraceSource</code> は存在。実 runtime → ringbuffer → source の配線は未実装。DESIGN §13 / 手順 §6 に明記）</td></tr>
+  </tbody></table>
+
+  <h2>主張の検証（README / 手順書 vs 実装）</h2>
+  <table><thead><tr><th>主張</th><th>検証結果</th></tr></thead><tbody>
+    <tr><td>README「MCP 7 ツール」</td><td><span class="ok">✅ 正確</span> — context/verify/where/impact（4）+ projects.{list,add,analyze}（3）</td></tr>
+    <tr><td>「CLI 7 サブコマンド」</td><td><span class="ok">✅ 正確</span> — verify は block で exit 1</td></tr>
+    <tr><td>「動的層はライブラリ API のみ（CLI 未配線）」</td><td><span class="ok">✅ 正確</span> — phase 層は実装済、実ゲーム録画配線は未実装</td></tr>
+    <tr><td>「局面学習は実装済（G10）」</td><td><span class="ok">✅ 正確</span> — T45–T49 すべて実装・テスト済</td></tr>
+    <tr><td>「キャッシュ優先度 Redis &gt; File &gt; memory」</td><td><span class="ok">✅ 正確</span> — <code>src/cache/resolve.ts</code></td></tr>
+    <tr><td>プロバイダ未設定時の hermetic fallback</td><td><span class="ok">✅ 正確</span> — LLM→stub / embedder→hash（<code>src/providers/index.ts</code>）</td></tr>
+  </tbody></table>
+
+  <h2>残課題（DESIGN §13 の保留のみ）</h2>
+  <p><b>実トレース録画経路の配線</b>: 局面学習層（T45–T49）は <code>RecordedTraceSource</code> を入力に動作する形で
+    実装済だが、実ゲーム（KS/AC）のマーカー注入 → ringbuffer → <code>RecordedTraceSource</code> 供給の配線は別タスク。
+    これは設計上「将来作業」と明記されており、齟齬ではない。</p>
+
+  <p style="margin-top:24px;color:var(--dim);font-size:.84rem">同内容の Markdown 版:
+    <a href="https://github.com/LUDIARS/Anatomia/blob/main/docs/spec-code-review.md">docs/spec-code-review.md</a></p>
+</div>
+</body>
+</html>
+</content>
