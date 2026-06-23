@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Anatomia — 建築規約オラクル</title>
+<style>
+  :root{
+    --bg:#0f1117; --panel:#161b22; --panel2:#1c2230; --border:#30363d;
+    --fg:#e1e4e8; --muted:#8b949e; --dim:#6e7681;
+    --accent:#58a6ff; --green:#3fb950; --purple:#bc8cff; --orange:#f0883e; --pink:#f778ba;
+  }
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+  html{scroll-behavior:smooth;}
+  body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--bg);color:var(--fg);
+       line-height:1.65;font-size:15px;}
+  a{color:var(--accent);text-decoration:none;}
+  a:hover{text-decoration:underline;}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;background:#21262d;border:1px solid var(--border);
+       border-radius:4px;padding:.1em .4em;font-size:.86em;}
+  /* nav */
+  nav{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:18px;flex-wrap:wrap;
+      padding:10px 22px;background:rgba(22,27,34,.92);backdrop-filter:blur(6px);
+      border-bottom:1px solid var(--border);}
+  nav .logo{font-weight:700;color:var(--accent);font-size:1.05rem;letter-spacing:.04em;}
+  nav .logo span{color:var(--muted);font-weight:400;font-size:.8rem;margin-left:6px;}
+  nav a.navlink{color:var(--muted);font-size:.85rem;}
+  nav a.navlink:hover{color:var(--fg);text-decoration:none;}
+  nav .spacer{margin-left:auto;}
+  /* hero */
+  .wrap{max-width:1000px;margin:0 auto;padding:0 22px;}
+  header.hero{padding:64px 22px 40px;border-bottom:1px solid var(--border);
+              background:radial-gradient(900px 360px at 18% -10%,rgba(88,166,255,.13),transparent 60%);}
+  .hero h1{font-size:2.5rem;letter-spacing:.01em;}
+  .hero .tagline{color:var(--muted);font-size:1.12rem;margin-top:14px;max-width:760px;}
+  .hero .badges{margin-top:22px;display:flex;gap:8px;flex-wrap:wrap;}
+  .badge{font-size:.74rem;background:var(--panel2);border:1px solid var(--border);border-radius:999px;
+         padding:4px 11px;color:var(--muted);}
+  .cta{margin-top:28px;display:flex;gap:12px;flex-wrap:wrap;}
+  .btn{display:inline-flex;align-items:center;gap:7px;padding:9px 18px;border-radius:8px;
+       border:1px solid var(--border);background:var(--panel);color:var(--fg);font-size:.9rem;font-weight:500;}
+  .btn:hover{background:#21262d;text-decoration:none;}
+  .btn.primary{background:#1f6feb;border-color:#388bfd;color:#fff;}
+  .btn.primary:hover{background:#388bfd;}
+  /* sections */
+  section{padding:46px 0;border-bottom:1px solid var(--border);}
+  section h2{font-size:1.5rem;margin-bottom:6px;}
+  section h2 .k{color:var(--dim);font-weight:400;font-size:1rem;margin-right:10px;}
+  section .lead{color:var(--muted);margin-bottom:24px;max-width:780px;}
+  h3{font-size:1.05rem;margin:24px 0 8px;}
+  p{margin:10px 0;}
+  ul{margin:10px 0 10px 22px;}li{margin:5px 0;}
+  /* loop diagram */
+  .loop{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:20px 0;}
+  .loop .step{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px;}
+  .loop .step .n{font-size:.72rem;color:var(--accent);font-weight:700;letter-spacing:.08em;}
+  .loop .step h4{font-size:.95rem;margin:6px 0 4px;}
+  .loop .step p{font-size:.82rem;color:var(--muted);margin:0;}
+  @media(max-width:760px){.loop{grid-template-columns:1fr 1fr;}.hero h1{font-size:1.9rem;}}
+  /* cards */
+  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px;margin-top:8px;}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:16px;}
+  .card .tag{font-size:.7rem;letter-spacing:.05em;text-transform:uppercase;color:var(--dim);}
+  .card h4{font-size:1rem;margin:6px 0;}
+  .card p{font-size:.85rem;color:var(--muted);margin:0;}
+  /* pillars table-ish */
+  .pillars{display:grid;grid-template-columns:120px 1fr;gap:0;border:1px solid var(--border);
+           border-radius:10px;overflow:hidden;margin-top:14px;}
+  .pillars div{padding:12px 16px;border-bottom:1px solid var(--border);}
+  .pillars .h{background:var(--panel);font-weight:600;color:var(--accent);font-family:ui-monospace,monospace;font-size:.9rem;}
+  .pillars .b{background:var(--panel2);color:var(--muted);font-size:.88rem;}
+  .pillars >div:nth-last-child(-n+2){border-bottom:none;}
+  /* arch flow */
+  .flow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:18px 0;font-size:.82rem;}
+  .flow .node{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:8px 12px;
+              font-family:ui-monospace,monospace;}
+  .flow .arr{color:var(--dim);}
+  /* review banner */
+  .review{display:flex;gap:16px;align-items:flex-start;background:var(--panel);border:1px solid var(--border);
+          border-left:3px solid var(--green);border-radius:10px;padding:18px 20px;margin-top:8px;}
+  .review .num{font-size:2rem;font-weight:700;color:var(--green);line-height:1;white-space:nowrap;}
+  .review .txt{font-size:.88rem;color:var(--muted);}
+  .review .txt b{color:var(--fg);}
+  /* metrics */
+  .metrics{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-top:8px;}
+  .metric{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px;text-align:center;}
+  .metric .v{font-size:1.6rem;font-weight:700;color:var(--accent);}
+  .metric .l{font-size:.76rem;color:var(--muted);margin-top:3px;}
+  footer{padding:30px 22px 60px;color:var(--dim);font-size:.8rem;text-align:center;}
+</style>
+</head>
+<body>
+<nav>
+  <span class="logo">Anatomia <span>An · LUDIARS</span></span>
+  <a class="navlink" href="#what">概要</a>
+  <a class="navlink" href="#loop">重心ループ</a>
+  <a class="navlink" href="#design">設計</a>
+  <a class="navlink" href="architecture.html">アーキテクチャ／グラフ ↗</a>
+  <a class="navlink" href="api.html">API ↗</a>
+  <span class="spacer"></span>
+  <a class="navlink" href="spec-code-review.html">spec↔code レビュー</a>
+</nav>
+
+<header class="hero">
+  <div class="wrap">
+    <h1>Anatomia</h1>
+    <p class="tagline">コードを「機構」へ解剖し、仕様・実行時挙動に結びつけ、<b>決定的キャッシュ</b>の上で
+       <b>AI のクリーンなコード生成を支える</b>建築規約オラクル。</p>
+    <div class="badges">
+      <span class="badge">TypeScript / Node (ESM)</span>
+      <span class="badge">tree-sitter (WASM)</span>
+      <span class="badge">Kuzu KG</span>
+      <span class="badge">MCP · CLI · Web</span>
+      <span class="badge">Merkle-AST DAG</span>
+    </div>
+    <div class="cta">
+      <a class="btn primary" href="architecture.html">アーキテクチャ＆グラフを見る →</a>
+      <a class="btn" href="api.html">API リファレンス</a>
+      <a class="btn" href="https://github.com/LUDIARS/Anatomia">GitHub</a>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+<section id="what">
+  <h2><span class="k">01</span>何をするサービスか</h2>
+  <p class="lead">Anatomia は「AI 用 RAG」ではなく、<b>AI のコード生成を綺麗に保つ建築規約オラクル</b>。
+     ゲームのコードベースを、次の 3 用途に同時に使える知識構造へ変換する。</p>
+  <div class="cards">
+    <div class="card">
+      <div class="tag">(a) AI への文脈供給</div>
+      <h4>決定的な文脈束</h4>
+      <p>高精度・キャッシュ安定な「ドメイン単位の文脈束」を決定的に組んで AI に渡す。</p>
+    </div>
+    <div class="card">
+      <div class="tag">(b) 人間の把握</div>
+      <h4>動作構造の可視化</h4>
+      <p>メインループ／システム実行順と複雑度（結合・状態空間）を可視化する。</p>
+    </div>
+    <div class="card">
+      <div class="tag">(c) コード ↔ 仕様</div>
+      <h4>双方向トレーサビリティ</h4>
+      <p>どのコードがどの仕様クレームを実装しているかを双方向に引く。</p>
+    </div>
+  </div>
+  <p style="margin-top:22px">本質は <b>静的構造（何のドメインが存在するか）と 動的実行（今フレーム何が火を噴くか）と 仕様 を、
+     同一の Anchor ID で縫合すること</b>。「クリーン」= 抽象的な美しさではなく、その codebase の
+     <em>grain</em>（ドメイン・ルール・仕様）に逆らわないこと。</p>
+</section>
+
+<section id="loop">
+  <h2><span class="k">02</span>重心：supply → verify ループ</h2>
+  <p class="lead">Anatomia は文脈を渡すだけでなく、生成の前後で二度効く。決定的キャッシュのおかげで
+     ループで何度叩いても安い。</p>
+  <div class="loop">
+    <div class="step"><div class="n">① 生成前 (steering)</div><h4>文脈を供給</h4>
+      <p>「この機能=ドメインM、実装は anchor X,Y、仕様§S、規約Z、綺麗に足す場所W」を AI へ。</p></div>
+    <div class="step"><div class="n">② AI が書く</div><h4>逸脱しないコード</h4>
+      <p>既存ドメインに沿った、grain に逆らわないコードを生成。</p></div>
+    <div class="step"><div class="n">③ 生成後 (verify)</div><h4>5 ゲートで検証</h4>
+      <p>契約・仕様結合・結合度・重複・規約を判定。不合格なら具体的違反を返す。</p></div>
+    <div class="step"><div class="n">④ 再生成</div><h4>締まるまで回す</h4>
+      <p>違反（アンカー+ルール+手本）が次の steering に入る。回す度に締まる。</p></div>
+  </div>
+  <h3>5 つの verify ゲート</h3>
+  <ul>
+    <li><b>ルール適合</b>（block）— global ∪ ドメインルールに違反なし</li>
+    <li><b>重複検出</b>（block）— 既存ドメインカードに似すぎ（ここだけ embedding をフラグに）</li>
+    <li><b>仕様結合</b>（warn→block）— 仕様クレームに結びつく。orphan = 逸脱疑い</li>
+    <li><b>結合デルタ</b>（warn）— 共有 state fan-in / ドメイン跨ぎ依存が <em>リポ自身の上位 %</em> 超</li>
+    <li><b>規約逸脱</b>（warn）— 命名/イディオムが兄弟コードから乖離</li>
+  </ul>
+</section>
+
+<section id="design">
+  <h2><span class="k">03</span>設計の柱</h2>
+  <p class="lead">3 つの設計原則と、層を貫く 1 本のアンカー ID。</p>
+  <div class="pillars">
+    <div class="h">原則 1</div>
+    <div class="b">キャッシュをデータ構造にする。コンテンツアドレッシング (Merkle) で無効化を構造から無料・正確に得る。</div>
+    <div class="h">原則 2</div>
+    <div class="b">静的・動的・仕様を同一アンカー ID で縫う。「存在する／実行された／仕様」が同じ ID で繋がる。</div>
+    <div class="h">原則 3</div>
+    <div class="b">結合は類似度でなく適合・証拠で。embedding は補助信号、契約と明示参照を一級市民に。</div>
+  </div>
+
+  <h3>用語</h3>
+  <ul>
+    <li><b>DAG</b> = 正規化 Merkle-AST（関数粒度・acyclic）＝キャッシュ土台。意味が同じなら同一 Anchor ID。</li>
+    <li><b>KG</b> = その上の派生ビュー（Kuzu 射影、関係クエリ用・循環可）。DAG が真実、KG は再生成。</li>
+    <li><b>ドメインカード</b> = キャッシュ・配信の単位。LLM が蒸留した正準サマリ（何のドメイン/契約/主要アンカー/仕様参照/複雑度）。</li>
+  </ul>
+
+  <h3>解析パイプライン（<code>analyze()</code>）</h3>
+  <div class="flow">
+    <span class="node">parse (tree-sitter)</span><span class="arr">→</span>
+    <span class="node">Merkle-AST DAG</span><span class="arr">→</span>
+    <span class="node">graph / KG (Kuzu)</span><span class="arr">→</span>
+    <span class="node">ドメイン・ルール</span><span class="arr">→</span>
+    <span class="node">コード↔仕様</span><span class="arr">→</span>
+    <span class="node">supply / verify</span><span class="arr">→</span>
+    <span class="node">アダプタ (MCP/CLI/Web)</span><span class="arr">→</span>
+    <span class="node">動的トレース</span>
+  </div>
+  <p>各層の役割と依存関係は <a href="architecture.html">アーキテクチャ／グラフビュー</a> でインタラクティブに辿れる。</p>
+</section>
+
+<section id="review">
+  <h2><span class="k">04</span>spec ↔ コード対応レビュー</h2>
+  <p class="lead">DESIGN.md / TASKS.md（T01–T49）/ analysis-procedure.md / README.md の記述と
+     実装 <code>src/</code> の対応をレビューした。</p>
+  <div class="review">
+    <div class="num">48/49</div>
+    <div class="txt"><b>タスクがフル実装・テスト済み。</b> 残り 1 件は DESIGN §13 に明記された意図的な保留
+      （実ゲームのトレース録画経路の配線）。README「MCP 7 ツール」「CLI 7 サブコマンド」「動的層はライブラリ API のみ」
+      などの主張はすべて実装と一致。設計が将来作業と明記したもの以外の齟齬は無し。
+      <br>→ 詳細は <a href="spec-code-review.html">spec↔code レビュー全文</a>。</div>
+  </div>
+  <div class="metrics">
+    <div class="metric"><div class="v">178</div><div class="l">TS ソースファイル</div></div>
+    <div class="metric"><div class="v">74</div><div class="l">テストファイル</div></div>
+    <div class="metric"><div class="v">G0–G10</div><div class="l">全ゲート配線済</div></div>
+    <div class="metric"><div class="v">7 + 7</div><div class="l">CLI + MCP ツール</div></div>
+  </div>
+</section>
+
+<section id="links">
+  <h2><span class="k">05</span>もっと見る</h2>
+  <div class="cards">
+    <div class="card"><div class="tag">本サイト</div><h4><a href="architecture.html">アーキテクチャ／グラフ</a></h4>
+      <p>ドメイン／機能のリストと、その依存関係を示すインタラクティブなグラフビュー。</p></div>
+    <div class="card"><div class="tag">本サイト</div><h4><a href="api.html">API リファレンス</a></h4>
+      <p>CLI・MCP・HTTP の全 API。トグルで展開して詳細・パラメータを確認できる。</p></div>
+    <div class="card"><div class="tag">本サイト</div><h4><a href="spec-code-review.html">spec↔code レビュー</a></h4>
+      <p>ゲート別の対応表と、主張の検証結果。</p></div>
+    <div class="card"><div class="tag">既存ドキュメント</div><h4><a href="anatomia-graph.html">関数レベル グラフ</a></h4>
+      <p>src/ の全関数ノードを描いた自己完結グラフ（<code>export-graph</code> 出力）。</p></div>
+    <div class="card"><div class="tag">既存ドキュメント</div><h4><a href="https://github.com/LUDIARS/Anatomia/blob/main/docs/self-analysis.md">自己解析レポート</a></h4>
+      <p>Anatomia 自身の src/ を解析した数値（命中率・複雑度ホットスポット）。</p></div>
+    <div class="card"><div class="tag">既存ドキュメント</div><h4><a href="https://github.com/LUDIARS/Anatomia/blob/main/docs/mcp-setup.md">MCP セットアップ</a></h4>
+      <p>AI ホストから supply/verify を回す MCP 接続手順。</p></div>
+  </div>
+</section>
+
+</div>
+
+<footer>
+  Anatomia — LUDIARS internal · 解剖して、結びつけて、AI のクリーンコード生成を支える。<br>
+  正本: <a href="https://github.com/LUDIARS/Anatomia/blob/main/DESIGN.md">DESIGN.md</a> ·
+  <a href="https://github.com/LUDIARS/Anatomia/blob/main/TASKS.md">TASKS.md</a>
+</footer>
+</body>
+</html>
+</content>

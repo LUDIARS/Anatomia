@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Anatomia — API リファレンス</title>
+<style>
+  :root{
+    --bg:#0f1117; --panel:#161b22; --panel2:#1c2230; --border:#30363d;
+    --fg:#e1e4e8; --muted:#8b949e; --dim:#6e7681; --accent:#58a6ff;
+    --cli:#3fb950; --mcp:#bc8cff; --web:#f0883e;
+    --get:#3fb950; --post:#58a6ff; --del:#f85149;
+  }
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--fg);
+       font-size:15px;line-height:1.6;}
+  a{color:var(--accent);text-decoration:none;}a:hover{text-decoration:underline;}
+  code{font-family:ui-monospace,Menlo,monospace;background:#21262d;border:1px solid var(--border);
+       border-radius:4px;padding:.08em .4em;font-size:.85em;}
+  nav{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:18px;flex-wrap:wrap;
+      padding:10px 22px;background:rgba(22,27,34,.95);border-bottom:1px solid var(--border);backdrop-filter:blur(6px);}
+  nav .logo{font-weight:700;color:var(--accent);font-size:1rem;}
+  nav a.navlink{color:var(--muted);font-size:.85rem;}nav a.navlink:hover{color:var(--fg);text-decoration:none;}
+  nav .spacer{margin-left:auto;}
+  .wrap{max-width:960px;margin:0 auto;padding:0 22px;}
+  header.hd{padding:40px 22px 24px;border-bottom:1px solid var(--border);}
+  header.hd h1{font-size:1.9rem;}
+  header.hd p{color:var(--muted);margin-top:8px;max-width:720px;}
+  .toolbar{position:sticky;top:51px;z-index:9;display:flex;gap:8px;flex-wrap:wrap;align-items:center;
+           padding:12px 0;background:var(--bg);}
+  .toolbar input{flex:1;min-width:180px;background:#21262d;color:var(--fg);border:1px solid var(--border);
+                 border-radius:7px;padding:8px 12px;font-size:.88rem;}
+  .tab{padding:6px 14px;border:1px solid var(--border);border-radius:999px;background:var(--panel);
+       color:var(--muted);font-size:.82rem;cursor:pointer;}
+  .tab.active{background:#21262d;color:var(--fg);border-color:#484f58;}
+  .actions{display:flex;gap:8px;}
+  .lnk{font-size:.78rem;color:var(--accent);cursor:pointer;}
+  .group{margin:30px 0 10px;}
+  .group h2{font-size:1.3rem;display:flex;align-items:center;gap:10px;}
+  .group h2 .pill{font-size:.68rem;border-radius:999px;padding:3px 10px;font-weight:600;letter-spacing:.04em;}
+  .group .gdesc{color:var(--muted);font-size:.88rem;margin:6px 0 4px;}
+  .pill.cli{background:rgba(63,185,80,.15);color:var(--cli);border:1px solid var(--cli);}
+  .pill.mcp{background:rgba(188,140,255,.15);color:var(--mcp);border:1px solid var(--mcp);}
+  .pill.web{background:rgba(240,136,62,.15);color:var(--web);border:1px solid var(--web);}
+  details{background:var(--panel);border:1px solid var(--border);border-radius:10px;margin:8px 0;overflow:hidden;}
+  details[open]{border-color:#484f58;}
+  summary{list-style:none;cursor:pointer;padding:13px 16px;display:flex;align-items:center;gap:12px;}
+  summary::-webkit-details-marker{display:none;}
+  summary:hover{background:#1a202b;}
+  summary .chev{color:var(--dim);transition:transform .15s;flex:none;}
+  details[open] summary .chev{transform:rotate(90deg);}
+  summary .sig{font-family:ui-monospace,monospace;font-weight:600;font-size:.92rem;}
+  summary .desc{color:var(--muted);font-size:.82rem;margin-left:auto;text-align:right;
+                white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:46%;}
+  .method{font-family:ui-monospace,monospace;font-weight:700;font-size:.72rem;padding:2px 7px;border-radius:5px;flex:none;}
+  .m-get{background:rgba(63,185,80,.16);color:var(--get);}
+  .m-post{background:rgba(88,166,255,.16);color:var(--post);}
+  .m-del{background:rgba(248,81,73,.16);color:var(--del);}
+  .body{padding:4px 18px 18px;border-top:1px solid var(--border);}
+  .body .role{color:#c9d1d9;font-size:.9rem;margin:14px 0;}
+  .lbl{font-size:.7rem;text-transform:uppercase;letter-spacing:.05em;color:var(--dim);margin:16px 0 7px;}
+  table{width:100%;border-collapse:collapse;font-size:.84rem;}
+  th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--border);vertical-align:top;}
+  th{color:var(--muted);font-weight:600;font-size:.74rem;text-transform:uppercase;letter-spacing:.04em;}
+  td.pname{font-family:ui-monospace,monospace;color:var(--accent);white-space:nowrap;}
+  td.ptype{font-family:ui-monospace,monospace;color:var(--mcp);font-size:.8rem;}
+  .req{color:#f85149;font-size:.72rem;font-weight:600;}
+  .opt{color:var(--dim);font-size:.72rem;}
+  .meta{display:flex;gap:18px;flex-wrap:wrap;margin-top:14px;font-size:.8rem;color:var(--muted);}
+  .meta b{color:#c9d1d9;font-weight:600;}
+  .meta code{font-size:.78rem;}
+  .noparam{color:var(--dim);font-size:.84rem;}
+  footer{padding:40px 22px 60px;color:var(--dim);font-size:.8rem;text-align:center;}
+</style>
+</head>
+<body>
+<nav>
+  <span class="logo">Anatomia</span>
+  <a class="navlink" href="index.html">← 概要</a>
+  <a class="navlink" href="architecture.html">アーキテクチャ／グラフ</a>
+  <a class="navlink" href="api.html">API</a>
+  <span class="spacer"></span>
+  <a class="navlink" href="https://github.com/LUDIARS/Anatomia/blob/main/docs/mcp-setup.md">MCP セットアップ ↗</a>
+</nav>
+
+<header class="hd">
+  <div class="wrap">
+    <h1>API リファレンス</h1>
+    <p>Anatomia が公開する 3 種の API。<b>CLI</b>（CI/手元）・<b>MCP</b>（AI ホスト常駐）・<b>HTTP</b>（Web パネル）。
+       各エントリをクリックするとトグル展開して、パラメータと詳細を確認できる。</p>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="toolbar">
+    <input id="search" type="text" placeholder="API 名・パラメータで検索…" />
+    <span class="tab active" data-f="all">すべて</span>
+    <span class="tab" data-f="cli">CLI</span>
+    <span class="tab" data-f="mcp">MCP</span>
+    <span class="tab" data-f="web">HTTP</span>
+    <span class="actions"><span class="lnk" id="expand-all">全展開</span><span class="lnk" id="collapse-all">全折り畳み</span></span>
+  </div>
+  <div id="list"></div>
+</div>
+
+<footer>
+  入口: <code>bin/anatomia.mjs</code>（CLI）· <code>bin/anatomia-mcp.mjs</code>（MCP）·
+  <code>anatomia web</code>（HTTP）。すべて <code>dist/</code> をロードするため、コード変更後は <code>npm run build</code>。
+</footer>
+
+<script>
+// ── API データ ───────────────────────────────────────────────
+// kind: cli|mcp|web ; params: [name,type,required,default,desc]
+const API = {
+  cli: { title:"CLI コマンド", desc:"入口 <code>bin/anatomia.mjs</code> → <code>src/adapters/cli.ts</code>。verify は block ゲート違反で exit 1。<code>--project</code> 無指定なら <code>--repo</code>（既定 cwd）を直接解析。",
+    items:[
+    {sig:"anatomia verify", desc:"diff を 5 ゲートで検証", file:"src/adapters/cli.ts",
+     role:"diff を再パースして 5 ゲート（rule_conformance / duplication / spec_linkage / coupling_delta / convention_drift）で検証する。クリーンコード生成の検証ループの肝。stdin から diff を受ける。",
+     params:[["--repo / -r","string",false,"cwd","リポジトリパス"],
+             ["--diff / -d","string",false,'"-"',"diff ファイルパス、または \"-\" で stdin"],
+             ["--project / -p","string",false,"—","対象の登録プロジェクト id（--repo を上書き）"],
+             ["--json / -j","flag",false,"false","人間向けサマリでなく生 JSON Verdict を出力"]],
+     ret:"Verdict（ゲート別 pass/fail + アンカー + 修正示唆）", extra:"終了コード: 0=PASS / 1=block ゲート失敗"},
+    {sig:"anatomia context", desc:"タスク用 ContextBundle を組む", file:"src/adapters/cli.ts",
+     role:"タスクに対し決定的な ContextBundle（着地点 / 適用ルール / 手本 / 既存ドメイン / 仕様束 / 影響半径 / 重複回避）を組んで返す。",
+     params:[["--repo / -r","string",false,"cwd","リポジトリパス"],
+             ["--task / -t","string",false,'"analyze"',"タスク記述"],
+             ["--project / -p","string",false,"—","対象の登録プロジェクト id"]],
+     ret:"ContextBundle（JSON）", extra:"終了コード: 0"},
+    {sig:"anatomia where", desc:"着地点を解決", file:"src/adapters/cli.ts",
+     role:"タスクの着地点（domain × layer × siblings）を解決する。前例アリは具体ファイルまで、新ドメインは層+提案。",
+     params:[["--repo / -r","string",false,"cwd","リポジトリパス"],
+             ["--task / -t","string",false,'"analyze"',"タスク記述"],
+             ["--project / -p","string",false,"—","対象の登録プロジェクト id"]],
+     ret:"{ landings: Landing[] }（JSON）", extra:"終了コード: 0"},
+    {sig:"anatomia export-graph", desc:"自己完結インタラクティブグラフを HTML 出力", file:"src/adapters/cli.ts",
+     role:"DAG/グラフを vis-network 自己完結 HTML として書き出す。",
+     params:[["<project-id-or-path>","string",false,"—","位置引数: プロジェクト id またはパス（省略時 --repo）"],
+             ["--repo / -r","string",false,"cwd","リポジトリパス"],
+             ["--output / -o","string",false,'"graph.html"',"出力ファイルパス"],
+             ["--project / -p","string",false,"—","対象の登録プロジェクト id"]],
+     ret:'テキスト: "exported graph to {file} ({files} files, {functions} functions)"', extra:"終了コード: 0"},
+    {sig:"anatomia project add <name> <path>", desc:"プロジェクトを登録", file:"src/adapters/cli.ts",
+     role:"プロジェクトを Anatomia home に登録する。以後 Merkle キャッシュが効く。",
+     params:[["<name>","string",true,"—","人間可読のプロジェクト名（位置引数）"],
+             ["<path>","string",true,"—","プロジェクト root の絶対パス（位置引数）"],
+             ["--json / -j","flag",false,"false","JSON 出力"]],
+     ret:'"added project \\"{id}\\" -> {path}" または Project（JSON）', extra:"終了コード: 0 / usage エラーで 1"},
+    {sig:"anatomia project list", desc:"登録プロジェクト一覧", file:"src/adapters/cli.ts",
+     role:"登録済みプロジェクトと選択中 id を一覧する（* = 選択中）。",
+     params:[["--json / -j","flag",false,"false","JSON 出力"]],
+     ret:"{ projects: Project[], selected: string|null }", extra:"終了コード: 0"},
+    {sig:"anatomia project remove <id>", desc:"プロジェクトを削除", file:"src/adapters/cli.ts",
+     role:"登録プロジェクトとそのキャッシュを削除する。",
+     params:[["<id>","string",true,"—","プロジェクト id（位置引数）"],
+             ["--json / -j","flag",false,"false","JSON 出力"]],
+     ret:'"removed project \\"{id}\\"" または { removed, id }', extra:"終了コード: 0 / 見つからなければ 1"},
+    {sig:"anatomia project analyze <id>", desc:"プロジェクトを解析（キャッシュ前提）", file:"src/adapters/cli.ts",
+     role:"登録プロジェクトを cache-aware に解析。変更が無ければヒットで即返る。id は部分一致可（resolveId）。",
+     params:[["<id>","string",true,"—","プロジェクト id（部分一致可）"],
+             ["--json / -j","flag",false,"false","JSON 出力"]],
+     ret:'"analyzed \\"{id}\\": {files} files, {functions} functions [(cache hit)]" または { project, files, functions, cacheHit }',
+     extra:"終了コード: 0 / 見つからなければ 1"},
+    {sig:"anatomia web", desc:"複数プロジェクト管理パネルを起動", file:"src/adapters/cli.ts",
+     role:"Hono HTTP サーバを起動。複数プロジェクト管理 + 解析 API + 動的トレース viz。",
+     params:[["--port","number",false,"4200","TCP ポート"],
+             ["--home","string",false,"~/.anatomia","registry + cache の Anatomia home"]],
+     ret:'常駐（"[anatomia/web] listening on http://localhost:{port}"）', extra:"終了コード: なし（常駐）"},
+    {sig:"anatomia cache-stats", desc:"LLM キャッシュ命中率を集計", file:"src/adapters/cli.ts",
+     role:"JSONL transcript を集計して global / namespace 別 / session 別の hit 率と節約コールを出す。",
+     params:[["--log / -l","string",false,"$ANATOMIA_CACHE_LOG","JSONL transcript パス"],
+             ["--json / -j","flag",false,"false","機械可読レポート"]],
+     ret:"CacheReport（命中率 + token 使用量）", extra:"終了コード: 0 / transcript 無しで 1"},
+  ]},
+
+  mcp: { title:"MCP ツール", desc:"入口 <code>bin/anatomia-mcp.mjs</code> → <code>src/adapters/mcp.ts</code>。スキーマは Zod。全 7 tool（4 core + 3 project）。<code>projects.*</code> は registry がある時だけ登録。返り値は JSON テキスト。",
+    items:[
+    {sig:"anatomia.context", desc:"決定的 ContextBundle を組む", file:"src/adapters/mcp.ts",
+     role:"AI コーディングタスク向けに決定的な ContextBundle を組んで返す。",
+     params:[["task","string",true,"—","自由記述のタスク説明"],
+             ["project","string",false,"選択中","プロジェクト id（既定=選択中）"]],
+     ret:"ContextBundle（JSON テキスト）"},
+    {sig:"anatomia.verify", desc:"diff を 5 ゲートで検証", file:"src/adapters/mcp.ts",
+     role:"コード diff に対し 5 ゲートの verify パイプラインを走らせる。",
+     params:[["diff","string",true,"—","検証する C++/C#/TS の diff"],
+             ["project","string",false,"選択中","プロジェクト id（既定=選択中）"]],
+     ret:"Verdict（JSON テキスト）"},
+    {sig:"anatomia.where", desc:"着地点を解決", file:"src/adapters/mcp.ts",
+     role:"コーディングタスクの着地点を解決する。",
+     params:[["task","string",true,"—","着地点を探すタスク記述"],
+             ["project","string",false,"選択中","プロジェクト id（既定=選択中）"]],
+     ret:"{ landings: Landing[] }（JSON テキスト）"},
+    {sig:"anatomia.impact", desc:"影響半径（BFS 到達アンカー）", file:"src/adapters/mcp.ts",
+     role:"あるコードアンカーから BFS で到達するアンカー集合（影響半径）を返す。",
+     params:[["anchor","string",true,"—","BFS の起点 AnchorId"],
+             ["project","string",false,"選択中","プロジェクト id（既定=選択中）"]],
+     ret:"{ anchors: string[] }（JSON テキスト）"},
+    {sig:"anatomia.projects.list", desc:"登録プロジェクト一覧", file:"src/adapters/mcp.ts",
+     role:"登録プロジェクトと現在の選択 id を一覧する（registry がある時のみ）。",
+     params:[], ret:"{ projects: Project[], selected: string|null }"},
+    {sig:"anatomia.projects.add", desc:"プロジェクトを登録", file:"src/adapters/mcp.ts",
+     role:"名前と root パスでプロジェクトを登録する（registry がある時のみ）。",
+     params:[["name","string",true,"—","人間可読のプロジェクト名"],
+             ["rootPath","string",true,"—","プロジェクト root の絶対パス"]],
+     ret:"{ project: Project }"},
+    {sig:"anatomia.projects.analyze", desc:"プロジェクトを解析", file:"src/adapters/mcp.ts",
+     role:"プロジェクトを cache-aware に解析し file/function 数を報告（registry がある時のみ）。",
+     params:[["project","string",false,"選択中","プロジェクト id（既定=選択中、部分一致可）"]],
+     ret:"{ project, files, functions, cacheHit }"},
+  ]},
+
+  web: { title:"HTTP ルート", desc:"<code>anatomia web</code> で起動（既定 :4200, Hono）。<code>src/adapters/web/server.ts</code> + <code>routes/*</code>。manager モードでのみ有効なルートは legacy 単一モードで 501 を返す。",
+    items:[
+    {method:"GET", sig:"/", desc:"管理パネル SPA を配信", file:"server.ts",
+     role:"管理パネルの HTML（public/index.html）を返す。",
+     params:[], ret:"HTML（200）"},
+    {method:"GET", sig:"/api/graph", desc:"コードノード + エッジ（legacy）", file:"server.ts",
+     role:"全コードノードとエッジ（kind で重複排除）を返す。",
+     params:[["project","string",false,"選択中","プロジェクト id"]], ret:"{ nodes, edges }"},
+    {method:"GET", sig:"/api/metrics", desc:"ノード別メトリクス（legacy）", file:"server.ts",
+     role:"全ノードの複雑度メトリクス（coupling/cyclomatic/fanIn/fanOut/domainOverlap/crossDomainDepth）。",
+     params:[["project","string",false,"選択中","プロジェクト id"]], ret:"NodeMetrics[]"},
+    {method:"GET", sig:"/api/domains", desc:"検出ドメイン名（legacy）", file:"server.ts",
+     role:"implementor を持つ検出ドメイン名 + カードを返す。",
+     params:[["project","string",false,"選択中","プロジェクト id"]], ret:"{ domains: string[], cards }"},
+    {method:"GET", sig:"/api/cache-stats", desc:"LLM キャッシュ命中率（global）", file:"routes/cache.ts",
+     role:"$ANATOMIA_CACHE_LOG transcript から集計した命中率。プロセス全体（プロジェクト非依存）。",
+     params:[], ret:"{ enabled:false } または { enabled:true, logPath, report }"},
+    {method:"GET", sig:"/api/trace/timeline", desc:"実行フレームのタイムライン (T40)", file:"server.ts",
+     role:"直近フレームのフレーム×ドメインタイムラインを返す。",
+     params:[["window","number",false,"60","含める直近フレーム数"]], ret:"TimelineData"},
+    {method:"GET", sig:"/api/trace/active", desc:"光るグラフ overlay (T41)", file:"server.ts",
+     role:"現在 active な実行 zone をコードノードに重ねる overlay。",
+     params:[["project","string",false,"選択中","プロジェクト id"]], ret:"ActiveOverlay"},
+    {method:"GET", sig:"/api/trace/where", desc:"You-are-here カーソル (T42)", file:"server.ts",
+     role:"現在の実行位置（frameId / domain / functionAnchorId / label / phase）。",
+     params:[], ret:"{ frameId, domain, functionAnchorId, label, phase }"},
+    {method:"POST", sig:"/api/verify", desc:"warm verify フック", file:"routes/harness.ts",
+     role:"warm キャッシュ済プロジェクト文脈に対し 5 ゲート verify を走らせる（初回後はサブ秒）。",
+     params:[["diff","string",true,"—","C++/C#/TS の diff"],
+             ["project","string",false,"選択中","プロジェクト id"],
+             ["targetPath","string",false,"—","解析対象の特定ファイルパス"]],
+     ret:"Verdict", extra:"200 / 400（diff 不正）/ 404（プロジェクト無し）"},
+    {method:"GET", sig:"/api/context", desc:"warm supply フック", file:"routes/harness.ts",
+     role:"warm キャッシュ済プロジェクトから決定的 ContextBundle を組む。",
+     params:[["project","string",false,"選択中","プロジェクト id"],
+             ["task","string",false,'"analyze"',"タスク記述"]],
+     ret:"ContextBundle", extra:"200 / 404"},
+    {method:"GET", sig:"/api/projects", desc:"プロジェクト一覧", file:"routes/projects.ts",
+     role:"登録プロジェクトと選択 id を返す（manager モードのみ）。",
+     params:[], ret:"{ projects, selected }"},
+    {method:"POST", sig:"/api/projects", desc:"登録 + 初回解析", file:"routes/projects.ts",
+     role:"プロジェクトを登録し初回解析する（manager モードのみ）。",
+     params:[["name","string",true,"—","プロジェクト名"],
+             ["rootPath","string",true,"—","root 絶対パス"]],
+     ret:"{ project, analyzed:{ files, functions } }", extra:"201 / 400 / 501"},
+    {method:"DELETE", sig:"/api/projects/:id", desc:"プロジェクト削除", file:"routes/projects.ts",
+     role:"プロジェクトとキャッシュを削除（manager モードのみ）。",
+     params:[["id","string",true,"—","プロジェクト id（パス）"]],
+     ret:"{ removed:true, id }", extra:"200 / 404 / 501"},
+    {method:"POST", sig:"/api/projects/:id/analyze", desc:"強制再解析", file:"routes/projects.ts",
+     role:"キャッシュを無効化してフル再解析する（manager モードのみ）。",
+     params:[["id","string",true,"—","プロジェクト id（パス）"]],
+     ret:"{ project, files, functions }", extra:"200 / 404 / 501"},
+    {method:"GET", sig:"/api/projects/:id/summary", desc:"集計カウント", file:"routes/analysis.ts",
+     role:"files/functions/nodes/edges/domains/links の集計。ソース不変ならスナップショットから高速返却。",
+     params:[["id","string",true,"—","プロジェクト id（パス）"]],
+     ret:"{ id, files, functions, nodes, edges, domains, links }", extra:"200 / 404"},
+    {method:"GET", sig:"/api/projects/:id/hotspots", desc:"Top-20 ホットスポット", file:"routes/analysis.ts",
+     role:"coupling→cyclomatic 降順で上位 20 関数（anchor/name/file/line + 各メトリクス）。",
+     params:[["id","string",true,"—","プロジェクト id（パス）"]],
+     ret:"hotspot[]（最大 20）", extra:"200 / 404"},
+    {method:"GET", sig:"/api/projects/:id/spec-links", desc:"コード↔仕様リンク", file:"routes/analysis.ts",
+     role:"code anchor ↔ spec clause のリンク（confidence/evidence/ratified 付き）。",
+     params:[["id","string",true,"—","プロジェクト id（パス）"]],
+     ret:"specLink[]", extra:"200 / 404"},
+    {method:"GET", sig:"/api/projects/:id/domains", desc:"検出ドメイン + 違反", file:"routes/analysis.ts",
+     role:"検出ドメインと conformance 違反数（domain/implementorCount/conforms/violationCount）。",
+     params:[["id","string",true,"—","プロジェクト id（パス）"]],
+     ret:"domain[]", extra:"200 / 404"},
+    {method:"GET", sig:"/api/projects/:id/vis-data", desc:"vis-network グラフデータ", file:"routes/analysis.ts",
+     role:"vis-network 互換のグラフデータ（nodes+edges）。export.ts と共有。",
+     params:[["id","string",true,"—","プロジェクト id（パス）"]],
+     ret:"{ nodes, edges }", extra:"200 / 404"},
+    {method:"POST", sig:"/api/cost-feed", desc:"コストエントリ ingest", file:"routes/cost.ts",
+     role:"外部サービスが push する per-session コスト要約を記録する。",
+     params:[["service","string",true,"—","サービス名（例 \"claude-code\"）"],
+             ["ts","number",false,"Date.now()","タイムスタンプ"],
+             ["sessions","object[]",true,"—","per-session 行（sessionId 必須、model/backend/calls/inputTokens/outputTokens/cacheReadTokens/cacheCreationTokens/costUsd は任意）"]],
+     ret:"{ ok:true, recorded:number }", extra:"200 / 400"},
+    {method:"GET", sig:"/api/cost-feed", desc:"集計コストレポート", file:"routes/cost.ts",
+     role:"全記録から per-service / per-model / totals を集計して返す。",
+     params:[], ret:"集計コストレポート", extra:"200"},
+  ]},
+};
+
+// ── レンダリング ─────────────────────────────────────────────
+const list=document.getElementById("list");
+function methodClass(m){return m==="GET"?"m-get":m==="POST"?"m-post":m==="DELETE"?"m-del":"m-get";}
+function paramRow(p){
+  const [name,type,req,def,desc]=p;
+  return `<tr><td class="pname">${name}</td><td class="ptype">${type}</td>
+    <td>${req?'<span class="req">必須</span>':'<span class="opt">任意</span>'}</td>
+    <td><code>${def}</code></td><td>${desc}</td></tr>`;
+}
+function render(){
+  list.innerHTML="";
+  for(const kind of ["cli","mcp","web"]){
+    const g=API[kind];
+    const sec=document.createElement("div"); sec.className="group"; sec.dataset.kind=kind;
+    sec.innerHTML=`<h2><span class="pill ${kind}">${kind.toUpperCase()}</span> ${g.title}</h2>
+                   <div class="gdesc">${g.desc}</div>`;
+    for(const it of g.items){
+      const d=document.createElement("details"); d.dataset.kind=kind;
+      const hay=(it.sig+" "+it.desc+" "+(it.params||[]).map(p=>p[0]+p[4]).join(" ")).toLowerCase();
+      d.dataset.hay=hay;
+      const methodTag=it.method?`<span class="method ${methodClass(it.method)}">${it.method}</span>`:"";
+      const paramsBlock=(it.params&&it.params.length)
+        ? `<div class="lbl">パラメータ</div><table><thead><tr><th>名前</th><th>型</th><th>要否</th><th>既定</th><th>説明</th></tr></thead>
+           <tbody>${it.params.map(paramRow).join("")}</tbody></table>`
+        : `<div class="lbl">パラメータ</div><div class="noparam">なし</div>`;
+      d.innerHTML=`<summary><span class="chev">▶</span>${methodTag}
+          <span class="sig">${it.sig}</span><span class="desc">${it.desc}</span></summary>
+        <div class="body">
+          <div class="role">${it.role}</div>
+          ${paramsBlock}
+          <div class="meta">
+            <span><b>返り値:</b> ${it.ret}</span>
+            ${it.extra?`<span><b>備考:</b> ${it.extra}</span>`:""}
+            <span><b>実装:</b> <code>${it.file}</code></span>
+          </div>
+        </div>`;
+      sec.appendChild(d);
+    }
+    list.appendChild(sec);
+  }
+}
+render();
+
+// ── フィルタ / 検索 / 一括展開 ───────────────────────────────
+let curFilter="all";
+function applyFilter(){
+  const q=document.getElementById("search").value.trim().toLowerCase();
+  document.querySelectorAll(".group").forEach(sec=>{
+    let any=false;
+    sec.querySelectorAll("details").forEach(d=>{
+      const okKind=curFilter==="all"||d.dataset.kind===curFilter;
+      const okQ=!q||d.dataset.hay.includes(q);
+      const show=okKind&&okQ; d.style.display=show?"":"none"; if(show)any=true;
+      if(q&&show)d.open=true; if(!q)d.open=false;
+    });
+    sec.style.display=any?"":"none";
+  });
+}
+document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>{
+  document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));
+  t.classList.add("active"); curFilter=t.dataset.f; applyFilter();
+});
+document.getElementById("search").addEventListener("input",applyFilter);
+document.getElementById("expand-all").onclick=()=>document.querySelectorAll("details").forEach(d=>{if(d.style.display!=="none")d.open=true;});
+document.getElementById("collapse-all").onclick=()=>document.querySelectorAll("details").forEach(d=>d.open=false);
+</script>
+</body>
+</html>
+</content>

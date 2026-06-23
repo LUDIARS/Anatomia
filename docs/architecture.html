@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Anatomia — アーキテクチャ／グラフビュー</title>
+<script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+<style>
+  :root{
+    --bg:#0f1117; --panel:#161b22; --panel2:#1c2230; --border:#30363d;
+    --fg:#e1e4e8; --muted:#8b949e; --dim:#6e7681; --accent:#58a6ff;
+  }
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+  html,body{height:100%;}
+  body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--fg);
+       display:flex;flex-direction:column;font-size:14px;}
+  a{color:var(--accent);text-decoration:none;}a:hover{text-decoration:underline;}
+  code{font-family:ui-monospace,Menlo,monospace;background:#21262d;border:1px solid var(--border);
+       border-radius:4px;padding:.05em .35em;font-size:.85em;}
+  nav{flex:none;display:flex;align-items:center;gap:18px;flex-wrap:wrap;padding:10px 20px;
+      background:var(--panel);border-bottom:1px solid var(--border);}
+  nav .logo{font-weight:700;color:var(--accent);font-size:1rem;}
+  nav a.navlink{color:var(--muted);font-size:.85rem;}nav a.navlink:hover{color:var(--fg);text-decoration:none;}
+  nav .spacer{margin-left:auto;}
+  .controls{flex:none;display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:8px 20px;
+            background:#13171f;border-bottom:1px solid var(--border);font-size:.82rem;color:var(--muted);}
+  .controls select,.controls input{background:#21262d;color:var(--fg);border:1px solid var(--border);
+            border-radius:5px;padding:4px 9px;font-size:.82rem;}
+  .controls .hint{margin-left:auto;color:var(--dim);font-size:.76rem;}
+  #main{flex:1;display:flex;min-height:0;}
+  #graph-wrap{flex:1;position:relative;min-width:0;}
+  #graph{width:100%;height:100%;}
+  #legend{position:absolute;left:12px;bottom:12px;background:rgba(22,27,34,.92);border:1px solid var(--border);
+          border-radius:8px;padding:10px 12px;max-width:230px;backdrop-filter:blur(4px);}
+  #legend h3{font-size:.7rem;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);margin-bottom:7px;}
+  .lg{display:flex;align-items:center;gap:7px;font-size:.74rem;padding:2px 0;color:#c9d1d9;cursor:pointer;}
+  .lg .sw{width:11px;height:11px;border-radius:3px;flex:none;}
+  .lg.off{opacity:.35;}
+  #side{width:320px;flex:none;background:var(--panel);border-left:1px solid var(--border);
+        overflow-y:auto;padding:16px;}
+  #side .placeholder{color:var(--dim);font-size:.85rem;}
+  #side h2{font-size:1.05rem;margin-bottom:2px;}
+  #side .grp{display:inline-block;font-size:.68rem;text-transform:uppercase;letter-spacing:.05em;
+             border:1px solid var(--border);border-radius:999px;padding:2px 9px;color:var(--muted);margin:6px 0 12px;}
+  #side .role{color:var(--muted);font-size:.88rem;margin-bottom:14px;}
+  #side .lbl{font-size:.68rem;text-transform:uppercase;letter-spacing:.05em;color:var(--dim);
+             margin:14px 0 5px;}
+  #side ul{margin:0 0 0 16px;}#side li{font-size:.82rem;margin:3px 0;color:#c9d1d9;}
+  #side .files code{display:block;margin:3px 0;font-size:.78rem;}
+  .deps span{display:inline-block;background:var(--panel2);border:1px solid var(--border);border-radius:5px;
+             padding:2px 7px;font-size:.74rem;margin:2px 3px 2px 0;font-family:ui-monospace,monospace;cursor:pointer;}
+  /* feature list */
+  #features{flex:none;background:#0c0e14;border-top:1px solid var(--border);padding:26px 20px 50px;}
+  #features h2{font-size:1.25rem;margin-bottom:4px;}
+  #features p.lead{color:var(--muted);font-size:.9rem;margin-bottom:18px;max-width:760px;}
+  .gate-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;}
+  .gate{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px 16px;}
+  .gate .gh{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
+  .gate .dot{width:10px;height:10px;border-radius:3px;flex:none;}
+  .gate .gk{font-family:ui-monospace,monospace;font-weight:700;font-size:.82rem;}
+  .gate .gt{font-size:.82rem;color:var(--muted);}
+  .gate ul{margin:0 0 0 16px;}.gate li{font-size:.8rem;margin:4px 0;color:#c9d1d9;}
+  .gate li span{color:var(--dim);}
+  @media(max-width:820px){#side{display:none;}}
+</style>
+</head>
+<body>
+<nav>
+  <span class="logo">Anatomia</span>
+  <a class="navlink" href="index.html">← 概要</a>
+  <a class="navlink" href="architecture.html">アーキテクチャ／グラフ</a>
+  <a class="navlink" href="api.html">API</a>
+  <span class="spacer"></span>
+  <a class="navlink" href="anatomia-graph.html">関数レベルグラフ ↗</a>
+</nav>
+
+<div class="controls">
+  <span>ゲート絞り込み:</span>
+  <select id="gate-filter"><option value="">すべて</option></select>
+  <input id="search" type="text" placeholder="モジュール名で検索…" />
+  <span class="hint">ノードをクリックで詳細・依存先 ⟶ 右パネル。凡例クリックで層を ON/OFF。</span>
+</div>
+
+<div id="main">
+  <div id="graph-wrap">
+    <div id="graph"></div>
+    <div id="legend"><h3>層（ゲート）</h3></div>
+  </div>
+  <aside id="side"><div class="placeholder">ノードをクリックすると、そのモジュールの役割・主要エクスポート・依存先がここに出ます。</div></aside>
+</div>
+
+<div id="features">
+  <h2>ドメイン／機能リスト</h2>
+  <p class="lead">Anatomia の機能を設計ゲート（G0–G10）別にまとめたもの。上のグラフは、これらのモジュール間の
+     <b>依存関係（A → B = A が B を使う）</b>を描いている。パイプラインは
+     parse → DAG → graph/KG → ドメイン・ルール → コード↔仕様 → supply/verify → アダプタ → 動的トレース の順。</p>
+  <div class="gate-grid" id="gate-grid"></div>
+</div>
+
+<script>
+// ── 群（ゲート）定義 ──────────────────────────────────────────
+const GROUPS = {
+  core:   {color:"#ff7b72", label:"core — オーケストレータ"},
+  G0:     {color:"#6e7681", label:"G0 — scaffold / 型"},
+  G1:     {color:"#58a6ff", label:"G1 — 静的 DAG"},
+  G2:     {color:"#79c0ff", label:"G2 — グラフ / KG"},
+  G3:     {color:"#bc8cff", label:"G3 — ドメイン / ルール"},
+  G4:     {color:"#f778ba", label:"G4 — コード↔仕様"},
+  G5:     {color:"#3fb950", label:"G5 — supply / verify"},
+  G6:     {color:"#f0883e", label:"G6 — アダプタ"},
+  G7:     {color:"#d29922", label:"G7 — 動的トレース"},
+  G8:     {color:"#e3b341", label:"G8 — 動的可視化"},
+  G10:    {color:"#ffa657", label:"G10 — 局面学習"},
+  support:{color:"#8b949e", label:"support — 横断基盤"},
+};
+
+// ── ノード（モジュール）定義 ─────────────────────────────────
+const MODULES = [
+  {id:"core", label:"core / analyze()", group:"core", tasks:"T43–T44",
+   role:"G1–G5 を一気通貫に配線するパイプライン。analyze() が parse→DAG→graph→domains→spec→supply/verify を組む。",
+   exports:["analyze()","buildContextBundle()","buildVerdict()","getImpactRadius()"], files:["src/core.ts"]},
+
+  {id:"types", label:"types", group:"G0", tasks:"T02",
+   role:"全層を連結する中核型の単一ソース。AnchorId / AstNode / FunctionNode / Edge / Rule / SpecClause / ContextBundle / Verdict。",
+   exports:["AnchorId","FunctionNode","Edge","ContextBundle","Verdict"], files:["src/types.ts"]},
+  {id:"plugins", label:"plugins", group:"G0", tasks:"T01",
+   role:"ANATOMIA_PLUGIN_DIR からドメイン／言語 plugin をロードする土台。",
+   exports:["loadPlugins()"], files:["src/plugins/loader.ts"]},
+  {id:"fs", label:"fs / walk", group:"support", tasks:"T01",
+   role:"ソース収集。node_modules / dist / .git を除外して .cpp/.h/.cs/.ts/.tsx/.md を再帰収集。",
+   exports:["collectFilesByExt()","EXCLUDE_DIRS"], files:["src/fs/walk.ts"]},
+
+  {id:"dag.parser", label:"dag · parser", group:"G1", tasks:"T03",
+   role:"言語フロントエンド。web-tree-sitter + grammar WASM で source→AST（C++/C#/TS/TSX）。",
+   exports:["parse()"], files:["src/dag/parser.ts"]},
+  {id:"dag.extract", label:"dag · extract", group:"G1", tasks:"T04",
+   role:"AST→関数/メソッドノード列（ネスト・オーバーロード含む）。",
+   exports:["extractFunctions()"], files:["src/dag/extract.ts"]},
+  {id:"dag.normalize", label:"dag · normalize", group:"G1", tasks:"T05",
+   role:"整形/コメント無視 + ローカル変数 α 正規化。公開シンボル/型/呼び先は保持。",
+   exports:["normalize()"], files:["src/dag/normalize.ts"]},
+  {id:"dag.hash", label:"dag · hash", group:"G1", tasks:"T06",
+   role:"正規化関数→安定 Merkle ハッシュ = Anchor ID。意味が同じなら同一 ID（キャッシュ土台）。",
+   exports:["assignAnchorId()","hashFunction()"], files:["src/dag/hash.ts"]},
+  {id:"dag.merkle", label:"dag · merkle", group:"G1", tasks:"T07",
+   role:"関数ハッシュ集合→ファイル/リポ Merkle ノード（子→親）。バージョニング兼無効化。",
+   exports:["buildFileNode()","buildRepoNode()"], files:["src/dag/merkle.ts"]},
+  {id:"dag.diff", label:"dag · diff", group:"G1", tasks:"T08",
+   role:"2 版の木→added/updated/unchanged を hash 比較で分類。verify の差分再パースの基盤。",
+   exports:["diffFiles()"], files:["src/dag/diff.ts"]},
+  {id:"dag.incremental", label:"dag · incremental", group:"G1", tasks:"T09",
+   role:"変更ファイルだけ再パース→DAG 部分更新（祖先ハッシュ伝播）。",
+   exports:["reindex()"], files:["src/dag/incremental.ts"]},
+  {id:"dag.measure", label:"dag · measure", group:"G1", tasks:"T10",
+   role:"命中率計測ハーネス。false-invalidation / false-collision 率を出す。",
+   exports:["measureCorpus()"], files:["src/dag/measure.ts"]},
+
+  {id:"graph.build", label:"graph · build", group:"G2", tasks:"T11",
+   role:"関数ノード + calls/depends/reads-writes エッジを AST から構築。循環（再帰）保持。",
+   exports:["buildGraph()","extractEdgeInfo()"], files:["src/graph/build.ts"]},
+  {id:"graph.query", label:"graph · query", group:"G2", tasks:"T12",
+   role:"グラフ問い合わせの抽象境界（近傍/集計/述語）。in-memory と Kuzu を差し替え可能に。",
+   exports:["CodeGraphQuery (interface)"], files:["src/graph/query.ts"]},
+  {id:"graph.inmemory", label:"graph · in-memory", group:"G2", tasks:"T12",
+   role:"インメモリ CodeGraph 実装。adapters の既定。",
+   exports:["InMemoryCodeGraph"], files:["src/graph/in-memory.ts"]},
+  {id:"graph.kuzu", label:"graph · kuzu (KG)", group:"G2", tasks:"T13",
+   role:"Kuzu 永続 materialized view。DAG が真実、KG は再生成。traceability クエリ用。",
+   exports:["KuzuCodeGraph"], files:["src/graph/kuzu.ts"]},
+
+  {id:"domains.predicate", label:"domains · predicate", group:"G3", tasks:"T14",
+   role:"NodeFilter マッチング（kind/name/tags）でノードを選択する述語ヘルパ。",
+   exports:["matchesFilter()","selectNodes()"], files:["src/domains/predicate.ts"]},
+  {id:"domains.engine", label:"domains · engine", group:"G3", tasks:"T14",
+   role:"ルール述語エンジン。Predicate ADT（EdgeForbidden/FanInCap/NoCycle/Template）をグラフ上で評価→違反列。",
+   exports:["evaluatePredicate()"], files:["src/domains/engine.ts"]},
+  {id:"domains.presets", label:"domains · presets", group:"G3", tasks:"T15",
+   role:"パラメータ付き preset（層依存/state アクセス/呼び出し禁止/結合上限/no-cycle/hot-path alloc）→述語化。",
+   exports:["buildPresetPredicate()","PRESET_FACTORIES"], files:["src/domains/presets.ts"]},
+  {id:"domains.matcher", label:"domains · matcher", group:"G3", tasks:"T16",
+   role:"構造 AST テンプレートマッチャ（メタ変数検出・Semgrep 流）。template ルールの基盤。",
+   exports:["matchTemplateAst()","isMetavar()"], files:["src/domains/matcher.ts"]},
+  {id:"domains.template", label:"domains · template", group:"G3", tasks:"T16",
+   role:"禁止/推奨コード片→TemplatePredicate にコンパイル。正例・負例両対応。",
+   exports:["compileTemplate()","evaluateTemplate()"], files:["src/domains/template.ts"]},
+  {id:"domains.mining", label:"domains · mining", group:"G3", tasks:"T17",
+   role:"既存の良い実装を指して「これが満たすルール候補」を逆生成（信頼度付き）。",
+   exports:["mineRules()"], files:["src/domains/mining.ts"]},
+  {id:"domains.ontology", label:"domains · ontology", group:"G3", tasks:"T18",
+   role:"builtin + plugin のドメイン語彙ローダ。DomainDef（名前/検出ルール/契約）。",
+   exports:["loadOntology()","BUILTIN_DOMAINS"], files:["src/domains/ontology.ts"]},
+  {id:"domains.detect", label:"domains · detect", group:"G3", tasks:"T19",
+   role:"オントロジーで、あるドメインを担う関数群を conformance 判定（真偽+根拠）。",
+   exports:["detectDomains()"], files:["src/domains/detect.ts"]},
+  {id:"domains.card", label:"domains · card", group:"G3", tasks:"T20",
+   role:"ドメインの関数群+仕様→カードを LLM 蒸留。Merkle ハッシュを content-key にキャッシュ。",
+   exports:["generateCard()","createCardCache()"], files:["src/domains/card.ts"]},
+
+  {id:"spec.parse", label:"spec · parse", group:"G4", tasks:"T21",
+   role:"spec/*.md・DESIGN.md→SpecClause（本文+出自+embedding）。節/箇条単位に分割。",
+   exports:["parseSpecFiles()"], files:["src/spec/parse.ts"]},
+  {id:"spec.explicit", label:"spec · explicit", group:"G4", tasks:"T22",
+   role:"@implements SPEC-xxx / 仕様内シンボル参照→確定（高信頼度）エッジ。",
+   exports:["findExplicitLinks()"], files:["src/spec/explicit.ts"]},
+  {id:"spec.structural", label:"spec · structural", group:"G4", tasks:"T23",
+   role:"命名・配置ヒューリスティックでコード↔仕様を中信頼度リンク。",
+   exports:["findStructuralLinks()"], files:["src/spec/structural.ts"]},
+  {id:"spec.semantic", label:"spec · semantic", group:"G4", tasks:"T24",
+   role:"embedding/LLM で段落↔コード照合（低信頼度・信号）。",
+   exports:["findSemanticLinks()"], files:["src/spec/semantic.ts"]},
+  {id:"spec.harden", label:"spec · harden", group:"G4", tasks:"T25",
+   role:"硬化ループ。低信頼度リンクを批准→明示昇格→キャッシュ命中率が上がる。",
+   exports:["ratify()","hardenLoop()"], files:["src/spec/harden.ts"]},
+  {id:"spec.linkstore", label:"spec · link-store", group:"G4", tasks:"T25",
+   role:"コード↔仕様リンクの append-only JSONL 永続ストア。インクリメンタル再リンク。",
+   exports:["LinkStore"], files:["src/spec/link-store.ts"]},
+
+  {id:"supply.metrics", label:"supply · metrics", group:"G5", tasks:"T26",
+   role:"game-aware 複雑度メトリクス（ドメインオーバーラップ/共有 state fan-in/ドメイン跨ぎ深さ）を DAG/KG 集計。",
+   exports:["computeMetrics()"], files:["src/supply/metrics.ts"]},
+  {id:"supply.thresholds", label:"supply · thresholds", group:"G5", tasks:"T26",
+   role:"codebase 相対閾値。固定値でなくリポ自身の分布（上位 %）から導出。",
+   exports:["deriveThresholds()","isFlagged()"], files:["src/supply/thresholds.ts"]},
+  {id:"supply.landing", label:"supply · landing", group:"G5", tasks:"T27",
+   role:"着地点 = f(ドメイン, 層ルール, 既存兄弟)。前例アリ=決定的、novel=層+提案。",
+   exports:["resolveLanding()"], files:["src/supply/landing.ts"]},
+  {id:"supply.bundle", label:"supply · bundle", group:"G5", tasks:"T28",
+   role:"クリーン文脈束を決定的に組む（着地点/ルール/手本/仕様/影響半径/重複回避）。content-addressed・不変前可変後ろ。",
+   exports:["assembleBundle()","bundleContentKey()"], files:["src/supply/bundle.ts"]},
+  {id:"supply.verify", label:"supply · verify", group:"G5", tasks:"T29",
+   role:"verify オーケストレータ。diff を再パースし 5 ゲートを走らせ構造化 Verdict を返す。",
+   exports:["verify()","buildDefaultGates()"], files:["src/supply/verify.ts"]},
+  {id:"supply.gates", label:"supply · gates (5)", group:"G5", tasks:"T29",
+   role:"5 ゲート: rule_conformance / duplication / spec_linkage / coupling_delta / convention_drift。",
+   exports:["ruleConformanceGate()","duplicationGate()","specLinkageGate()","couplingDeltaGate()","conventionDriftGate()"],
+   files:["src/supply/gates/*.ts"]},
+
+  {id:"providers", label:"providers", group:"support", tasks:"A-2",
+   role:"LLM + embedder を env/config から解決。未設定なら stub LLM / hash-embedder に graceful fallback（hermetic）。",
+   exports:["resolveProviders()","createAnthropicLlm()","createHashEmbedder()"], files:["src/providers/*.ts"]},
+  {id:"cache", label:"cache", group:"support", tasks:"A-3",
+   role:"content-addressed 決定的キャッシュ。versionedKey（内容/モデル/プロンプト版）。優先度 Redis>File>memory。transcript/stats で計測。",
+   exports:["createMemoryStore()","createFileStore()","createRedisStore()","versionedKey()","aggregate()"],
+   files:["src/cache/*.ts"]},
+  {id:"project", label:"project", group:"support", tasks:"T31",
+   role:"複数プロジェクト管理。registry + snapshot store + fingerprint キャッシュ + manager。登録 root を解析対象に。",
+   exports:["ProjectRegistry","ProjectManager","AnalysisCache"], files:["src/project/*.ts"]},
+  {id:"cost", label:"cost", group:"support", tasks:"dashboard",
+   role:"他サービスが push する per-session コストを ingest・集計（JSONL）。dashboard 表示用。",
+   exports:["CostFeed","aggregate()"], files:["src/cost/*.ts"]},
+
+  {id:"adapters.mcp", label:"adapters · MCP", group:"G6", tasks:"T30",
+   role:"MCP サーバ。anatomia.context/.verify/.where/.impact + projects.{list,add,analyze} = 7 tool。",
+   exports:["createServer()","AnatomiaServer"], files:["src/adapters/mcp.ts"]},
+  {id:"adapters.cli", label:"adapters · CLI", group:"G6", tasks:"T31",
+   role:"CLI ゲート。verify/context/where/project/export-graph/web/cache-stats。block 違反で exit 1。",
+   exports:["main()"], files:["src/adapters/cli.ts"]},
+  {id:"adapters.web", label:"adapters · Web", group:"G6", tasks:"T32",
+   role:"Hono HTTP サーバ。複数プロジェクト管理パネル + 解析 API + 動的トレース viz + コスト feed。",
+   exports:["createApp()","startServer()"], files:["src/adapters/web/*.ts"]},
+
+  {id:"dynamic.skeleton", label:"dynamic · skeleton", group:"G7", tasks:"T33",
+   role:"main()/tick から call graph で System tick 順序 =「あるべきループ構造」を描く。",
+   exports:["extractLoopSkeleton()"], files:["src/dynamic/skeleton.ts"]},
+  {id:"dynamic.inject", label:"dynamic · inject (C++/C#)", group:"G7", tasks:"T34–T35",
+   role:"ドメイン入口に Anchor ID 埋め込みのスコープマーカーを codegen（C++ / C# ProfilerMarker）。",
+   exports:["injectCpp()","injectCsharp()"], files:["src/dynamic/inject-cpp.ts","src/dynamic/inject-csharp.ts"]},
+  {id:"dynamic.runtime", label:"dynamic · runtime", group:"G7", tasks:"T36–T37",
+   role:"フレーム同期スコープ計測ランタイム。protocol（フレーム符号化）+ ringbuffer + transport（別プロセスへ stream）。",
+   exports:["RingBuffer","encodeFrame()","Transport"], files:["src/dynamic/protocol.ts","src/dynamic/ringbuffer.ts","src/dynamic/transport.ts"]},
+  {id:"dynamic.stitch", label:"dynamic · stitch", group:"G7", tasks:"T38",
+   role:"zone(Anchor ID) ↔ ドメインカードを join。フレーム N の active ドメインを出す。",
+   exports:["stitchFrame()"], files:["src/dynamic/stitch.ts"]},
+  {id:"dynamic.buildstrategy", label:"dynamic · build-strategy", group:"G7", tasks:"T39",
+   role:"計測ビルド戦略。Release 計測フラグでマーカー有効/無効を切替。",
+   exports:["BuildStrategy"], files:["src/dynamic/build-strategy.ts"]},
+
+  {id:"dynamic.viz", label:"dynamic · viz", group:"G8", tasks:"T40–T42",
+   role:"動的可視化。timeline（フレーム×ドメイン）/ active overlay（光るグラフ）/ where（You-are-here カーソル+phase）。",
+   exports:["buildTimeline()","buildActiveOverlay()","buildWhere()"], files:["src/dynamic/viz/*.ts"]},
+
+  {id:"dynamic.phase", label:"dynamic · phase (局面学習)", group:"G10", tasks:"T45–T49",
+   role:"局面学習。signature（決定的離散化）→ discover（語彙）→ FSM induction → label（LLM・cached）→ classify（オンライン現在地）。",
+   exports:["frameSignature()","discoverPhases()","induceFsm()","labelPhase()","classifyFrame()"],
+   files:["src/dynamic/phase/*.ts"]},
+];
+
+// ── 依存エッジ（from が to を使う）─────────────────────────────
+const DEPS = [
+  ["core","fs"],["core","dag.parser"],["core","dag.extract"],["core","dag.normalize"],
+  ["core","dag.hash"],["core","dag.merkle"],["core","graph.build"],["core","graph.inmemory"],
+  ["core","domains.ontology"],["core","domains.detect"],["core","domains.card"],
+  ["core","spec.parse"],["core","spec.explicit"],["core","spec.structural"],
+  ["core","supply.landing"],["core","supply.bundle"],["core","supply.verify"],
+  ["dag.extract","dag.parser"],["dag.normalize","dag.extract"],["dag.hash","dag.normalize"],
+  ["dag.merkle","dag.hash"],["dag.diff","dag.merkle"],
+  ["dag.incremental","dag.parser"],["dag.incremental","dag.merkle"],["dag.measure","dag.hash"],
+  ["graph.build","dag.merkle"],["graph.inmemory","graph.query"],["graph.kuzu","graph.query"],
+  ["domains.engine","domains.predicate"],["domains.engine","graph.query"],
+  ["domains.presets","domains.engine"],["domains.template","domains.matcher"],
+  ["domains.mining","domains.template"],
+  ["domains.detect","domains.ontology"],["domains.detect","domains.engine"],["domains.detect","graph.query"],
+  ["domains.card","graph.query"],["domains.card","cache"],["domains.card","providers"],
+  ["spec.harden","spec.parse"],["spec.semantic","providers"],
+  ["supply.metrics","graph.query"],["supply.thresholds","supply.metrics"],
+  ["supply.landing","domains.detect"],["supply.bundle","supply.landing"],
+  ["supply.verify","supply.bundle"],["supply.verify","supply.gates"],
+  ["supply.gates","domains.engine"],["supply.gates","domains.card"],
+  ["supply.gates","supply.metrics"],["supply.gates","supply.thresholds"],["supply.gates","spec.linkstore"],
+  ["adapters.mcp","core"],["adapters.mcp","supply.landing"],["adapters.mcp","project"],
+  ["adapters.mcp","providers"],["adapters.mcp","cache"],
+  ["adapters.cli","core"],["adapters.cli","supply.landing"],["adapters.cli","project"],
+  ["adapters.cli","adapters.web"],["adapters.cli","cache"],
+  ["adapters.web","project"],["adapters.web","providers"],["adapters.web","cache"],
+  ["adapters.web","cost"],["adapters.web","core"],["adapters.web","dynamic.viz"],
+  ["project","core"],["project","dag.merkle"],["project","fs"],
+  ["dynamic.skeleton","graph.query"],["dynamic.stitch","domains.card"],
+  ["dynamic.stitch","dynamic.runtime"],["dynamic.runtime","dynamic.inject"],
+  ["dynamic.viz","dynamic.stitch"],["dynamic.viz","dynamic.phase"],
+  ["dynamic.phase","dynamic.stitch"],["dynamic.phase","providers"],["dynamic.phase","cache"],
+];
+
+// ── グラフ構築 ───────────────────────────────────────────────
+const byId = Object.fromEntries(MODULES.map(m=>[m.id,m]));
+const nodes = new vis.DataSet(MODULES.map(m=>({
+  id:m.id, label:m.label, group:m.group,
+  color:{background:GROUPS[m.group].color, border:"#0d1117",
+         highlight:{background:GROUPS[m.group].color,border:"#fff"}},
+  font:{color:"#0d1117", size:13, face:"system-ui", strokeWidth:0},
+  shape:"box", margin:8, borderWidth:1, shadow:false,
+})));
+const edges = new vis.DataSet(DEPS.map(([f,t],i)=>({
+  id:i, from:f, to:t, arrows:{to:{enabled:true,scaleFactor:.5}},
+  color:{color:"#3a414c",highlight:"#58a6ff",opacity:.8}, smooth:{type:"continuous"}, width:1,
+})));
+
+const container = document.getElementById("graph");
+const network = new vis.Network(container,{nodes,edges},{
+  layout:{improvedLayout:true},
+  physics:{barnesHut:{gravitationalConstant:-7000,springLength:130,springConstant:.03,damping:.5,avoidOverlap:.4},
+           stabilization:{iterations:280}},
+  interaction:{hover:true,tooltipDelay:120,navigationButtons:false,keyboard:false},
+  nodes:{widthConstraint:{maximum:150}},
+});
+
+// ── 凡例 ─────────────────────────────────────────────────────
+const legend = document.getElementById("legend");
+const hidden = new Set();
+for(const [k,g] of Object.entries(GROUPS)){
+  const row=document.createElement("div"); row.className="lg"; row.dataset.g=k;
+  row.innerHTML=`<span class="sw" style="background:${g.color}"></span><span>${g.label}</span>`;
+  row.onclick=()=>{ if(hidden.has(k)){hidden.delete(k);row.classList.remove("off");}
+                    else{hidden.add(k);row.classList.add("off");} applyFilter(); };
+  legend.appendChild(row);
+}
+// gate filter dropdown
+const gf=document.getElementById("gate-filter");
+for(const [k,g] of Object.entries(GROUPS)){
+  const o=document.createElement("option"); o.value=k; o.textContent=g.label; gf.appendChild(o);
+}
+gf.onchange=applyFilter;
+document.getElementById("search").addEventListener("input",applyFilter);
+
+function applyFilter(){
+  const only=gf.value, q=document.getElementById("search").value.trim().toLowerCase();
+  nodes.forEach(n=>{
+    const m=byId[n.id];
+    let vis_=true;
+    if(hidden.has(m.group)) vis_=false;
+    if(only && m.group!==only) vis_=false;
+    if(q && !(m.id.toLowerCase().includes(q)||m.label.toLowerCase().includes(q))) vis_=false;
+    nodes.update({id:n.id, hidden:!vis_});
+  });
+}
+
+// ── 詳細パネル ───────────────────────────────────────────────
+const side=document.getElementById("side");
+function showDetail(id){
+  const m=byId[id]; if(!m) return;
+  const depsOut=DEPS.filter(d=>d[0]===id).map(d=>d[1]);
+  const depsIn=DEPS.filter(d=>d[1]===id).map(d=>d[0]);
+  const chip=arr=>arr.length?arr.map(x=>`<span data-go="${x}">${x}</span>`).join(""):'<span style="opacity:.5;cursor:default">—</span>';
+  side.innerHTML=`
+    <h2>${m.label}</h2>
+    <span class="grp" style="border-color:${GROUPS[m.group].color};color:${GROUPS[m.group].color}">${m.group} · ${m.tasks}</span>
+    <div class="role">${m.role}</div>
+    <div class="lbl">主要エクスポート</div>
+    <ul>${m.exports.map(e=>`<li><code>${e}</code></li>`).join("")}</ul>
+    <div class="lbl">ファイル</div>
+    <div class="files">${m.files.map(f=>`<code>${f}</code>`).join("")}</div>
+    <div class="lbl">依存先 (このモジュール → )</div>
+    <div class="deps">${chip(depsOut)}</div>
+    <div class="lbl">依存元 ( → このモジュール)</div>
+    <div class="deps">${chip(depsIn)}</div>`;
+  side.querySelectorAll("[data-go]").forEach(el=>el.onclick=()=>{ const t=el.dataset.go;
+     network.selectNodes([t]); network.focus(t,{scale:1.1,animation:true}); showDetail(t); });
+}
+network.on("click",p=>{ if(p.nodes.length) showDetail(p.nodes[0]); });
+
+// ── 機能リスト（ゲートカード）────────────────────────────────
+const grid=document.getElementById("gate-grid");
+const GATE_TITLES={core:"オーケストレータ",G0:"scaffold / 型",G1:"静的層・コンテンツアドレス DAG",
+  G2:"グラフ + KG (Kuzu)",G3:"ドメイン + ルール",G4:"コード ↔ 仕様",G5:"supply / verify（重心）",
+  G6:"アダプタ (MCP / CLI / Web)",G7:"動的トレース",G8:"動的可視化",G10:"局面の学習",support:"横断基盤"};
+const order=["core","G0","G1","G2","G3","G4","G5","G6","G7","G8","G10","support"];
+for(const g of order){
+  const items=MODULES.filter(m=>m.group===g); if(!items.length) continue;
+  const card=document.createElement("div"); card.className="gate";
+  card.innerHTML=`<div class="gh"><span class="dot" style="background:${GROUPS[g].color}"></span>
+      <span class="gk" style="color:${GROUPS[g].color}">${g}</span>
+      <span class="gt">${GATE_TITLES[g]}</span></div>
+    <ul>${items.map(m=>`<li><a href="#" data-go="${m.id}"><code>${m.label}</code></a> — <span>${m.role.split("。")[0]}。</span></li>`).join("")}</ul>`;
+  grid.appendChild(card);
+}
+grid.querySelectorAll("[data-go]").forEach(el=>el.addEventListener("click",e=>{
+  e.preventDefault(); const t=el.dataset.go;
+  document.getElementById("main").scrollIntoView({behavior:"smooth",block:"start"});
+  network.selectNodes([t]); network.focus(t,{scale:1.2,animation:true}); showDetail(t);
+}));
+</script>
+</body>
+</html>
+</content>
