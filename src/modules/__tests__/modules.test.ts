@@ -114,3 +114,64 @@ describe("buildModules — class granularity merges .h/.cpp of one class", () =>
     expect(hitMods[0]!.files.length).toBe(2);
   });
 });
+
+describe("buildModules — class granularity merges cross-directory split", () => {
+  it("folds a class whose header is in one dir and impl in another (matching stem)", async () => {
+    // C++ pattern: include/Enemy.h (declaration) + src/Enemy.cpp (definition)
+    const hdr = await makeFile(
+      "struct Enemy { int health() { return 100; } };",
+      "/proj/include/Enemy.h",
+    );
+    const impl = await makeFile(
+      "int Enemy::takeDamage() { return 1; }",
+      "/proj/src/Enemy.cpp",
+    );
+    const fns = [...hdr.functions, ...impl.functions];
+
+    const mods = buildModules(fns, "class");
+    const enemyMods = mods.filter((m) => m.label === "Enemy");
+    // One module, not two — merged via stem overlap ("enemy").
+    expect(enemyMods.length).toBe(1);
+    // Id uses the LCA dir (/proj) instead of either individual dir.
+    expect(enemyMods[0]!.id).toBe("/proj#Enemy");
+    expect(enemyMods[0]!.anchors.length).toBe(2);
+    expect(enemyMods[0]!.files.length).toBe(2);
+  });
+
+  it("keeps same-named classes with non-matching file stems separate", async () => {
+    // AudioManager.h and RenderManager.h both declare struct Manager —
+    // stems are "audiomanager" vs "rendermanager" → no overlap → two modules.
+    const audio = await makeFile(
+      "struct Manager { int init() { return 0; } };",
+      "/proj/audio/AudioManager.h",
+    );
+    const render = await makeFile(
+      "struct Manager { int init() { return 0; } };",
+      "/proj/render/RenderManager.h",
+    );
+    const fns = [...audio.functions, ...render.functions];
+
+    const mods = buildModules(fns, "class");
+    const managerMods = mods.filter((m) => m.label === "Manager");
+    // Disjoint stems → kept separate.
+    expect(managerMods.length).toBe(2);
+  });
+
+  it("same dir split is unaffected (id stays <dir>#Class)", async () => {
+    // Existing same-dir behaviour must remain unchanged.
+    const hdr = await makeFile(
+      "struct Bullet { int speed() { return 5; } };",
+      "/proj/weapon/Bullet.h",
+    );
+    const impl = await makeFile(
+      "int Bullet::fire() { return 1; }",
+      "/proj/weapon/Bullet.cpp",
+    );
+    const fns = [...hdr.functions, ...impl.functions];
+
+    const mods = buildModules(fns, "class");
+    const bulletMods = mods.filter((m) => m.label === "Bullet");
+    expect(bulletMods.length).toBe(1);
+    expect(bulletMods[0]!.id).toBe("/proj/weapon#Bullet");
+  });
+});
