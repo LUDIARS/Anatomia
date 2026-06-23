@@ -27,7 +27,7 @@
 import { createHash } from "node:crypto";
 import { stat, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { collectFilesByExt } from "../fs/walk.js";
+import { collectFilesByExt, readGitignoreDirs, EXCLUDE_DIRS } from "../fs/walk.js";
 import { buildRepoNode } from "../dag/merkle.js";
 import { cacheRoot } from "./store.js";
 import type { AnalysisContext } from "../core.js";
@@ -141,7 +141,8 @@ async function collectStamps(root: string, exts: Set<string>): Promise<FileStamp
   const out: FileStamp[] = [];
   // Directory-pruning walk (fs/walk.ts): node_modules/dist/.git/.anatomia are
   // never descended into, so the fingerprint scan is O(source tree) not O(repo).
-  const paths = await collectFilesByExt(root, exts);
+  const gitDirs = await readGitignoreDirs(root);
+  const paths = await collectFilesByExt(root, exts, new Set([...EXCLUDE_DIRS, ...gitDirs]));
   for (const full of paths) {
     try {
       const st = await stat(full);

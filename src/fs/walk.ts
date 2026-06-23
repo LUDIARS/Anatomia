@@ -15,11 +15,38 @@
  * SRP: filesystem traversal only. Extension sets + exclusion policy are passed
  * in by callers (core.ts analyze, project/cache.ts fingerprint).
  */
-import { readdir } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { join, extname } from "node:path";
 
 /** Directory names never descended into (vendored deps, build output, VCS). */
 export const EXCLUDE_DIRS = new Set(["node_modules", "dist", ".git", ".anatomia"]);
+
+/**
+ * Read `root/.gitignore` and return the set of simple directory names that
+ * should be excluded from the walk. Only handles bare names (`Library`) and
+ * trailing-slash forms (`Library/`) without wildcards or path anchors — glob
+ * patterns, negations, and mid-path slashes are ignored.
+ *
+ * Returns an empty set if .gitignore is absent or unreadable.
+ */
+export async function readGitignoreDirs(root: string): Promise<Set<string>> {
+  const result = new Set<string>();
+  let text: string;
+  try {
+    text = await readFile(join(root, ".gitignore"), "utf8");
+  } catch {
+    return result;
+  }
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#") || line.startsWith("!")) continue;
+    if (line.includes("*") || line.includes("?") || line.includes("[")) continue;
+    if (line.startsWith("/")) continue; // root-anchored — skip
+    const name = line.endsWith("/") ? line.slice(0, -1) : line;
+    if (name && !name.includes("/")) result.add(name);
+  }
+  return result;
+}
 
 /**
  * Recursively collect files under `dir` whose extension is in `exts`, pruning

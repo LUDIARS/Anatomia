@@ -11,7 +11,7 @@
 import { readFile } from "node:fs/promises";
 import { extname } from "node:path";
 import type { Tree } from "web-tree-sitter";
-import { collectFilesByExt } from "./fs/walk.js";
+import { collectFilesByExt, readGitignoreDirs, EXCLUDE_DIRS } from "./fs/walk.js";
 import { parse } from "./dag/parser.js";
 import { extractFunctions, extractTypeDecls } from "./dag/extract.js";
 import { normalize } from "./dag/normalize.js";
@@ -97,12 +97,14 @@ const SPEC_EXTS = new Set([".md"]);
 // Source-file discovery uses the directory-pruning walk in fs/walk.ts so huge
 // node_modules/dist trees are never enumerated (see that file for the why).
 
-function collectSourceFiles(dir: string): Promise<string[]> {
-  return collectFilesByExt(dir, SOURCE_EXTS);
+async function collectSourceFiles(dir: string): Promise<string[]> {
+  const gitDirs = await readGitignoreDirs(dir);
+  return collectFilesByExt(dir, SOURCE_EXTS, new Set([...EXCLUDE_DIRS, ...gitDirs]));
 }
 
-function collectSpecFiles(dir: string): Promise<string[]> {
-  return collectFilesByExt(dir, SPEC_EXTS);
+async function collectSpecFiles(dir: string): Promise<string[]> {
+  const gitDirs = await readGitignoreDirs(dir);
+  return collectFilesByExt(dir, SPEC_EXTS, new Set([...EXCLUDE_DIRS, ...gitDirs]));
 }
 
 /** Detect language from file extension. Defaults to "cpp" for .h and .cpp. */
