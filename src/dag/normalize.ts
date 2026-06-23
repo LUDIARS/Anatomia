@@ -17,7 +17,7 @@
  *      tokens, so whitespace never appears and operators stay distinguishable.
  */
 
-import type { Node } from "web-tree-sitter";
+import type { AstNode } from "../types.js";
 
 /** Identifier node kinds that may denote a *local variable use*. */
 const VARIABLE_IDENTIFIER_TYPES = new Set<string>([
@@ -72,7 +72,7 @@ interface RenameMap {
 }
 
 /** Walk a parameter list and collect parameter names in order. */
-function collectParamNames(funcNode: Node, params: Map<string, string>): void {
+function collectParamNames(funcNode: AstNode, params: Map<string, string>): void {
   // C++/C#: field name "parameters" → parameter_list / parameter_declaration
   // TypeScript: field name "parameters" → formal_parameters / required_parameter / optional_parameter
   const paramList =
@@ -96,7 +96,7 @@ function collectParamNames(funcNode: Node, params: Map<string, string>): void {
  * Find the variable name bound by a declarator / parameter node: descend the
  * declarator chain to the innermost plain `identifier`.
  */
-function findBoundIdentifier(node: Node): string | null {
+function findBoundIdentifier(node: AstNode): string | null {
   // C# parameter / variable_declarator expose `name`.
   const nameField = node.childForFieldName("name");
   if (nameField && nameField.type === "identifier") return nameField.text;
@@ -121,7 +121,7 @@ function findBoundIdentifier(node: Node): string | null {
 }
 
 /** First pass: collect every local declaration name in declaration order. */
-function collectLocalNames(node: Node, vars: Map<string, string>): void {
+function collectLocalNames(node: AstNode, vars: Map<string, string>): void {
   if (LOCAL_DECL_TYPES.has(node.type)) {
     if (node.type === "declaration") {
       // A C++ `declaration` may bind several init_declarators / identifiers.
@@ -159,7 +159,7 @@ function collectLocalNames(node: Node, vars: Map<string, string>): void {
 }
 
 /** Build the rename map for a body subtree (params come from the parent fn). */
-function buildRenameMap(body: Node): RenameMap {
+function buildRenameMap(body: AstNode): RenameMap {
   const vars = new Map<string, string>();
   const params = new Map<string, string>();
   const fn = body.parent;
@@ -169,7 +169,7 @@ function buildRenameMap(body: Node): RenameMap {
 }
 
 /** Render a leaf identifier, applying alpha-rename if it is a known local/param. */
-function renderIdentifier(node: Node, map: RenameMap): string {
+function renderIdentifier(node: AstNode, map: RenameMap): string {
   const t = node.text;
   const v = map.vars.get(t);
   if (v) return "(id " + v + ")";
@@ -180,7 +180,7 @@ function renderIdentifier(node: Node, map: RenameMap): string {
 }
 
 /** Recursively emit a canonical S-expression for `node`. */
-function emit(node: Node, map: RenameMap): string {
+function emit(node: AstNode, map: RenameMap): string {
   // Drop comments and other "extra" nodes entirely.
   if (node.isExtra || node.type === "comment") return "";
 
@@ -217,7 +217,7 @@ function emit(node: Node, map: RenameMap): string {
  * @param _source unused (kept for the documented T05 signature; node.text
  *                 already exposes the relevant slice)
  */
-export function normalize(node: Node, _source?: string): string {
+export function normalize(node: AstNode, _source?: string): string {
   const map = buildRenameMap(node);
   return emit(node, map);
 }
@@ -238,7 +238,7 @@ export function normalize(node: Node, _source?: string): string {
  * The result is NOT a complete type system; it is a best-effort canonical
  * shape string derived directly from tree-sitter text fields.
  */
-export function normalizeSignatureShape(bodyNode: Node): string {
+export function normalizeSignatureShape(bodyNode: AstNode): string {
   const fn = bodyNode.parent;
   if (!fn) return "(sig)";
 
@@ -316,7 +316,7 @@ const TYPE_SCOPE_NODE_TYPES = new Set<string>([
   "interface_body",
 ]);
 
-function enclosingScope(fn: Node): string {
+function enclosingScope(fn: AstNode): string {
   const names: string[] = [];
   let current = fn.parent;
   while (current) {
@@ -329,7 +329,7 @@ function enclosingScope(fn: Node): string {
   return names.reverse().join("::");
 }
 
-function functionName(fn: Node): string {
+function functionName(fn: AstNode): string {
   const name = fn.childForFieldName("name");
   if (name) return name.text.replace(/\s+/g, " ").trim();
 
@@ -338,7 +338,7 @@ function functionName(fn: Node): string {
   return fromDeclarator ?? "";
 }
 
-function declaratorName(node: Node): string | null {
+function declaratorName(node: AstNode): string | null {
   if (
     node.type === "identifier" ||
     node.type === "field_identifier" ||

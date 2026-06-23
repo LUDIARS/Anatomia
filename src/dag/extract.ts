@@ -13,7 +13,8 @@
  */
 
 import type { Node, Tree } from "web-tree-sitter";
-import type { FieldInfo, FunctionNode, ParamInfo, SourceRange, TypeDecl } from "../types.js";
+import type { AstNode, FieldInfo, FunctionNode, ParamInfo, SourceRange, TypeDecl } from "../types.js";
+import { freezeBody } from "./freeze.js";
 
 /** Node types that introduce a function-like definition, by language family. */
 const FUNCTION_DEFINITION_TYPES = new Set<string>([
@@ -98,7 +99,7 @@ const NAME_NODE_TYPES = new Set<string>([
   "type_identifier",
 ]);
 
-export function findDeclaratorName(node: Node): string | null {
+export function findDeclaratorName(node: AstNode): string | null {
   if (NAME_NODE_TYPES.has(node.type)) return node.text;
   // function_declarator / pointer_declarator / reference_declarator wrap a
   // `declarator` field pointing further inward.
@@ -155,7 +156,7 @@ const TYPE_NAME_NODE_TYPES = new Set<string>([
  *   std::vector<Foo>            → vector  (template base; rarely a known type)
  *   int / bool / var            → null
  */
-export function simpleTypeName(typeNode: Node | null): string | null {
+export function simpleTypeName(typeNode: AstNode | null): string | null {
   if (!typeNode) return null;
   const t = typeNode.type;
   if (t === "primitive_type" || t === "predefined_type" || t === "implicit_type") {
@@ -192,10 +193,10 @@ export function simpleTypeName(typeNode: Node | null): string | null {
  * Returns null when the type is not a 1-arg template. Pointers/refs on the
  * element are stripped (the element's class name is what we resolve against).
  */
-export function templateElementName(typeNode: Node | null): string | null {
+export function templateElementName(typeNode: AstNode | null): string | null {
   if (!typeNode) return null;
   // Drill to the template_type / generic_name carrying the argument list.
-  let tmpl: Node | null = null;
+  let tmpl: AstNode | null = null;
   if (typeNode.type === "template_type" || typeNode.type === "generic_name") {
     tmpl = typeNode;
   } else {
@@ -492,7 +493,9 @@ function collect(node: Node, source: string, filePath: string, out: FunctionNode
         ...(returnType ? { returnType } : {}),
         ...(returnElementType ? { returnElementType } : {}),
         sourceRange: toRange(node, filePath),
-        bodyAst: body,
+        // Detach the body from the native tree-sitter tree immediately so the
+        // caller can delete the parsed Tree per-file (bounds the WASM heap).
+        bodyAst: freezeBody(body),
       });
     }
   }

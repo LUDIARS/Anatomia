@@ -201,15 +201,14 @@ export async function analyze(
   const files: FileNode[] = [];
   const allFunctions: FunctionNode[] = [];
   const skipped: { filePath: string; reason: string }[] = [];
-  // Every parsed tree is collected here so its WASM-backed native memory can be
-  // released once the last bodyAst consumer has run (see the freeing step after
-  // phase 4). web-tree-sitter trees own emscripten heap that GC does NOT
-  // reclaim; the heap is capped at 2GB (`maximum: 32768` 64KB pages). A long-
-  // lived warm server that caches many AnalysisContexts would otherwise pin
-  // every project's trees forever, eventually exhausting the shared heap →
-  // tree-sitter aborts mid-parse and the aborted module poisons EVERY
-  // subsequent parse (the cascading `Aborted()` flood seen in server.log).
-  const trees: Tree[] = [];
+  // web-tree-sitter trees own emscripten heap that GC does NOT reclaim; the heap
+  // is capped at 2GB (`maximum: 32768` 64KB pages). extractFunctions detaches
+  // each body into a plain-JS AstNode mirror (dag/freeze.ts), so a file's Tree
+  // can be delete()d the instant its functions/types are extracted — bounding
+  // the live native heap to ONE file at a time rather than the whole repo (which
+  // exhausted the heap on large repos and poisoned the shared WASM module with a
+  // cascading `Aborted()` flood — task #335). Every consumer past phase 1
+  // (edge extraction, template matching) reads the detached mirror, not the tree.
 
   const warn = (filePath: string, reason: string): void => {
     skipped.push({ filePath, reason });
@@ -218,7 +217,8 @@ export async function analyze(
     }
   };
 
-  // Phase 1 — parse + extract + hash (trees must remain alive for edge extraction).
+  // Phase 1 — parse + extract + hash. Each file's tree is freed as soon as its
+  // functions (with detached bodyAst) and type decls are extracted.
   for (const filePath of filePaths) {
     let src: string;
     try {
@@ -230,9 +230,12 @@ export async function analyze(
     const lang = langFor(filePath);
     let fns: FunctionNode[];
     let typeDecls: TypeDecl[] = [];
+    let tree: Tree | null = null;
     try {
-      const tree = await parse(src, lang);
-      trees.push(tree);
+      tree = await parse(src, lang);
+      // extractFunctions detaches each body (freezeBody) → the tree is no longer
+      // needed once extraction + anchor hashing (both read the detached mirror)
+      // complete.
       fns = extractFunctions(tree, src, filePath);
       typeDecls = extractTypeDecls(tree, filePath);
       for (const fn of fns) assignAnchorId(fn, normalize(fn.bodyAst));
@@ -244,7 +247,7 @@ export async function analyze(
       // too. Continuing would flood the log with tens of thousands of identical
       // `Aborted()` lines and stall for minutes before returning a near-empty
       // result. Stop the scan now; the warm server's next restart gets a fresh
-      // module. (The tree-freeing above is what keeps us from reaching this.)
+      // module. (Per-file freeing above is what keeps us from reaching this.)
       if (isWasmAbort(err)) {
         if (!options.quiet) {
           console.warn(
@@ -255,15 +258,21 @@ export async function analyze(
         break;
       }
       continue;
+    } finally {
+      // Bodies are detached; release this file's native memory now.
+      if (tree) {
+        try {
+          tree.delete();
+        } catch {
+          // A tree from an aborted parse may already be unusable; ignore.
+        }
+      }
     }
     files.push(buildFileNode(filePath, fns, typeDecls));
     allFunctions.push(...fns);
-    // NOTE: trees are NOT deleted here so that extractEdgeInfo (phase 2) and
-    // domain template matching (phase 4) can walk the AST. They are freed in
-    // one pass after phase 4 — the last reader of bodyAst.
   }
 
-  // Phase 2 — extract edge info while trees are still alive.
+  // Phase 2 — extract edge info from the detached bodyAst mirrors.
   const edgeInfo = extractEdgeInfo(files);
 
   // Phase 3 — build graph (safe after edge extraction).
@@ -285,21 +294,8 @@ export async function analyze(
     }
   }
 
-  // Free the WASM-backed trees now that every bodyAst consumer has run
-  // (normalize in phase 1, edge extraction in phase 2, domain template matching
-  // in phase 4). Nothing reads bodyAst after analyze() returns — review,
-  // vis-data, metrics and spec linking all work off the graph / plain FileNode
-  // data — so the returned context keeps its (now-stale) bodyAst references but
-  // pins no native memory. This is what bounds a warm server's tree-sitter heap
-  // to a single analysis instead of the sum of all cached projects.
-  for (const tree of trees) {
-    try {
-      tree.delete();
-    } catch {
-      // A tree from an aborted parse may already be unusable; ignore.
-    }
-  }
-  trees.length = 0;
+  // (Trees were freed per-file in phase 1; the detached bodyAst mirrors retained
+  // on the returned context are plain JS and pin no native memory.)
 
   // Phase 5 — spec linking (G4). Parse markdown, then explicit + structural links.
   let specClauses: SpecClause[] = [];
