@@ -9,6 +9,9 @@
        scripts below. Module scripts are deferred, so it is set before any
        renderAccess/focusDomain call (which only fire on interaction/load). -->
   <script type="module" src="/domain-view-logic.js"></script>
+  <!-- Pure cache-view logic; publishes window.WebViewsLogic for the inline
+       scripts below (Scene·Domain·Module / Search / manifest summary). -->
+  <script type="module" src="/web-views-logic.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     html, body { height: 100%; font-family: system-ui, -apple-system, sans-serif;
@@ -319,6 +322,99 @@
     .dv-acc-network { background: #0a3338; color: #39c5cf; }
     .dv-acc-how { color: #8b949e; margin-left: 6px; font-size: 0.7rem; }
 
+    /* ── Cache-gate card (shown when a view is not yet prepared) ─ */
+    .gate-card {
+      max-width: 460px; margin: 48px auto; text-align: center;
+      background: #161b22; border: 1px solid #30363d; border-radius: 10px;
+      padding: 28px 30px;
+    }
+    .gate-card h3 { font-size: 0.95rem; color: #c9d1d9; margin-bottom: 8px;
+                    text-transform: none; letter-spacing: 0; }
+    .gate-card p { font-size: 0.82rem; color: #8b949e; line-height: 1.5; margin-bottom: 16px; }
+
+    /* ── Scene·Domain·Module panel ──────────────────────────── */
+    #panel-scene-modules { padding: 16px 20px; }
+    #sm-scene-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 14px; }
+    .sm-chip {
+      display: inline-block; padding: 3px 10px; border-radius: 12px;
+      font-size: 0.74rem; cursor: pointer; border: 1px solid #30363d;
+      background: #21262d; color: #c9d1d9;
+    }
+    .sm-chip:hover { background: #30363d; }
+    .sm-chip.active { background: #0d2f4a; border-color: #58a6ff; color: #58a6ff; }
+    .sm-domain {
+      background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+      margin-bottom: 10px; overflow: hidden;
+    }
+    .sm-domain-head {
+      display: flex; align-items: center; gap: 10px; padding: 10px 14px; cursor: pointer;
+    }
+    .sm-domain-head:hover { background: #1c2330; }
+    .sm-domain-name { font-weight: 600; font-size: 0.88rem; }
+    .sm-domain-scenes { margin-left: auto; display: flex; gap: 5px; flex-wrap: wrap; }
+    .sm-scene-tag { font-size: 0.66rem; padding: 1px 7px; border-radius: 8px;
+                    background: #21262d; color: #8b949e; }
+    .sm-modules { display: none; padding: 4px 14px 12px; }
+    .sm-domain.open .sm-modules { display: block; }
+    .sm-mod {
+      border-top: 1px solid #21262d; padding: 8px 0;
+    }
+    .sm-mod-name { font-weight: 600; font-size: 0.8rem; font-family: monospace; }
+    .sm-mod-stats { display: flex; gap: 12px; margin-top: 3px; font-size: 0.72rem; color: #8b949e; }
+    .sm-mod-stats strong { color: #c9d1d9; }
+    .sm-acc { margin-top: 5px; font-size: 0.72rem; color: #8b949e; }
+    .sm-acc-row { font-family: monospace; padding: 1px 0; }
+    .sm-acc-row .sm-acc-doms { color: #6e7681; }
+
+    /* ── Search panel ───────────────────────────────────────── */
+    #panel-search { padding: 16px 20px; }
+    #search-bar { display: flex; gap: 8px; margin-bottom: 14px; max-width: 720px; }
+    #search-input { flex: 1; }
+    #search-results { max-width: 920px; }
+    .sr-row {
+      background: #161b22; border: 1px solid #30363d; border-radius: 7px;
+      padding: 9px 12px; margin-bottom: 8px;
+    }
+    .sr-head { display: flex; align-items: center; gap: 8px; }
+    .sr-title { font-weight: 600; font-size: 0.82rem; }
+    .sr-loc { font-family: monospace; font-size: 0.72rem; color: #6e7681; }
+    .sr-reason { font-size: 0.74rem; color: #8b949e; margin-top: 4px; line-height: 1.4; }
+    .sr-doms { font-size: 0.68rem; color: #6e7681; margin-top: 2px; }
+
+    /* ── Adjust panel ───────────────────────────────────────── */
+    #panel-adjust { padding: 16px 20px; }
+    #panel-adjust h3 { font-size: 0.78rem; color: #8b949e; text-transform: uppercase;
+                       letter-spacing: .05em; margin: 16px 0 10px; }
+    #adjust-stale-note {
+      background: #4a330d; border: 1px solid #d29922; color: #e3b341;
+      border-radius: 6px; padding: 8px 12px; font-size: 0.76rem; margin-bottom: 14px; display: none;
+    }
+    .adj-domain {
+      background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+      padding: 10px 14px; margin-bottom: 10px;
+    }
+    .adj-domain-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .adj-domain-name { font-weight: 600; font-size: 0.86rem; }
+    .adj-desc { font-size: 0.74rem; color: #8b949e; margin: 4px 0 8px; }
+    .adj-mod {
+      display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+      padding: 5px 0; border-top: 1px solid #21262d; font-size: 0.76rem;
+    }
+    .adj-mod-name { font-family: monospace; font-weight: 600; }
+    .adj-mod-paths { font-family: monospace; font-size: 0.68rem; color: #6e7681; }
+    .adj-actions { margin-left: auto; display: flex; gap: 5px; flex-wrap: wrap; }
+    .adj-form-row { display: flex; gap: 8px; align-items: center; margin: 8px 0; flex-wrap: wrap; }
+    .adj-form-row input[type=text] { min-width: 140px; }
+    #adjust-retune-result {
+      background: #0d1117; border: 1px solid #30363d; border-radius: 7px;
+      padding: 10px 12px; font-size: 0.76rem; color: #c9d1d9; margin-top: 10px;
+      white-space: pre-wrap; display: none;
+    }
+    .adj-scene-row {
+      display: flex; align-items: center; gap: 8px; padding: 5px 0;
+      border-bottom: 1px solid #21262d; font-size: 0.78rem;
+    }
+
     /* ── Common states ──────────────────────────────────────── */
     .loading-msg { color: #6e7681; padding: 24px; text-align: center; }
     .error-msg   { color: #f78166; padding: 24px; text-align: center; }
@@ -414,16 +510,24 @@
         <div class="dash-stat"><strong id="d-edges">—</strong> edges</div>
         <div class="dash-stat"><strong id="d-domains">—</strong> domains</div>
         <div class="dash-stat"><strong id="d-links">—</strong> spec links</div>
-        <button class="btn btn-sm" id="dash-reanalyze" style="margin-left:auto">Re-analyze</button>
+        <div class="dash-stat" id="dash-cache-status" style="margin-left:auto">
+          <span id="dash-cache-label">キャッシュ: …</span>
+          <span id="dash-cache-stale-badge"></span>
+        </div>
+        <button class="btn btn-sm btn-primary" id="dash-prepare">キャッシュ生成</button>
+        <button class="btn btn-sm" id="dash-reanalyze">Re-analyze</button>
       </div>
 
       <!-- Tab bar -->
       <div id="dash-tabs">
         <button class="tab-btn active" data-tab="graph">Graph</button>
         <button class="tab-btn" data-tab="domain-view">Domain View</button>
+        <button class="tab-btn" data-tab="scene-modules">Scene·Domain·Module</button>
+        <button class="tab-btn" data-tab="search">Search</button>
         <button class="tab-btn" data-tab="hotspots">Hotspots</button>
         <button class="tab-btn" data-tab="domains">Domains</button>
         <button class="tab-btn" data-tab="spec-links">Spec Links</button>
+        <button class="tab-btn" data-tab="adjust">Adjust</button>
       </div>
 
       <!-- Tab panels -->
@@ -551,6 +655,33 @@
           </div>
         </div>
 
+        <!-- ── Scene·Domain·Module ── -->
+        <div class="tab-panel" id="panel-scene-modules">
+          <div style="padding:16px 20px">
+            <div id="sm-scene-bar"></div>
+            <div id="sm-body"><div class="loading-msg">Loading…</div></div>
+          </div>
+        </div>
+
+        <!-- ── Search ── -->
+        <div class="tab-panel" id="panel-search">
+          <div style="padding:16px 20px">
+            <div id="search-bar">
+              <input type="text" id="search-input" placeholder="自由文で検索 (例: 戦闘ダメージの計算)" />
+              <button class="btn btn-primary" id="search-run">検索</button>
+            </div>
+            <div id="search-results"><div class="empty-msg">クエリを入力して検索してください。</div></div>
+          </div>
+        </div>
+
+        <!-- ── Adjust ── -->
+        <div class="tab-panel" id="panel-adjust">
+          <div style="padding:16px 20px">
+            <div id="adjust-stale-note">web キャッシュが古くなりました。ダッシュボードの「キャッシュ生成」で再生成してください。</div>
+            <div id="adjust-body"><div class="loading-msg">Loading…</div></div>
+          </div>
+        </div>
+
       </div><!-- /#dash-panels -->
     </div><!-- /#view-dashboard -->
 
@@ -607,6 +738,10 @@
     selectedDomain: null,
     accessPatterns: null,
     currentDomainView: null,
+    webManifest: null,
+    sceneModules: null,
+    sceneFilter: null,
+    adjustModel: null,
   };
 
   // ── Navigation ─────────────────────────────────────────────────────────────
@@ -645,6 +780,10 @@
     state.selectedDomain = null;
     state.currentDomainView = null;
     state.accessPatterns = null;
+    state.webManifest = null;
+    state.sceneModules = null;
+    state.sceneFilter = null;
+    state.adjustModel = null;
     if (state.network) { state.network.destroy(); state.network = null; }
     if (state.domainNetwork) { state.domainNetwork.destroy(); state.domainNetwork = null; }
     renderCrumb();
@@ -711,6 +850,7 @@
           '<button class="btn btn-sm btn-open" data-id="' + esc(p.id) + '"' +
             ' data-name="' + esc(p.name) + '" data-path="' + esc(p.rootPath) + '">Open</button>' +
           '<button class="btn btn-sm btn-reanalyze" data-id="' + esc(p.id) + '">Re-analyze</button>' +
+          '<button class="btn btn-sm btn-prepare" data-id="' + esc(p.id) + '">キャッシュ生成</button>' +
           '<button class="btn btn-sm btn-danger btn-remove" data-id="' + esc(p.id) + '">Remove</button>' +
         '</div></td>';
       tbody.appendChild(tr);
@@ -739,6 +879,8 @@
       navDashboard(id, name, path);
     } else if (t.classList.contains('btn-reanalyze')) {
       reanalyzeFromList(id, t);
+    } else if (t.classList.contains('btn-prepare')) {
+      prepareFromList(id, t);
     } else if (t.classList.contains('btn-remove')) {
       removeProject(id);
     }
@@ -761,6 +903,16 @@
       if (!res.ok) { var b = await res.json(); throw new Error(b.error); }
       fetchCounts(id);
     } catch (e) { alert('Analyze failed: ' + e.message); }
+    finally { btn.textContent = orig; btn.disabled = false; }
+  }
+
+  async function prepareFromList(id, btn) {
+    var orig = btn.textContent;
+    btn.textContent = '生成中…'; btn.disabled = true;
+    try {
+      var res = await fetch('/api/projects/' + encodeURIComponent(id) + '/prepare-web-cache', { method: 'POST' });
+      if (!res.ok) { var b = await res.json().catch(function () { return {}; }); throw new Error(b.error || res.statusText); }
+    } catch (e) { alert('キャッシュ生成に失敗: ' + e.message); }
     finally { btn.textContent = orig; btn.disabled = false; }
   }
 
@@ -820,7 +972,87 @@
     } catch (e) {
       setText('d-files', '?');
     }
+    loadManifestSummary(id);
     loadTabContent(state.activeTab);
+  }
+
+  // ── Web cache manifest (summary strip) ──────────────────────────────────────
+
+  async function loadManifestSummary(id) {
+    var labelEl = document.getElementById('dash-cache-label');
+    var badgeEl = document.getElementById('dash-cache-stale-badge');
+    if (!labelEl) return;
+    badgeEl.innerHTML = '';
+    var manifest;
+    try {
+      manifest = await apiFetch('/api/projects/' + encodeURIComponent(id) + '/web/manifest');
+    } catch (e) {
+      labelEl.textContent = 'キャッシュ: 取得失敗';
+      return;
+    }
+    state.webManifest = manifest;
+    var s = WebViewsLogic.manifestSummary(manifest);
+    labelEl.textContent = 'キャッシュ: ' + s.label;
+    badgeEl.innerHTML = s.stale
+      ? ' <span class="badge badge-orange" title="source が変わっています">source 変更あり</span>'
+      : '';
+  }
+
+  async function prepareWebCache(id) {
+    var res = await fetch('/api/projects/' + encodeURIComponent(id) + '/prepare-web-cache', { method: 'POST' });
+    if (!res.ok) {
+      var b = await res.json().catch(function () { return {}; });
+      throw new Error(b.error || res.statusText);
+    }
+    return res.json();
+  }
+
+  // Read a cache-backed view. Returns { ok:true, data } on 200, or
+  // { ok:false, status, body } so callers can gate on 409 (not-prepared).
+  async function webView(id, view) {
+    var res = await fetch('/api/projects/' + encodeURIComponent(id) + '/web/' + view);
+    var body = await res.json().catch(function () { return {}; });
+    if (res.ok) return { ok: true, data: body.data };
+    return { ok: false, status: res.status, body: body };
+  }
+
+  // The cache gate replaces a panel's innerHTML with an error card, which would
+  // wipe static markup (tables etc.). We snapshot each gateable panel's original
+  // HTML once so a loader can restore it before re-rendering after a prepare.
+  var panelTemplates = {};
+  function panelTemplate(tab) {
+    var el = document.getElementById('panel-' + tab);
+    if (el && panelTemplates[tab] == null) panelTemplates[tab] = el.innerHTML;
+    return el;
+  }
+  function restorePanel(tab) {
+    var el = document.getElementById('panel-' + tab);
+    if (el && panelTemplates[tab] != null) el.innerHTML = panelTemplates[tab];
+    return el;
+  }
+
+  // Central cache gate: render an error card + 「キャッシュ生成」 button into a panel.
+  function renderNotPrepared(panelEl, id, viewLabel) {
+    panelEl.innerHTML =
+      '<div style="width:100%">' +
+        '<div class="gate-card">' +
+          '<h3>' + esc(viewLabel) + '</h3>' +
+          '<p>このビューはまだ生成されていません。</p>' +
+          '<button class="btn btn-primary" id="gate-prepare-btn">キャッシュ生成</button>' +
+        '</div>' +
+      '</div>';
+    var btn = document.getElementById('gate-prepare-btn');
+    btn.onclick = async function () {
+      btn.disabled = true; btn.textContent = '生成中…';
+      try {
+        await prepareWebCache(id);
+        loadManifestSummary(id);
+        loadTabContent(state.activeTab);   // re-render the current tab
+      } catch (e) {
+        btn.disabled = false; btn.textContent = 'キャッシュ生成';
+        alert('キャッシュ生成に失敗: ' + e.message);
+      }
+    };
   }
 
   // Tabs
@@ -846,12 +1078,28 @@
   function loadTabContent(tab) {
     var id = state.projectId;
     if (!id) return;
-    if (tab === 'graph')       loadGraph(id);
-    if (tab === 'domain-view') loadDomainView(id);
-    if (tab === 'hotspots')    loadHotspots(id);
-    if (tab === 'domains')     loadDomains(id);
-    if (tab === 'spec-links')  loadSpecLinks(id);
+    if (tab === 'graph')          loadGraph(id);
+    if (tab === 'domain-view')    loadDomainView(id);
+    if (tab === 'scene-modules')  loadSceneModules(id);
+    if (tab === 'search')         loadSearchTab(id);
+    if (tab === 'hotspots')       loadHotspots(id);
+    if (tab === 'domains')        loadDomains(id);
+    if (tab === 'spec-links')     loadSpecLinks(id);
+    if (tab === 'adjust')         loadAdjust(id);
   }
+
+  // Prepare web cache from the dashboard summary strip.
+  document.getElementById('dash-prepare').onclick = async function () {
+    var btn = document.getElementById('dash-prepare');
+    var id = state.projectId;
+    btn.disabled = true; btn.textContent = '生成中…';
+    try {
+      await prepareWebCache(id);
+      await loadManifestSummary(id);
+      loadTabContent(state.activeTab);   // re-render current tab with fresh cache
+    } catch (e) { alert('キャッシュ生成に失敗: ' + e.message); }
+    finally { btn.disabled = false; btn.textContent = 'キャッシュ生成'; }
+  };
 
   // Re-analyze from dashboard header
   document.getElementById('dash-reanalyze').onclick = async function () {
@@ -883,6 +1131,25 @@
     if (state.graphLoaded && state.rawVisData) return; // already rendered
     state.graphLoaded = false;
 
+    // Cache-gate: the graph is a pre-computed web view too. Probe it first; on
+    // 409 show the prepare gate (which wipes the panel — restore on success).
+    var panel = panelTemplate('graph');
+    restorePanel('graph');
+    var probe;
+    try {
+      probe = await webView(id, 'graph');
+    } catch (e) {
+      probe = { ok: false, status: 0, body: { error: e.message } };
+    }
+    if (!probe.ok) {
+      if (probe.status === 409) { renderNotPrepared(panel, id, 'Graph'); return; }
+      restorePanel('graph');
+      document.getElementById('graph-loading').textContent =
+        'Error loading graph: ' + (probe.body.error || 'error');
+      return;
+    }
+    state.rawVisData = probe.data;
+
     var loadEl = document.getElementById('graph-loading');
     loadEl.style.display = '';
     loadEl.textContent = 'Loading graph data…';
@@ -902,14 +1169,8 @@
     bdBaseEl.value = '';
     delete bdBaseEl.dataset.loaded;
 
-    var data;
-    try {
-      data = await apiFetch('/api/projects/' + encodeURIComponent(id) + '/vis-data');
-      state.rawVisData = data;
-    } catch (e) {
-      loadEl.textContent = 'Error loading graph: ' + e.message;
-      return;
-    }
+    // Graph data already fetched from the web cache above (probe.data).
+    var data = state.rawVisData;
 
     // Legend
     data.legend.forEach(function (item) {
@@ -1106,7 +1367,13 @@
 
   async function ensureVisData(id) {
     if (state.rawVisData) return state.rawVisData;
-    state.rawVisData = await apiFetch('/api/projects/' + encodeURIComponent(id) + '/vis-data');
+    var r = await webView(id, 'graph');
+    if (!r.ok) {
+      var err = new Error(r.status === 409 ? 'not-prepared' : (r.body.error || 'error'));
+      err.notPrepared = r.status === 409;
+      throw err;
+    }
+    state.rawVisData = r.data;
     return state.rawVisData;
   }
 
@@ -1126,15 +1393,23 @@
 
   async function loadDomainView(id) {
     if (state.domainViewLoaded) return;
+    var panel = panelTemplate('domain-view');
+    restorePanel('domain-view');
     var listEl = document.getElementById('dv-list');
     listEl.innerHTML = '<div class="loading-msg">Loading…</div>';
-    var data;
+    var r;
     try {
-      data = await apiFetch('/api/projects/' + encodeURIComponent(id) + '/domain-view');
+      r = await webView(id, 'domain-view');
     } catch (e) {
       listEl.innerHTML = '<div class="error-msg">' + esc(e.message) + '</div>';
       return;
     }
+    if (!r.ok) {
+      if (r.status === 409) { renderNotPrepared(panel, id, 'Domain View'); return; }
+      listEl.innerHTML = '<div class="error-msg">' + esc(r.body.error || 'error') + '</div>';
+      return;
+    }
+    var data = r.data;
     state.domainViewLoaded = true;
     // The payload carries the domain views plus the 機能(module) breakdown +
     // module-aggregation evaluation. (Older shape was a bare DomainView[].)
@@ -1389,15 +1664,26 @@
   // ── Hotspots tab ───────────────────────────────────────────────────────────
 
   async function loadHotspots(id) {
-    var tbody = document.getElementById('hotspots-tbody');
-    tbody.innerHTML = '<tr><td colspan="8" class="loading-msg">Loading…</td></tr>';
-    var data;
+    var panel = panelTemplate('hotspots');
+    var r;
     try {
-      data = await apiFetch('/api/projects/' + encodeURIComponent(id) + '/hotspots');
+      r = await webView(id, 'hotspots');
     } catch (e) {
-      tbody.innerHTML = '<tr><td colspan="8" class="error-msg">' + esc(e.message) + '</td></tr>';
+      restorePanel('hotspots');
+      document.getElementById('hotspots-tbody').innerHTML =
+        '<tr><td colspan="8" class="error-msg">' + esc(e.message) + '</td></tr>';
       return;
     }
+    if (!r.ok) {
+      if (r.status === 409) { renderNotPrepared(panel, id, 'Hotspots'); return; }
+      restorePanel('hotspots');
+      document.getElementById('hotspots-tbody').innerHTML =
+        '<tr><td colspan="8" class="error-msg">' + esc(r.body.error || 'error') + '</td></tr>';
+      return;
+    }
+    restorePanel('hotspots');
+    var tbody = document.getElementById('hotspots-tbody');
+    var data = r.data || [];
     if (!data.length) {
       tbody.innerHTML = '<tr><td colspan="8" class="empty-msg">No hotspots found.</td></tr>';
       return;
@@ -1424,15 +1710,24 @@
   // ── Domains tab ────────────────────────────────────────────────────────────
 
   async function loadDomains(id) {
-    var listEl = document.getElementById('domains-list');
-    listEl.innerHTML = '<div class="loading-msg">Loading…</div>';
-    var data;
+    var panel = panelTemplate('domains');
+    var r;
     try {
-      data = await apiFetch('/api/projects/' + encodeURIComponent(id) + '/domains');
+      r = await webView(id, 'domains');
     } catch (e) {
-      listEl.innerHTML = '<div class="error-msg">' + esc(e.message) + '</div>';
+      restorePanel('domains');
+      document.getElementById('domains-list').innerHTML = '<div class="error-msg">' + esc(e.message) + '</div>';
       return;
     }
+    if (!r.ok) {
+      if (r.status === 409) { renderNotPrepared(panel, id, 'Domains'); return; }
+      restorePanel('domains');
+      document.getElementById('domains-list').innerHTML = '<div class="error-msg">' + esc(r.body.error || 'error') + '</div>';
+      return;
+    }
+    restorePanel('domains');
+    var listEl = document.getElementById('domains-list');
+    var data = r.data || [];
     if (!data.length) {
       listEl.innerHTML = '<div class="empty-msg">No domains detected.</div>';
       return;
@@ -1457,15 +1752,24 @@
   // ── Spec-links tab ─────────────────────────────────────────────────────────
 
   async function loadSpecLinks(id) {
-    var tbody = document.getElementById('spec-links-tbody');
-    tbody.innerHTML = '<tr><td colspan="6" class="loading-msg">Loading…</td></tr>';
-    var data;
+    var panel = panelTemplate('spec-links');
+    var r;
     try {
-      data = await apiFetch('/api/projects/' + encodeURIComponent(id) + '/spec-links');
+      r = await webView(id, 'spec-links');
     } catch (e) {
-      tbody.innerHTML = '<tr><td colspan="6" class="error-msg">' + esc(e.message) + '</td></tr>';
+      restorePanel('spec-links');
+      document.getElementById('spec-links-tbody').innerHTML = '<tr><td colspan="6" class="error-msg">' + esc(e.message) + '</td></tr>';
       return;
     }
+    if (!r.ok) {
+      if (r.status === 409) { renderNotPrepared(panel, id, 'Spec Links'); return; }
+      restorePanel('spec-links');
+      document.getElementById('spec-links-tbody').innerHTML = '<tr><td colspan="6" class="error-msg">' + esc(r.body.error || 'error') + '</td></tr>';
+      return;
+    }
+    restorePanel('spec-links');
+    var tbody = document.getElementById('spec-links-tbody');
+    var data = r.data || [];
     if (!data.length) {
       tbody.innerHTML = '<tr><td colspan="6" class="empty-msg">No spec links found.</td></tr>';
       return;
@@ -1486,6 +1790,390 @@
         '<td>' + ratBadge + '</td>';
       tbody.appendChild(tr);
     });
+  }
+
+  // ── Scene·Domain·Module tab ─────────────────────────────────────────────────
+
+  async function loadSceneModules(id) {
+    var panel = panelTemplate('scene-modules');
+    restorePanel('scene-modules');
+    var body = document.getElementById('sm-body');
+    body.innerHTML = '<div class="loading-msg">Loading…</div>';
+    var r;
+    try {
+      r = await webView(id, 'scene-modules');
+    } catch (e) {
+      body.innerHTML = '<div class="error-msg">' + esc(e.message) + '</div>';
+      return;
+    }
+    if (!r.ok) {
+      if (r.status === 409) { renderNotPrepared(panel, id, 'Scene·Domain·Module'); return; }
+      body.innerHTML = '<div class="error-msg">' + esc(r.body.error || 'error') + '</div>';
+      return;
+    }
+    state.sceneModules = r.data || { hasScenes: false, scenes: [], domains: [] };
+    state.sceneFilter = null;
+    renderSceneBar();
+    renderSceneDomains();
+  }
+
+  function renderSceneBar() {
+    var bar = document.getElementById('sm-scene-bar');
+    var payload = state.sceneModules || {};
+    if (!payload.hasScenes || !(payload.scenes || []).length) { bar.innerHTML = ''; return; }
+    var chips = ['<span class="sm-chip' + (state.sceneFilter ? '' : ' active') +
+      '" data-scene="">全シーン</span>'];
+    (payload.scenes || []).forEach(function (s) {
+      var label = s.label || s.id;
+      chips.push('<span class="sm-chip' + (state.sceneFilter === s.id ? ' active' : '') +
+        '" data-scene="' + esc(s.id) + '">' + esc(label) + '</span>');
+    });
+    bar.innerHTML = chips.join('');
+    bar.querySelectorAll('.sm-chip').forEach(function (c) {
+      c.onclick = function () {
+        var sid = c.getAttribute('data-scene') || null;
+        state.sceneFilter = sid;
+        renderSceneBar();
+        renderSceneDomains();
+      };
+    });
+  }
+
+  function renderSceneDomains() {
+    var body = document.getElementById('sm-body');
+    var payload = state.sceneModules || {};
+    var allDomains = payload.domains || [];
+    // Filter by selected scene (pure logic decides which domains activate).
+    var visible = allDomains;
+    if (state.sceneFilter) {
+      var names = WebViewsLogic.domainsForScene(payload, state.sceneFilter);
+      var set = {};
+      names.forEach(function (n) { set[n] = 1; });
+      visible = allDomains.filter(function (d) { return set[d.domain]; });
+    }
+    if (!visible.length) {
+      body.innerHTML = '<div class="empty-msg">該当するドメインがありません。</div>';
+      return;
+    }
+    body.innerHTML = visible.map(function (d, di) {
+      var badge = d.conforms
+        ? '<span class="badge badge-green">conforms</span>'
+        : '<span class="badge badge-red">' + d.violationCount + ' violations</span>';
+      var sceneTags = (d.scenes || []).map(function (sid) {
+        return '<span class="sm-scene-tag">' + esc(sid) + '</span>';
+      }).join('');
+      var mods = (d.modules || []).map(function (m) {
+        var coh = m.cohesion == null ? '凝集 n/a' : '凝集 ' + Math.round(m.cohesion * 100) + '%';
+        var accesses = (m.accesses || []).map(function (a) {
+          var doms = (a.targetDomains && a.targetDomains.length)
+            ? ' <span class="sm-acc-doms">[' + a.targetDomains.map(esc).join(', ') + ']</span>' : '';
+          return '<div class="sm-acc-row">' + esc(WebViewsLogic.formatAccess(a)) + doms + '</div>';
+        }).join('');
+        var accBlock = accesses ? '<div class="sm-acc">' + accesses + '</div>' : '';
+        return '<div class="sm-mod">' +
+          '<div class="sm-mod-name">' + esc(m.label) + '</div>' +
+          '<div class="sm-mod-stats">' +
+            '<span><strong>' + m.functionCount + '</strong> fn</span>' +
+            '<span><strong>' + m.domainFunctionCount + '</strong> domain-fn</span>' +
+            '<span>' + coh + '</span>' +
+            '<span><strong>' + m.violationCount + '</strong> viol</span>' +
+          '</div>' + accBlock +
+        '</div>';
+      }).join('');
+      return '<div class="sm-domain" data-di="' + di + '">' +
+        '<div class="sm-domain-head">' +
+          '<span class="sm-domain-name">' + esc(d.domain) + '</span> ' + badge +
+          '<span class="sm-domain-scenes">' + sceneTags + '</span>' +
+        '</div>' +
+        '<div class="sm-modules">' + (mods || '<div class="dv-muted">モジュールなし</div>') + '</div>' +
+      '</div>';
+    }).join('');
+    body.querySelectorAll('.sm-domain-head').forEach(function (h) {
+      h.onclick = function () { h.parentNode.classList.toggle('open'); };
+    });
+  }
+
+  // ── Search tab ──────────────────────────────────────────────────────────────
+
+  function loadSearchTab(id) {
+    // The search panel is interactive; just wire the input/button once per render.
+    var input = document.getElementById('search-input');
+    var runBtn = document.getElementById('search-run');
+    if (!input || !runBtn) return;
+    runBtn.onclick = function () { runSearch(id); };
+    input.onkeydown = function (e) { if (e.key === 'Enter') runSearch(id); };
+  }
+
+  async function runSearch(id) {
+    var input = document.getElementById('search-input');
+    var resultsEl = document.getElementById('search-results');
+    var query = (input.value || '').trim();
+    if (!query) { resultsEl.innerHTML = '<div class="empty-msg">クエリを入力してください。</div>'; return; }
+    resultsEl.innerHTML = '<div class="loading-msg">検索中…</div>';
+    var res, body;
+    try {
+      res = await fetch('/api/projects/' + encodeURIComponent(id) + '/web/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: query }),
+      });
+      body = await res.json().catch(function () { return {}; });
+    } catch (e) {
+      resultsEl.innerHTML = '<div class="error-msg">' + esc(e.message) + '</div>';
+      return;
+    }
+    if (res.status === 501) {
+      resultsEl.innerHTML = '<div class="error-msg">検索にはAPIキーが必要です。' +
+        (body.error ? '<br>' + esc(body.error) : '') + '</div>';
+      return;
+    }
+    if (res.status === 409) {
+      renderNotPrepared(document.getElementById('panel-search'), id, '検索コーパス');
+      return;
+    }
+    if (!res.ok) {
+      resultsEl.innerHTML = '<div class="error-msg">' + esc(body.error || res.statusText) + '</div>';
+      return;
+    }
+    var results = body.results || [];
+    if (!results.length) {
+      resultsEl.innerHTML = '<div class="empty-msg">該当なし (intent: ' + esc(body.intent || '') + ')</div>';
+      return;
+    }
+    resultsEl.innerHTML = results.map(function (rs) {
+      var doms = (rs.domains && rs.domains.length)
+        ? '<div class="sr-doms">domains: ' + rs.domains.map(esc).join(', ') +
+          (rs.module ? ' · module: ' + esc(rs.module) : '') + '</div>' : '';
+      var label = WebViewsLogic.searchResultLabel(rs);
+      var sepIdx = label.indexOf(' · ');
+      var titleHtml = sepIdx >= 0
+        ? '<span class="sr-title">' + esc(label.slice(0, sepIdx)) + '</span>' +
+          '<span class="sr-loc">' + esc(label.slice(sepIdx + 3)) + '</span>'
+        : '<span class="sr-title">' + esc(label) + '</span>';
+      return '<div class="sr-row">' +
+        '<div class="sr-head"><span class="badge badge-blue">' + esc(rs.kind || '?') + '</span>' +
+          titleHtml + '</div>' +
+        (rs.reason ? '<div class="sr-reason">' + esc(rs.reason) + '</div>' : '') +
+        doms +
+      '</div>';
+    }).join('');
+  }
+
+  // ── Adjust tab ──────────────────────────────────────────────────────────────
+
+  async function loadAdjust(id) {
+    var note = document.getElementById('adjust-stale-note');
+    if (note) note.style.display = 'none';
+    var body = document.getElementById('adjust-body');
+    body.innerHTML = '<div class="loading-msg">Loading…</div>';
+    var model;
+    try {
+      model = await apiFetch('/api/projects/' + encodeURIComponent(id) + '/adjust/model');
+    } catch (e) {
+      body.innerHTML = '<div class="error-msg">' + esc(e.message) + '</div>';
+      return;
+    }
+    state.adjustModel = model;
+    renderAdjust(id);
+  }
+
+  function adjustStale() {
+    var note = document.getElementById('adjust-stale-note');
+    if (note) note.style.display = 'block';
+  }
+
+  async function adjustPost(id, kind, payload) {
+    var res = await fetch('/api/projects/' + encodeURIComponent(id) + '/adjust/' + kind, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    var b = await res.json().catch(function () { return {}; });
+    if (!res.ok) throw new Error(b.error || res.statusText);
+    return b;
+  }
+
+  function renderAdjust(id) {
+    var body = document.getElementById('adjust-body');
+    var model = state.adjustModel || {};
+    var tax = model.taxonomy || { domains: [] };
+    var scenes = model.scenes || [];
+    var domainNames = (tax.domains || []).map(function (d) { return d.name; });
+
+    var domainsHtml = (tax.domains || []).map(function (d) {
+      var modsHtml = (d.modules || []).map(function (m) {
+        var paths = (m.paths || []).join(', ');
+        var moveOpts = domainNames.filter(function (n) { return n !== d.name; })
+          .map(function (n) { return '<option value="' + esc(n) + '">' + esc(n) + '</option>'; }).join('');
+        return '<div class="adj-mod">' +
+          '<span class="adj-mod-name">' + esc(m.name) + '</span>' +
+          (paths ? '<span class="adj-mod-paths">' + esc(paths) + '</span>' : '') +
+          '<span class="adj-actions">' +
+            '<button class="btn btn-sm" data-act="mod-rename" data-domain="' + esc(d.name) + '" data-name="' + esc(m.name) + '">名前変更</button>' +
+            '<button class="btn btn-sm" data-act="mod-addpath" data-domain="' + esc(d.name) + '" data-name="' + esc(m.name) + '">パス追加</button>' +
+            (moveOpts ? '<select data-act="mod-move" data-domain="' + esc(d.name) + '" data-name="' + esc(m.name) + '">' +
+              '<option value="">移動先…</option>' + moveOpts + '</select>' : '') +
+            '<button class="btn btn-sm btn-danger" data-act="mod-delete" data-domain="' + esc(d.name) + '" data-name="' + esc(m.name) + '">削除</button>' +
+          '</span>' +
+        '</div>';
+      }).join('');
+      return '<div class="adj-domain">' +
+        '<div class="adj-domain-head">' +
+          '<span class="adj-domain-name">' + esc(d.name) + '</span>' +
+          '<span class="adj-actions">' +
+            '<button class="btn btn-sm" data-act="dom-mod-add" data-domain="' + esc(d.name) + '">+ モジュール</button>' +
+            '<button class="btn btn-sm" data-act="dom-rename" data-domain="' + esc(d.name) + '">名前変更</button>' +
+            '<button class="btn btn-sm btn-danger" data-act="dom-delete" data-domain="' + esc(d.name) + '">削除</button>' +
+          '</span>' +
+        '</div>' +
+        (d.description ? '<div class="adj-desc">' + esc(d.description) + '</div>' : '') +
+        modsHtml +
+      '</div>';
+    }).join('');
+
+    var scenesHtml = scenes.map(function (s) {
+      return '<div class="adj-scene-row">' +
+        '<span class="adj-mod-name">' + esc(s.id) + '</span>' +
+        (s.label ? '<span>' + esc(s.label) + '</span>' : '') +
+        '<span style="color:#6e7681">' + esc((s.domains || []).join(', ')) + '</span>' +
+        '<button class="btn btn-sm btn-danger" data-act="scene-delete" data-id="' + esc(s.id) + '" style="margin-left:auto">削除</button>' +
+      '</div>';
+    }).join('');
+
+    body.innerHTML =
+      '<h3>Taxonomy (ドメイン / モジュール)</h3>' +
+      (domainsHtml || '<div class="empty-msg">ドメインがありません。</div>') +
+      '<div class="adj-form-row">' +
+        '<input type="text" id="adj-new-domain" placeholder="新規ドメイン名" />' +
+        '<input type="text" id="adj-new-domain-desc" placeholder="説明 (任意)" />' +
+        '<button class="btn btn-primary btn-sm" id="adj-add-domain">ドメイン追加</button>' +
+      '</div>' +
+      '<h3>Scenes</h3>' +
+      (scenesHtml || '<div class="empty-msg">シーンがありません。</div>') +
+      '<div class="adj-form-row">' +
+        '<input type="text" id="adj-scene-id" placeholder="scene id" />' +
+        '<input type="text" id="adj-scene-label" placeholder="label (任意)" />' +
+        '<input type="text" id="adj-scene-domains" placeholder="domains (カンマ区切り)" />' +
+        '<button class="btn btn-primary btn-sm" id="adj-add-scene">シーン追加</button>' +
+      '</div>' +
+      '<h3>粒度の自動再調整</h3>' +
+      '<div class="adj-form-row">' +
+        '<button class="btn btn-sm" id="adj-retune">粒度を自動再調整 (retune)</button>' +
+        '<span style="color:#8b949e;font-size:0.74rem">重い処理 + spec 書き換えを伴います</span>' +
+      '</div>' +
+      '<div id="adjust-retune-result"></div>';
+
+    wireAdjust(id);
+  }
+
+  function wireAdjust(id) {
+    var body = document.getElementById('adjust-body');
+
+    async function refresh(markStale) {
+      if (markStale) adjustStale();
+      try {
+        state.adjustModel = await apiFetch('/api/projects/' + encodeURIComponent(id) + '/adjust/model');
+        renderAdjust(id);
+        if (markStale) adjustStale();
+      } catch (e) { alert('再読込に失敗: ' + e.message); }
+    }
+
+    body.querySelectorAll('[data-act]').forEach(function (el) {
+      var act = el.getAttribute('data-act');
+      if (act === 'mod-move') {
+        el.onchange = async function () {
+          if (!el.value) return;
+          try {
+            await adjustPost(id, 'module', { action: 'move', domain: el.getAttribute('data-domain'),
+              name: el.getAttribute('data-name'), newDomain: el.value });
+            refresh(true);
+          } catch (e) { alert('移動に失敗: ' + e.message); }
+        };
+        return;
+      }
+      el.onclick = async function () {
+        var domain = el.getAttribute('data-domain');
+        var name = el.getAttribute('data-name');
+        try {
+          if (act === 'dom-delete') {
+            if (!confirm('ドメイン "' + domain + '" を削除しますか?')) return;
+            await adjustPost(id, 'domain', { action: 'delete', name: domain });
+          } else if (act === 'dom-rename') {
+            var nn = prompt('新しいドメイン名', domain); if (!nn) return;
+            await adjustPost(id, 'domain', { action: 'rename', name: domain, newName: nn });
+          } else if (act === 'dom-mod-add') {
+            var mn = prompt('新規モジュール名'); if (!mn) return;
+            var md = prompt('説明 (任意)') || undefined;
+            await adjustPost(id, 'module', { action: 'add', domain: domain, name: mn, description: md });
+          } else if (act === 'mod-delete') {
+            if (!confirm('モジュール "' + name + '" を削除しますか?')) return;
+            await adjustPost(id, 'module', { action: 'delete', domain: domain, name: name });
+          } else if (act === 'mod-rename') {
+            var rn = prompt('新しいモジュール名', name); if (!rn) return;
+            await adjustPost(id, 'module', { action: 'rename', domain: domain, name: name, newName: rn });
+          } else if (act === 'mod-addpath') {
+            var p = prompt('追加するパス'); if (!p) return;
+            await adjustPost(id, 'module', { action: 'addPath', domain: domain, name: name, path: p });
+          } else if (act === 'scene-delete') {
+            var sid = el.getAttribute('data-id');
+            if (!confirm('シーン "' + sid + '" を削除しますか?')) return;
+            await adjustPost(id, 'scene', { action: 'delete', id: sid });
+          } else { return; }
+          refresh(true);
+        } catch (e) { alert('操作に失敗: ' + e.message); }
+      };
+    });
+
+    var addDom = document.getElementById('adj-add-domain');
+    if (addDom) addDom.onclick = async function () {
+      var n = (document.getElementById('adj-new-domain').value || '').trim();
+      var d = (document.getElementById('adj-new-domain-desc').value || '').trim();
+      if (!n) { alert('ドメイン名が必要です'); return; }
+      try { await adjustPost(id, 'domain', { action: 'add', name: n, description: d || undefined }); refresh(true); }
+      catch (e) { alert('追加に失敗: ' + e.message); }
+    };
+
+    var addScene = document.getElementById('adj-add-scene');
+    if (addScene) addScene.onclick = async function () {
+      var sid = (document.getElementById('adj-scene-id').value || '').trim();
+      var label = (document.getElementById('adj-scene-label').value || '').trim();
+      var doms = (document.getElementById('adj-scene-domains').value || '').split(',')
+        .map(function (s) { return s.trim(); }).filter(Boolean);
+      if (!sid) { alert('scene id が必要です'); return; }
+      try {
+        await adjustPost(id, 'scene', { action: 'add', id: sid, label: label || undefined, domains: doms });
+        refresh(true);
+      } catch (e) { alert('追加に失敗: ' + e.message); }
+    };
+
+    var retune = document.getElementById('adj-retune');
+    if (retune) retune.onclick = async function () {
+      if (!confirm('粒度を自動再調整します。重い処理 + spec の書き換えを伴います。実行しますか?')) return;
+      var resEl = document.getElementById('adjust-retune-result');
+      resEl.style.display = 'block';
+      resEl.textContent = '再調整中…';
+      retune.disabled = true;
+      var res, b;
+      try {
+        res = await fetch('/api/projects/' + encodeURIComponent(id) + '/adjust/retune', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}),
+        });
+        b = await res.json().catch(function () { return {}; });
+      } catch (e) { resEl.textContent = 'エラー: ' + e.message; retune.disabled = false; return; }
+      retune.disabled = false;
+      if (res.status === 501) { resEl.textContent = b.error || 'retune には LLM/設定が必要です (501)'; return; }
+      if (!res.ok) { resEl.textContent = 'エラー: ' + (b.error || res.statusText); return; }
+      var lines = [
+        'project: ' + (b.project || ''),
+        'iteration: ' + (b.iteration != null ? b.iteration : ''),
+        'domains: ' + (b.domains != null ? b.domains : '') + ' · modules: ' + (b.modules != null ? b.modules : ''),
+        'haltForHuman: ' + (b.haltForHuman ? 'yes' : 'no'),
+      ];
+      if (b.humanReviewNotes) lines.push('注記: ' + b.humanReviewNotes);
+      if (b.steps && b.steps.length) lines.push('steps: ' + b.steps.join(' → '));
+      resEl.textContent = lines.join('\n');
+      adjustStale();
+    };
   }
 
   // Re-focus the current domain when the fold toggle flips.

@@ -15,17 +15,13 @@
  * their own modules; vis-data building is delegated to vis-data.ts.
  */
 
-import { relative } from "node:path";
 import type { Hono } from "hono";
-import { computeMetrics } from "../../../supply/metrics.js";
 import { buildVisData } from "../vis-data.js";
 import { loadTaxonomyResolver } from "../../../domains/retune/load-taxonomy.js";
 import { buildReview } from "../../../review/index.js";
+import { buildHotspots } from "../../../supply/hotspots.js";
+import { buildSpecLinks } from "../../../domains/spec-links.js";
 import type { WebContextSource } from "../context.js";
-import type { AnchorId } from "../../../types.js";
-
-/** Number of hotspot rows returned. */
-const TOP_N = 20;
 
 /**
  * Mount all per-project analysis routes on `app`.
@@ -56,47 +52,9 @@ export function mountAnalysisRoutes(app: Hono, source: WebContextSource): void {
       // Fingerprint-keyed disk cache (same rationale as vis-data below): a cold
       // just-restarted server answers from disk without re-analyzing the repo;
       // the metrics walk + node enumeration runs only on a miss.
-      const hotspots = await source.cachedArtifact(id, "hotspots", async (ctx) => {
-        const membershipMap = new Map<string, AnchorId[]>();
-        for (const d of ctx.domains ?? []) {
-          membershipMap.set(d.domain, d.implementors);
-        }
-        const metrics = await computeMetrics(ctx.graph, membershipMap);
-        const nodes = await ctx.graph.allNodes();
-        const nodeById = new Map(nodes.map((n) => [n.id, n]));
-
-        const sorted = [...metrics]
-          .sort((a, b) => b.coupling - a.coupling || b.cyclomatic - a.cyclomatic)
-          .slice(0, TOP_N);
-
-        return sorted.map((m) => {
-          const node = nodeById.get(m.anchor);
-          const relPath = node
-            ? (() => {
-                try {
-                  return relative(
-                    ctx.repoPath,
-                    node.sourceRange.filePath,
-                  ).replace(/\\/g, "/");
-                } catch {
-                  return node.sourceRange.filePath;
-                }
-              })()
-            : "";
-          return {
-            anchor: m.anchor,
-            name: node?.name ?? m.anchor,
-            file: relPath,
-            line: node?.sourceRange.start.line ?? 0,
-            coupling: m.coupling,
-            cyclomatic: m.cyclomatic,
-            fanIn: m.fanIn,
-            fanOut: m.fanOut,
-            domainOverlap: m.domainOverlap,
-            crossDomainDepth: m.crossDomainDepth,
-          };
-        });
-      });
+      const hotspots = await source.cachedArtifact(id, "hotspots", (ctx) =>
+        buildHotspots(ctx),
+      );
       return c.json(hotspots);
     } catch {
       return c.json({ error: `no such project "${id}"` }, 404);
@@ -107,35 +65,14 @@ export function mountAnalysisRoutes(app: Hono, source: WebContextSource): void {
 
   app.get("/api/projects/:id/spec-links", async (c) => {
     const id = c.req.param("id");
-    let ctx;
     try {
-      ctx = await source.resolve(id);
+      const items = await source.cachedArtifact(id, "spec-links", (ctx) =>
+        buildSpecLinks(ctx),
+      );
+      return c.json(items);
     } catch {
       return c.json({ error: `no such project "${id}"` }, 404);
     }
-
-    const links = ctx.links ?? [];
-    const clauseById = new Map(
-      (ctx.specClauses ?? []).map((cl) => [cl.id, cl]),
-    );
-    const nodes = await ctx.graph.allNodes();
-    const nameById = new Map(nodes.map((n) => [n.id, n.name]));
-
-    const items = links.map((link) => {
-      const clause = clauseById.get(link.to);
-      return {
-        from: link.from,
-        fromName: nameById.get(link.from) ?? link.from,
-        to: link.to,
-        clauseHeading: clause?.heading ?? link.to,
-        clauseFile: clause?.sourceFile ?? "",
-        confidence: link.confidence,
-        evidence: link.evidence,
-        ratified: link.ratified ?? false,
-      };
-    });
-
-    return c.json(items);
   });
 
   // ── domains ───────────────────────────────────────────────────────────────
