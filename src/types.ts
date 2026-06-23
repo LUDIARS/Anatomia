@@ -4,8 +4,6 @@
  * The AstNode placeholder is filled by T03 (web-tree-sitter integration).
  */
 
-import type { Node as TreeSitterNode } from "web-tree-sitter";
-
 // ---------------------------------------------------------------------------
 // Branded primitives
 // ---------------------------------------------------------------------------
@@ -17,12 +15,46 @@ export type AnchorId = string & { readonly __brand: "AnchorId" };
 // AST node (web-tree-sitter, T03)
 // ---------------------------------------------------------------------------
 
+/** Zero-based row/column position (mirrors web-tree-sitter `Point`). */
+export interface AstPoint {
+  row: number;
+  column: number;
+}
+
 /**
- * A tree-sitter syntax node. In web-tree-sitter 0.25 the concrete class is
- * named `Node` (formerly `SyntaxNode`); we alias it here so the rest of the
- * codebase has a single stable name.
+ * The READ-ONLY syntax-node surface the analysis pipeline relies on.
+ *
+ * Historically this was a bare alias for web-tree-sitter's `Node`, whose
+ * children are backed by the parser's emscripten heap (capped at 2GB). Holding
+ * a whole repository's `Node`s alive across analysis phases exhausted that heap
+ * on large repos and poisoned the shared WASM module (DESIGN / task #335).
+ *
+ * It is now a structural interface so that a function body can be DETACHED from
+ * the native tree into a plain-JS mirror (`freezeBody`, dag/freeze.ts) the
+ * moment it is extracted — letting `tree.delete()` run per-file instead of
+ * per-repo. The real `Node` still satisfies this interface, so live nodes (e.g.
+ * a freshly-parsed template pattern) remain assignable wherever `AstNode` is
+ * expected. Only the members actually consumed downstream are declared here;
+ * keep this surface minimal so both the live `Node` and the frozen mirror stay
+ * cheap to satisfy.
  */
-export type AstNode = TreeSitterNode;
+export interface AstNode {
+  readonly type: string;
+  readonly text: string;
+  readonly startIndex: number;
+  readonly startPosition: AstPoint;
+  readonly endPosition: AstPoint;
+  readonly isNamed: boolean;
+  readonly isExtra: boolean;
+  readonly parent: AstNode | null;
+  readonly children: (AstNode | null)[];
+  readonly namedChildren: (AstNode | null)[];
+  readonly childCount: number;
+  child(index: number): AstNode | null;
+  childForFieldName(fieldName: string): AstNode | null;
+  childrenForFieldName(fieldName: string): (AstNode | null)[];
+  descendantsOfType(type: string): (AstNode | null)[];
+}
 
 /** Supported source languages (tree-sitter grammar identifiers). */
 export type Lang = "cpp" | "c_sharp" | "typescript" | "tsx";

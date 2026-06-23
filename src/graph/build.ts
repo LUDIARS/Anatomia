@@ -59,7 +59,7 @@
  *     (#include / using) are left for G3/G4.
  */
 
-import type { Node as AstNode } from "web-tree-sitter";
+import type { AstNode } from "../types.js";
 import type { AnchorId, CodeNode, Edge, EdgeKind, FileNode, FunctionNode } from "../types.js";
 import { findDeclaratorName, simpleTypeName, templateElementName } from "../dag/extract.js";
 import { TypeRegistry } from "./type-resolve.js";

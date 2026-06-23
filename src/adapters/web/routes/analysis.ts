@@ -35,9 +35,10 @@ export function mountAnalysisRoutes(app: Hono, source: WebContextSource): void {
   app.get("/api/projects/:id/summary", async (c) => {
     const id = c.req.param("id");
     try {
-      // Served from the persisted snapshot when the source is unchanged — the
-      // first-view fast path that avoids a full re-analysis after a restart.
-      const counts = await source.summary(id);
+      // First-view fast path: stale-while-revalidate. The persisted snapshot is
+      // returned immediately (no fingerprint stat-walk), and a background pass
+      // refreshes the cache so the next poll reflects any source change.
+      const counts = await source.summary(id, { stale: true });
       return c.json({ id, ...counts });
     } catch {
       return c.json({ error: `no such project "${id}"` }, 404);

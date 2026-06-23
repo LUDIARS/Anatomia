@@ -21,8 +21,10 @@ export interface WebContextSource {
    * First-view summary counts for a project. Cheaper than resolve(): served
    * from the persisted snapshot when the source is unchanged, so the project
    * list repaints without forcing a full re-analysis after a restart.
+   * `{ stale: true }` returns the snapshot immediately and revalidates in the
+   * background (skips even the fingerprint walk).
    */
-  summary(projectId?: string): Promise<SummaryCounts>;
+  summary(projectId?: string, opts?: { stale?: boolean }): Promise<SummaryCounts>;
   /** All registered projects (or a synthetic single-entry list). */
   projects(): Project[];
   /** The currently selected/default project id, or null. */
@@ -53,7 +55,8 @@ export function webContextSourceFrom(
   if (src instanceof ProjectManager) {
     return {
       resolve: (projectId?: string) => src.getContext(projectId),
-      summary: (projectId?: string) => src.summary(projectId),
+      summary: (projectId?: string, opts?: { stale?: boolean }) =>
+        src.summary(projectId, opts),
       projects: () => src.list(),
       selected: () => src.selected,
       fingerprint: (projectId?: string) => src.fingerprint(projectId),
@@ -71,6 +74,8 @@ export function webContextSourceFrom(
   };
   return {
     resolve: async () => src,
+    // Legacy single context: no snapshot/fingerprint, so SWR has nothing to
+    // serve stale — always summarise the in-memory context directly.
     summary: async () => summarize(src),
     projects: () => [single],
     selected: () => "default",
