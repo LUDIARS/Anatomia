@@ -124,7 +124,9 @@ export function mountWebCacheRoutes(app: Hono, deps: WebCacheRouteDeps): void {
       return c.json(
         {
           error:
-            "search requires a real LLM — set an Anthropic API key (ANTHROPIC_API_KEY) so Haiku can run. No substring fallback.",
+            "search requires a real LLM. LUDIARS runs the claude CLI (claude -p, no API key) — " +
+            "ensure `claude` is on PATH, or set ANATOMIA_LLM_BACKEND to a non-stub backend. " +
+            "The offline stub does not support search (no substring fallback).",
         },
         501,
       );

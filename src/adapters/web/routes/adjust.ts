@@ -184,7 +184,8 @@ export function mountAdjustRoutes(app: Hono, deps: AdjustRouteDeps): void {
       return c.json(
         {
           error:
-            "retune requires a real LLM — set an Anthropic API key (ANTHROPIC_API_KEY). No silent no-op.",
+            "retune requires a real LLM. LUDIARS runs the claude CLI (claude -p, no API key) — " +
+            "ensure `claude` is on PATH, or set ANATOMIA_LLM_BACKEND to a non-stub backend. No silent no-op.",
         },
         501,
       );
