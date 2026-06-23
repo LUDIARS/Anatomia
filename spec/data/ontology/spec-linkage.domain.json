@@ -1,0 +1,12 @@
+{
+  "name": "spec-linkage",
+  "description": "コード機構を仕様節（SpecClause）へ明示的・構造的・意味的にリンクし、生成の意図を仕様に結びつける。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    {
+      "pathPattern": "(^|/)src/spec/[^/]+$"
+    }
+  ],
+  "cardTemplate": "Summarise the \"spec-linkage\" domain: コード機構を仕様節（SpecClause）へ明示的・構造的・意味的にリンクし、生成の意図を仕様に結びつける。"
+}

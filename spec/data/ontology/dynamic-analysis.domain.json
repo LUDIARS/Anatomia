@@ -1,0 +1,24 @@
+{
+  "name": "dynamic-analysis",
+  "description": "実行トレースを録画・stitch し、局面（phase）を学習して scene 層を実トレースで点灯させる動的解析（G7/G10）。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    {
+      "pathPattern": "(^|/)src/dynamic/phase/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/dynamic/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/dynamic/record/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/dynamic/record/__tests__/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/dynamic/viz/[^/]+$"
+    }
+  ],
+  "cardTemplate": "Summarise the \"dynamic-analysis\" domain: 実行トレースを録画・stitch し、局面（phase）を学習して scene 層を実トレースで点灯させる動的解析（G7/G10）。"
+}

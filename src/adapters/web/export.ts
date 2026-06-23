@@ -20,6 +20,7 @@
  */
 
 import { buildVisData } from "./vis-data.js";
+import { loadTaxonomyResolver } from "../../domains/retune/load-taxonomy.js";
 import type { AnalysisContext } from "../../core.js";
 
 // ---------------------------------------------------------------------------
@@ -63,7 +64,9 @@ export async function exportGraphHtml(
   ctx: AnalysisContext,
   opts: ExportOptions = {},
 ): Promise<string> {
-  const data = await buildVisData(ctx, opts.title);
+  const data = await buildVisData(ctx, opts.title, {
+    moduleResolver: await loadTaxonomyResolver(ctx.repoPath),
+  });
   const { summary } = data;
   const title = summary.title;
 

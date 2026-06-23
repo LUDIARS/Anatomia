@@ -1,0 +1,24 @@
+{
+  "name": "static-anatomy",
+  "description": "コードを関数粒度の正規化 Merkle-AST（DAG）へ解剖し、コードグラフ（呼び出し辺）を構築する解析の核。意味同値で同一 Anchor ID を割り当てキャッシュ土台にする。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    {
+      "pathPattern": "(^|/)src/dag/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/dag/__tests__/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/graph/__tests__/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/graph/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/patterns/[^/]+$"
+    }
+  ],
+  "cardTemplate": "Summarise the \"static-anatomy\" domain: コードを関数粒度の正規化 Merkle-AST（DAG）へ解剖し、コードグラフ（呼び出し辺）を構築する解析の核。意味同値で同一 Anchor ID を割り当てキャッシュ土台にする。"
+}

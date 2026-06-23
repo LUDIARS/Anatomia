@@ -99,9 +99,11 @@ export async function detectDomain(
   }
 
   // Implementors: nodes matched by any filter in the preset predicates, plus
-  // any anchor appearing in template matches (positive matches) / violations.
+  // the domain's declarative `membership` filters (ownership, no violation),
+  // plus any anchor appearing in template matches (positive matches).
   const filters: NodeFilter[] = [];
   for (const p of presetPreds) collectFilters(p, filters);
+  for (const m of def.membership ?? []) filters.push(m);
 
   const allNodes = await graph.allNodes();
   const implementorSet = new Set<AnchorId>();

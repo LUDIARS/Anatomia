@@ -58,6 +58,8 @@ import { mountBranchRoutes } from "./routes/branch.js";
 import { mountDomainViewRoute } from "./routes/domain-view.js";
 import { mountIntegralRoutes, type IntegralRouteDeps } from "./routes/integral.js";
 import { mountPatternRoutes } from "./routes/patterns.js";
+import { mountWebCacheRoutes } from "./routes/web-cache.js";
+import { mountAdjustRoutes } from "./routes/adjust.js";
 import { resolveIdleMs, checkIntervalMs, shouldShutdown } from "./idle.js";
 import { resolveProviders, envConfig } from "../../providers/index.js";
 import type { DomainCard } from "../../domains/card.js";
@@ -169,6 +171,24 @@ export function createApp(
   // ── Access-pattern route (heuristic singleton/locator/facade + accessors) ──
   mountPatternRoutes(app, source);
 
+  // ── Prepared web-display cache: build + serve every view + LLM search ──────
+  // The panel renders ONLY from these prepared files (no cache → 409 → prompt).
+  const aux = resolveAuxDeps();
+  mountWebCacheRoutes(app, {
+    manager,
+    searchLlm: aux.searchLlm,
+    searchModelId: aux.searchModelId,
+    traceJsonl: aux.traceJsonl,
+    traceSource: trace,
+  });
+
+  // ── Adjustment routes: domain/module/scene CRUD + granularity retune ───────
+  mountAdjustRoutes(app, {
+    manager,
+    retuneLlm: aux.retuneLlm,
+    retuneModelId: aux.retuneModelId,
+  });
+
   // ── Global LLM-cache stats route (A-3 measurement) ───────────────────────
   mountCacheRoute(app);
 
@@ -257,12 +277,14 @@ export function createApp(
     return c.html(html);
   });
 
-  // Pure panel logic, loaded by index.html as an ES module (and unit-tested).
-  app.get("/domain-view-logic.js", (c) => {
-    const js = loadPublicAsset("domain-view-logic.js");
-    if (js == null) return c.text("// domain-view-logic.js not found", 404);
-    return c.body(js, 200, { "content-type": "text/javascript; charset=utf-8" });
-  });
+  // Pure panel logic, loaded by index.html as ES modules (and unit-tested).
+  for (const asset of ["domain-view-logic.js", "web-views-logic.js"]) {
+    app.get(`/${asset}`, (c) => {
+      const js = loadPublicAsset(asset);
+      if (js == null) return c.text(`// ${asset} not found`, 404);
+      return c.body(js, 200, { "content-type": "text/javascript; charset=utf-8" });
+    });
+  }
 
   return app;
 }
@@ -315,19 +337,53 @@ function resolveIntegralDeps(): IntegralRouteDeps {
   const judgeModel = process.env["ANATOMIA_INTEGRAL_JUDGE_MODEL"] || "claude-sonnet-4-6";
   const providers = resolveProviders({ ...envConfig(), llmModel: judgeModel });
   const pathCache = resolveCacheStore<CachedIntegral>();
-  // A recorded game trace (ANATOMIA_TRACE_FILE) lights up the scene layer on the
-  // warm server without a live transport. Read once at wiring time; a missing /
-  // unreadable file just leaves scenes empty (graceful).
-  let traceJsonl: string | undefined;
+  return {
+    judgeLlm: providers.llm,
+    judgeModelId: providers.llmModelId,
+    pathCache,
+    traceJsonl: readTraceFile(),
+  };
+}
+
+/**
+ * A recorded game trace (ANATOMIA_TRACE_FILE) lights up the scene layer on the
+ * warm server without a live transport. Read once at wiring time; a missing /
+ * unreadable file just leaves scenes empty (graceful).
+ */
+function readTraceFile(): string | undefined {
   const traceFile = process.env["ANATOMIA_TRACE_FILE"];
-  if (traceFile && traceFile.trim()) {
-    try {
-      traceJsonl = readFileSync(traceFile.trim(), "utf8");
-    } catch {
-      traceJsonl = undefined;
-    }
+  if (!traceFile || !traceFile.trim()) return undefined;
+  try {
+    return readFileSync(traceFile.trim(), "utf8");
+  } catch {
+    return undefined;
   }
-  return { judgeLlm: providers.llm, judgeModelId: providers.llmModelId, pathCache, traceJsonl };
+}
+
+/**
+ * Resolve the auxiliary LLM deps for the web-cache + adjustment routes: a Haiku
+ * client for search (free-text → ranked results) and a (Sonnet) client for the
+ * retune granularity flow. Both fail fast at the route when only the stub LLM is
+ * configured (no API key) — never a silent substring/no-op fallback.
+ */
+function resolveAuxDeps(): {
+  searchLlm: ReturnType<typeof resolveProviders>["llm"];
+  searchModelId: string;
+  retuneLlm: ReturnType<typeof resolveProviders>["llm"];
+  retuneModelId: string;
+  traceJsonl: string | undefined;
+} {
+  const searchModel = process.env["ANATOMIA_SEARCH_MODEL"] || "claude-haiku-4-5";
+  const searchP = resolveProviders({ ...envConfig(), llmModel: searchModel });
+  const retuneModel = process.env["ANATOMIA_RETUNE_MODEL"] || "claude-sonnet-4-6";
+  const retuneP = resolveProviders({ ...envConfig(), llmModel: retuneModel });
+  return {
+    searchLlm: searchP.llm,
+    searchModelId: searchP.llmModelId,
+    retuneLlm: retuneP.llm,
+    retuneModelId: retuneP.llmModelId,
+    traceJsonl: readTraceFile(),
+  };
 }
 
 /**

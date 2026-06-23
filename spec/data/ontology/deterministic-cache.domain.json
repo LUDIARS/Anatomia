@@ -1,0 +1,27 @@
+{
+  "name": "deterministic-cache",
+  "description": "決定的キャッシュ基盤。content-addressed な LLM 蒸留カードを Redis/File/memory に置き、LLM/embedder プロバイダとコスト計測を束ねる。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    {
+      "pathPattern": "(^|/)src/cache/__tests__/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/cache/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/providers/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/providers/__tests__/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/cost/__tests__/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/cost/[^/]+$"
+    }
+  ],
+  "cardTemplate": "Summarise the \"deterministic-cache\" domain: 決定的キャッシュ基盤。content-addressed な LLM 蒸留カードを Redis/File/memory に置き、LLM/embedder プロバイダとコスト計測を束ねる。"
+}

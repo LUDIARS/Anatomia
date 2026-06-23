@@ -1,0 +1,30 @@
+{
+  "name": "supply-verify",
+  "description": "重心となる supply→verify ループ。生成前に着地点・適用ルール・手本・影響半径・重複回避を供給し、生成後に 5 ゲートで検証してレビューを出す。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    {
+      "pathPattern": "(^|/)src/supply/__tests__/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/__tests__/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/supply/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/supply/gates/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/review/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/review/__tests__/[^/]+$"
+    }
+  ],
+  "cardTemplate": "Summarise the \"supply-verify\" domain: 重心となる supply→verify ループ。生成前に着地点・適用ルール・手本・影響半径・重複回避を供給し、生成後に 5 ゲートで検証してレビューを出す。"
+}

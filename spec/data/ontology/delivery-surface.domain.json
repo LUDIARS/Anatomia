@@ -1,0 +1,36 @@
+{
+  "name": "delivery-surface",
+  "description": "解析機能を外部に届ける入口。CLI/MCP ハンドラ・web 管理パネル・グラフ HTML エクスポート・ブランチ差分・複数プロジェクト管理。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    {
+      "pathPattern": "(^|/)src/adapters/__tests__/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/adapters/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/adapters/web/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/adapters/web/routes/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/adapters/web/__tests__/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/project/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/project/__tests__/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/branch/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/branch/__tests__/[^/]+$"
+    }
+  ],
+  "cardTemplate": "Summarise the \"delivery-surface\" domain: 解析機能を外部に届ける入口。CLI/MCP ハンドラ・web 管理パネル・グラフ HTML エクスポート・ブランチ差分・複数プロジェクト管理。"
+}
