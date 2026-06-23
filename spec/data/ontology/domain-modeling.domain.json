@@ -1,0 +1,30 @@
+{
+  "name": "domain-modeling",
+  "description": "コードを top-level 目的（ドメイン）と凝集サブ単位（module）へ分類する。検出・オントロジー・仕様シードの authoring・自己調整(re-tune)を含む建築規約の中心。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    {
+      "pathPattern": "(^|/)src/domains/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/plugins/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/domains/retune/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/domains/authoring/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/domains/authoring/__tests__/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/modules/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/modules/__tests__/[^/]+$"
+    }
+  ],
+  "cardTemplate": "Summarise the \"domain-modeling\" domain: コードを top-level 目的（ドメイン）と凝集サブ単位（module）へ分類する。検出・オントロジー・仕様シードの authoring・自己調整(re-tune)を含む建築規約の中心。"
+}

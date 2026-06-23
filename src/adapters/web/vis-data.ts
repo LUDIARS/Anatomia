@@ -154,8 +154,17 @@ export function sizeForCyclomatic(cyclomatic: number): number {
  *
  * @param ctx    Analysis context to visualise.
  * @param title  Optional display title (defaults to repo basename).
+ * @param opts   Optional `moduleResolver` (domain-retune): map a node's
+ *               repo-relative path + name to a curated module name. When it
+ *               returns a value, that module drives the node's `group` (colour /
+ *               domain-view aggregation) instead of the raw directory; null
+ *               falls back to `groupFor`.
  */
-export async function buildVisData(ctx: AnalysisContext, title?: string): Promise<VisData> {
+export async function buildVisData(
+  ctx: AnalysisContext,
+  title?: string,
+  opts?: { moduleResolver?: (relPath: string, name: string) => string | null },
+): Promise<VisData> {
   // --- Compute metrics ---
   const membershipMap = new Map<string, AnchorId[]>();
   for (const d of ctx.domains ?? []) {
@@ -185,9 +194,23 @@ export async function buildVisData(ctx: AnalysisContext, title?: string): Promis
   }
 
   // --- Derive groups ---
+  // A curated taxonomy module (domain-retune) wins over the raw directory group;
+  // when no resolver is supplied, or it returns null, fall back to groupFor.
+  const resolver = opts?.moduleResolver;
   const nodeGroup = new Map<string, string>();
   for (const n of nodes) {
-    nodeGroup.set(n.id, groupFor(n.sourceRange.filePath, ctx.repoPath));
+    let group: string | null = null;
+    if (resolver) {
+      const rel = (() => {
+        try {
+          return relative(ctx.repoPath, n.sourceRange.filePath).replace(/\\/g, "/");
+        } catch {
+          return n.sourceRange.filePath;
+        }
+      })();
+      group = resolver(rel, n.name);
+    }
+    nodeGroup.set(n.id, group ?? groupFor(n.sourceRange.filePath, ctx.repoPath));
   }
   const allGroups = [...new Set(nodeGroup.values())].sort();
   const groupColorMap = buildGroupColorMap(allGroups);
