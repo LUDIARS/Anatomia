@@ -35,6 +35,13 @@ export interface RedisStoreOptions {
   prefix?: string;
   /** Optional TTL (seconds). Omit for no expiry. */
   ttlSeconds?: number;
+  /**
+   * TCP connect timeout in ms. Default 2000.
+   * Also disables automatic reconnect (reconnectStrategy: false) so a
+   * missing server degrades to a no-op immediately rather than retrying
+   * with exponential back-off for several seconds.
+   */
+  connectTimeoutMs?: number;
 }
 
 // Computed specifier so tsc does not statically resolve (and thus require) the
@@ -53,12 +60,24 @@ export function createRedisStore<V>(opts: RedisStoreOptions = {}): CacheStore<V>
       clientPromise = (async () => {
         try {
           const mod = (await import(REDIS_MODULE)) as {
-            createClient: (o?: { url?: string }) => RedisLike & {
+            createClient: (o?: {
+              url?: string;
+              socket?: { connectTimeout?: number; reconnectStrategy?: false | ((retries: number) => number | Error) };
+            }) => RedisLike & {
               on(event: string, cb: (...a: unknown[]) => void): unknown;
               connect(): Promise<unknown>;
             };
           };
-          const client = mod.createClient(opts.url ? { url: opts.url } : {});
+          const connectTimeout = opts.connectTimeoutMs ?? 2000;
+          const client = mod.createClient({
+            ...(opts.url ? { url: opts.url } : {}),
+            socket: {
+              connectTimeout,
+              // Don't retry — a missing server should degrade to no-op
+              // immediately rather than spinning with exponential back-off.
+              reconnectStrategy: false,
+            },
+          });
           client.on("error", () => { /* swallow; degrade to miss */ });
           await client.connect();
           return client;
