@@ -43,6 +43,7 @@ describe("computeBranchDiff", () => {
   });
 
   it("classifies added / changed functions vs the merge-base", async () => {
+    // git init + analyze + branch-diff is slow under suite parallelism on Windows
     git(dir, ["init"]);
     // Name the (unborn) default branch "main" — works on git < 2.28 where
     // `git init -b main` / init.defaultBranch are unavailable.
@@ -76,7 +77,7 @@ describe("computeBranchDiff", () => {
     for (const a of diff.anchors.all) expect(graphIds.has(a)).toBe(true);
     expect(diff.anchors.added.length).toBe(1);
     expect(diff.anchors.changed.length).toBe(1);
-  });
+  }, 20_000);
 });
 
 describe("listBranches", () => {
