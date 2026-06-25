@@ -82,6 +82,7 @@ describe("prepared web cache: gate → prepare → serve", () => {
       expect.arrayContaining([
         "graph",
         "domain-view",
+        "access-patterns",
         "hotspots",
         "spec-links",
         "domains",
@@ -97,7 +98,7 @@ describe("prepared web cache: gate → prepare → serve", () => {
   });
 
   it("serves each view envelope with its preparedAt", async () => {
-    for (const view of ["graph", "domain-view", "hotspots", "spec-links", "domains", "scene-modules"]) {
+    for (const view of ["graph", "domain-view", "access-patterns", "hotspots", "spec-links", "domains", "scene-modules"]) {
       const res = await get(`/web/${view}`);
       expect(res.status, view).toBe(200);
       const body = await res.json();

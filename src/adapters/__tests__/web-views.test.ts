@@ -47,11 +47,18 @@ describe("GET /api/projects/:id/domain-view", () => {
     );
     expect(res.status).toBe(200);
     const body = await res.json();
-    // The route now returns { views, modulesByDomain, modularity, granularity, misfits }
-    // (the 機能/module layer added for the right-pane list), not a bare array.
+    // The route now returns { views, modulesByDomain, modularity, granularity,
+    // misfits, graphByDomain } (the 機能/module layer + the precomputed per-domain
+    // feature-unit graph), not a bare array.
     expect(Array.isArray(body.views)).toBe(true);
     expect(typeof body.modulesByDomain).toBe("object");
     expect(typeof body.modularity).toBe("number");
+    expect(typeof body.graphByDomain).toBe("object");
+    // Every rendered domain has a precomputed unit graph keyed by its name.
+    for (const v of body.views) {
+      expect(body.graphByDomain[v.domain]).toBeDefined();
+      expect(Array.isArray(body.graphByDomain[v.domain].units)).toBe(true);
+    }
   });
 
   it("404s on an unknown project", async () => {

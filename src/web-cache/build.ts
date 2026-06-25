@@ -16,6 +16,7 @@ import { loadTaxonomyResolver } from "../domains/retune/load-taxonomy.js";
 import { buildDomainViewPayload } from "../domains/domain-view-payload.js";
 import { buildHotspots } from "../supply/hotspots.js";
 import { buildSpecLinks } from "../domains/spec-links.js";
+import { detectAccessPatterns } from "../patterns/detect.js";
 import { buildSceneModules } from "./scene-modules.js";
 import { buildSearchCorpus } from "./search-corpus.js";
 import type { SceneModel } from "../integral/scene.js";
@@ -37,15 +38,23 @@ export async function buildWebCacheBundle(
   // Module partition: computed once, reused by domain-view / scene-modules / search.
   const { evaluation, index } = await evaluateModulesFromGraph(ctx.graph, ctx.functions);
 
+  // The feature-unit `group` per node comes from vis-data, and the Domain View
+  // payload precomputes its per-domain graph from those nodes/edges — so build
+  // vis-data first, then thread its nodes/edges into the domain-view builder.
   const moduleResolver = await loadTaxonomyResolver(ctx.repoPath);
-  const [graph, domainView, hotspots, specLinks, sceneModules, searchCorpus] = await Promise.all([
-    buildVisData(ctx, undefined, { moduleResolver }),
-    buildDomainViewPayload(ctx, evaluation),
-    buildHotspots(ctx),
-    buildSpecLinks(ctx),
-    buildSceneModules(ctx, evaluation, index, sceneModel),
-    buildSearchCorpus(ctx, evaluation, index),
-  ]);
+  const graph = await buildVisData(ctx, undefined, { moduleResolver });
+  const [domainView, hotspots, specLinks, sceneModules, searchCorpus, accessPatterns] =
+    await Promise.all([
+      buildDomainViewPayload(ctx, evaluation, graph.nodes, graph.edges),
+      buildHotspots(ctx),
+      buildSpecLinks(ctx),
+      buildSceneModules(ctx, evaluation, index, sceneModel),
+      buildSearchCorpus(ctx, evaluation, index),
+      // Access patterns were previously detected on every Domain View open via a
+      // live route that re-analyzed the repo + re-read every source file. Prepare
+      // them once here so the panel serves them from disk with no re-analysis.
+      detectAccessPatterns(ctx),
+    ]);
 
   const domains = (ctx.domains ?? []).map((d) => ({
     domain: d.domain,
@@ -57,6 +66,7 @@ export async function buildWebCacheBundle(
   return {
     graph,
     "domain-view": domainView,
+    "access-patterns": accessPatterns,
     hotspots,
     "spec-links": specLinks,
     domains,

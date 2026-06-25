@@ -17,11 +17,13 @@
  */
 
 import type { EdgeKind } from "../types.js";
+import type { AccessPattern } from "../patterns/detect.js";
 
 /** The set of views the prepare step builds + the panel renders from cache. */
 export type WebViewName =
   | "graph"
   | "domain-view"
+  | "access-patterns"
   | "hotspots"
   | "spec-links"
   | "domains"
@@ -32,6 +34,7 @@ export type WebViewName =
 export const WEB_VIEWS: readonly WebViewName[] = [
   "graph",
   "domain-view",
+  "access-patterns",
   "hotspots",
   "spec-links",
   "domains",
@@ -161,6 +164,7 @@ export interface SearchCorpus {
 export interface WebCacheBundle {
   graph: unknown;
   "domain-view": unknown;
+  "access-patterns": AccessPattern[];
   hotspots: unknown;
   "spec-links": unknown;
   domains: unknown;

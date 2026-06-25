@@ -239,7 +239,7 @@ describe("GET /domain-view-logic.js", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type") ?? "").toContain("javascript");
     const body = await res.text();
-    expect(body).toContain("export function buildDomainUnitGraph");
+    expect(body).toContain("export function foldUnitGraph");
   });
 });
 

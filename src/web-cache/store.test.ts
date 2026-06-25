@@ -15,6 +15,7 @@ const corpus: SearchCorpus = { entries: [{ kind: "domain", ref: "d", title: "d" 
 const bundle: WebCacheBundle = {
   graph: { nodes: [1, 2, 3], edges: [] },
   "domain-view": { views: [{}, {}] },
+  "access-patterns": [],
   hotspots: [{ a: 1 }],
   "spec-links": [],
   domains: [{ domain: "d" }],

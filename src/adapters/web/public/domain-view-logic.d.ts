@@ -20,33 +20,25 @@ export function accessRowsFor(
   domainName: string,
 ): AccessRow[];
 
-export interface VisNode {
-  id: string;
-  group?: string;
-  color?: { background?: string };
-  label?: string;
-  _meta?: { name?: string };
-}
-export interface VisEdge {
-  from: string;
-  to: string;
-}
-export interface UnitGraph {
+/**
+ * Precomputed per-domain aggregate (server-built; src/domains/view-graph.ts).
+ * The fold-independent half the panel renders from.
+ */
+export interface DomainUnitAggregate {
   units: string[];
-  unit: Record<string, { count: number; color?: string; fns: string[] }>;
-  nodeUnit: Record<string, string>;
+  unit: Record<string, { count: number; color: string | null; fns: string[] }>;
   pairs: Array<{ from: string; to: string; w: number }>;
+  totalUnits: number;
+  totalFns: number;
+}
+export interface FoldedUnitGraph {
   visiblePairs: Array<{ from: string; to: string; w: number }>;
   hub: Record<string, 1>;
   degreeByGroup: Record<string, number>;
   foldedHubs: number;
   foldedEdges: number;
-  totalUnits: number;
-  totalFns: number;
 }
-export function buildDomainUnitGraph(
-  implementors: string[],
-  nodes: VisNode[],
-  edges: VisEdge[],
-  opts: { fold: boolean; maxUnits: number },
-): UnitGraph;
+export function foldUnitGraph(
+  agg: DomainUnitAggregate,
+  opts: { fold: boolean },
+): FoldedUnitGraph;
