@@ -89,6 +89,13 @@ export interface WebServerOptions {
   /** HTTP port. Default 4200. */
   port?: number;
   /**
+   * Bind address. Default "127.0.0.1" (loopback-only — the panel is a local
+   * developer tool; mutation routes like POST /api/projects are not intended to
+   * be reachable from other machines). Set "0.0.0.0" explicitly only when you
+   * need LAN access and accept the risk.
+   */
+  hostname?: string;
+  /**
    * Optional live or recorded trace source for dynamic viz (G8).
    * Defaults to an empty RecordedTraceSource when not provided.
    */
@@ -318,7 +325,7 @@ export function createApp(
 // ---------------------------------------------------------------------------
 
 export async function startServer(options: WebServerOptions): Promise<void> {
-  const { ctx, port = 4200, traceSource } = options;
+  const { ctx, port = 4200, hostname = "127.0.0.1", traceSource } = options;
 
   // Idle self-shutdown: the warm daemon exits after a window with no HTTP
   // access (default 3h, ANATOMIA_IDLE_SHUTDOWN_MS; <=0 disables). The harness
@@ -331,8 +338,8 @@ export async function startServer(options: WebServerOptions): Promise<void> {
   });
 
   const { serve } = await import("@hono/node-server");
-  serve({ fetch: app.fetch, port }, () => {
-    console.log(`[anatomia/web] listening on http://localhost:${port}`);
+  serve({ fetch: app.fetch, port, hostname }, () => {
+    console.log(`[anatomia/web] listening on http://${hostname}:${port}`);
     if (idleMs > 0) {
       console.log(`[anatomia/web] idle shutdown after ${Math.round(idleMs / 60000)}min of no access`);
     }
