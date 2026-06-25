@@ -2,10 +2,16 @@
  * src/adapters/web/routes/web-cache.ts — Prepare + serve the web-display cache.
  *
  * Routes (manager mode only — the panel always runs with a ProjectManager):
- *   POST /api/projects/:id/prepare-web-cache  build every view once + persist
+ *   POST /api/projects/:id/prepare-web-cache  ENQUEUE a background prepare → 202 {jobId}
+ *   GET  /api/prepare-jobs                    queue snapshot (panel progress widget)
  *   GET  /api/projects/:id/web/manifest       index + stale flag (prepared?)
  *   GET  /api/projects/:id/web/:view          one prepared view (409 if absent)
  *   POST /api/projects/:id/web/search         LLM search over the prepared corpus
+ *
+ * Prepare is ASYNC: a full analyze+build takes minutes on a large repo, which
+ * outran the browser's fetch timeout when the POST awaited it. It now enqueues a
+ * job on a serial in-server queue (prepare-queue.ts) and returns immediately; the
+ * panel polls /api/prepare-jobs to show queue state + phase + outcome.
  *
  * The panel renders ONLY from these prepared files: a missing view returns 409
  * so the panel shows an error + a "prepare" prompt instead of rendering nothing.
@@ -13,7 +19,7 @@
  * fallback) — memory feedback_no_silent_fallback.
  *
  * SRP: HTTP shaping only. Building in web-cache/build.ts, persistence in
- * web-cache/store.ts, search in web-cache/search.ts.
+ * web-cache/store.ts, search in web-cache/search.ts, scheduling in prepare-queue.ts.
  */
 
 import type { Hono } from "hono";
@@ -21,6 +27,7 @@ import type { ProjectManager } from "../../../project/manager.js";
 import type { LLMClient } from "../../../domains/card.js";
 import { buildWebCacheBundle } from "../../../web-cache/build.js";
 import { writeWebCache, readWebManifest, readWebView } from "../../../web-cache/store.js";
+import { PrepareQueue } from "../../../web-cache/prepare-queue.js";
 import { WEB_VIEWS } from "../../../web-cache/types.js";
 import type { WebViewName, SearchCorpus } from "../../../web-cache/types.js";
 import { searchCorpus } from "../../../web-cache/search.js";
@@ -66,34 +73,52 @@ async function resolveSceneModel(
 export function mountWebCacheRoutes(app: Hono, deps: WebCacheRouteDeps): void {
   const { manager } = deps;
 
-  // POST prepare-web-cache — build every view once and persist.
+  // One serial prepare queue per server: a heavy analyze+build runs in the
+  // background so the POST returns instantly (no fetch timeout on big repos),
+  // and the panel polls /api/prepare-jobs to visualise progress. The runner is
+  // injected here so the queue itself stays free of manager/HTTP deps.
+  const queue = new PrepareQueue(async (projectId, setPhase) => {
+    const project = manager!.get(projectId)!;
+    setPhase("analyzing");
+    const ctx = await manager!.getContext(projectId);
+    const fingerprint = await manager!.fingerprint(projectId);
+    const sceneModel = await resolveSceneModel(deps, project.rootPath, project.name, ctx);
+    setPhase("building views");
+    const bundle = await buildWebCacheBundle(ctx, { sceneModel });
+    setPhase("writing");
+    const preparedAt = new Date().toISOString();
+    const manifest = await writeWebCache(
+      manager!.cache.dirFor(project.id),
+      project.id,
+      fingerprint,
+      bundle,
+      preparedAt,
+    );
+    return { views: manifest.views.length, counts: manifest.counts };
+  });
+
+  // POST prepare-web-cache — ENQUEUE a background prepare and return at once.
+  // Previously this awaited the whole build; on a large repo (KuzuSurvivors) that
+  // outran the browser's fetch timeout. Now it returns 202 + a jobId the panel
+  // tracks via /api/prepare-jobs; the serial worker does the real work.
   app.post("/api/projects/:id/prepare-web-cache", async (c) => {
     if (!manager) return c.json({ error: "web cache requires manager mode" }, 501);
     const id = c.req.param("id");
-    let project;
+    let projectId: string;
     try {
-      project = manager.get(manager.resolveId(id));
+      projectId = manager.resolveId(id);
     } catch {
       return c.json({ error: `no such project "${id}"` }, 404);
     }
-    if (!project) return c.json({ error: `no such project "${id}"` }, 404);
-    try {
-      const ctx = await manager.getContext(id);
-      const fingerprint = await manager.fingerprint(id);
-      const sceneModel = await resolveSceneModel(deps, project.rootPath, project.name, ctx);
-      const bundle = await buildWebCacheBundle(ctx, { sceneModel });
-      const preparedAt = new Date().toISOString();
-      const manifest = await writeWebCache(
-        manager.cache.dirFor(project.id),
-        project.id,
-        fingerprint,
-        bundle,
-        preparedAt,
-      );
-      return c.json(manifest);
-    } catch (err) {
-      return c.json({ error: err instanceof Error ? err.message : String(err) }, 500);
-    }
+    if (!manager.get(projectId)) return c.json({ error: `no such project "${id}"` }, 404);
+    const job = queue.enqueue(projectId);
+    return c.json({ jobId: job.id, projectId: job.projectId, state: job.state }, 202);
+  });
+
+  // GET prepare-jobs — the queue snapshot for the panel's progress widget.
+  app.get("/api/prepare-jobs", (c) => {
+    if (!manager) return c.json({ error: "web cache requires manager mode" }, 501);
+    return c.json({ jobs: queue.jobs(), active: queue.active });
   });
 
   // GET web/manifest — prepared? + stale (source changed since prepare)?

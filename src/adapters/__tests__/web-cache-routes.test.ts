@@ -55,6 +55,21 @@ afterAll(async () => {
 
 const get = (path: string) =>
   app.fetch(new Request(`http://localhost/api/projects/${pid}${path}`));
+const jobsSnapshot = () => app.fetch(new Request("http://localhost/api/prepare-jobs"));
+
+/** Poll the prepare queue until the given job reaches a terminal state. */
+async function waitForJob(jobId: string, timeoutMs = 30000): Promise<{ state: string; result: { views: number } }> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const { jobs } = (await (await jobsSnapshot()).json()) as {
+      jobs: Array<{ id: string; state: string; result: { views: number } }>;
+    };
+    const job = jobs.find((j) => j.id === jobId);
+    if (job && (job.state === "done" || job.state === "failed")) return job;
+    if (Date.now() > deadline) throw new Error(`job ${jobId} did not finish: ${JSON.stringify(job)}`);
+    await new Promise((r) => setTimeout(r, 25));
+  }
+}
 const post = (path: string, body?: unknown) =>
   app.fetch(
     new Request(`http://localhost/api/projects/${pid}${path}`, {
@@ -74,11 +89,27 @@ describe("prepared web cache: gate → prepare → serve", () => {
     expect((await graph.json()).error).toBe("not-prepared");
   });
 
-  it("prepare-web-cache builds every view + a fresh manifest", async () => {
+  it("prepare-web-cache enqueues a background job that builds every view", async () => {
+    // Async now: POST returns 202 + a jobId; a serial worker does the build.
     const res = await post("/prepare-web-cache");
-    expect(res.status).toBe(200);
-    const manifest = await res.json();
-    expect(manifest.views).toEqual(
+    expect(res.status).toBe(202);
+    const enq = await res.json();
+    expect(typeof enq.jobId).toBe("string");
+    expect(enq.state).toBe("queued");
+
+    const job = await waitForJob(enq.jobId);
+    expect(job.state, JSON.stringify(job)).toBe("done");
+    expect(job.result.views).toBeGreaterThanOrEqual(8);
+
+    // The job is visible in the queue snapshot for the panel's progress widget.
+    const snap = await (await jobsSnapshot()).json();
+    expect(snap.jobs.some((j: { id: string }) => j.id === enq.jobId)).toBe(true);
+
+    // After the worker finishes, the manifest is prepared + fresh.
+    const man = await (await get("/web/manifest")).json();
+    expect(man.prepared).toBe(true);
+    expect(man.stale).toBe(false); // source unchanged since prepare
+    expect(man.views).toEqual(
       expect.arrayContaining([
         "graph",
         "domain-view",
@@ -90,11 +121,6 @@ describe("prepared web cache: gate → prepare → serve", () => {
         "search-corpus",
       ]),
     );
-    expect(typeof manifest.preparedAt).toBe("string");
-
-    const man = await (await get("/web/manifest")).json();
-    expect(man.prepared).toBe(true);
-    expect(man.stale).toBe(false); // source unchanged since prepare
   });
 
   it("serves each view envelope with its preparedAt", async () => {
