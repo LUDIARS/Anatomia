@@ -910,12 +910,16 @@
 
   async function prepareFromList(id, btn) {
     var orig = btn.textContent;
-    btn.textContent = '生成中…'; btn.disabled = true;
+    btn.textContent = 'キュー追加…'; btn.disabled = true;
     try {
-      var res = await fetch('/api/projects/' + encodeURIComponent(id) + '/prepare-web-cache', { method: 'POST' });
-      if (!res.ok) { var b = await res.json().catch(function () { return {}; }); throw new Error(b.error || res.statusText); }
-    } catch (e) { alert('キャッシュ生成に失敗: ' + e.message); }
-    finally { btn.textContent = orig; btn.disabled = false; }
+      await enqueuePrepare(id);   // returns at once; progress shown in the queue dock
+      btn.textContent = 'キュー追加済';
+    } catch (e) {
+      alert('キャッシュ生成に失敗: ' + e.message);
+    } finally {
+      btn.disabled = false;
+      setTimeout(function () { btn.textContent = orig; }, 3000);
+    }
   }
 
   // ── Add-project form ───────────────────────────────────────────────────────
@@ -1000,13 +1004,15 @@
       : '';
   }
 
-  async function prepareWebCache(id) {
+  // Enqueue a background prepare (the build runs on a serial server-side queue so
+  // a big repo like KuzuSurvivors no longer times out the request). Returns the
+  // job descriptor { jobId, projectId, state }; track completion via QueueDock.
+  async function enqueuePrepare(id) {
     var res = await fetch('/api/projects/' + encodeURIComponent(id) + '/prepare-web-cache', { method: 'POST' });
-    if (!res.ok) {
-      var b = await res.json().catch(function () { return {}; });
-      throw new Error(b.error || res.statusText);
-    }
-    return res.json();
+    var b = await res.json().catch(function () { return {}; });
+    if (res.status !== 202) throw new Error(b.error || res.statusText);
+    if (window.QueueDock) { QueueDock.show(); QueueDock.poll(); }
+    return b;
   }
 
   // Read a cache-backed view. Returns { ok:true, data } on 200, or
@@ -1045,9 +1051,16 @@
       '</div>';
     var btn = document.getElementById('gate-prepare-btn');
     btn.onclick = async function () {
-      btn.disabled = true; btn.textContent = '生成中…';
+      btn.disabled = true; btn.textContent = 'キューに追加中…';
       try {
-        await prepareWebCache(id);
+        var job = await enqueuePrepare(id);
+        btn.textContent = 'キューで生成中…（進捗は左下のキュー）';
+        var done = await QueueDock.waitFor(job.jobId);   // resolves when done/failed
+        if (done && done.state === 'failed') {
+          btn.disabled = false; btn.textContent = 'キャッシュ生成';
+          alert('キャッシュ生成に失敗: ' + (done.error || 'unknown'));
+          return;
+        }
         loadManifestSummary(id);
         loadTabContent(state.activeTab);   // re-render the current tab
       } catch (e) {
@@ -1090,15 +1103,22 @@
     if (tab === 'adjust')         loadAdjust(id);
   }
 
-  // Prepare web cache from the dashboard summary strip.
+  // Prepare web cache from the dashboard summary strip (enqueues; the serial
+  // server-side queue does the build so a big repo can't time out the request).
   document.getElementById('dash-prepare').onclick = async function () {
     var btn = document.getElementById('dash-prepare');
     var id = state.projectId;
-    btn.disabled = true; btn.textContent = '生成中…';
+    btn.disabled = true; btn.textContent = 'キューに追加中…';
     try {
-      await prepareWebCache(id);
-      await loadManifestSummary(id);
-      loadTabContent(state.activeTab);   // re-render current tab with fresh cache
+      var job = await enqueuePrepare(id);
+      btn.textContent = 'キューで生成中…';
+      var done = await QueueDock.waitFor(job.jobId);
+      if (done && done.state === 'failed') {
+        alert('キャッシュ生成に失敗: ' + (done.error || 'unknown'));
+      } else {
+        await loadManifestSummary(id);
+        loadTabContent(state.activeTab);   // re-render current tab with fresh cache
+      }
     } catch (e) { alert('キャッシュ生成に失敗: ' + e.message); }
     finally { btn.disabled = false; btn.textContent = 'キャッシュ生成'; }
   };
@@ -2279,6 +2299,129 @@
   var btn=document.getElementById('cost-refresh');
   if(btn) btn.addEventListener('click', load);
   load();
+})();
+</script>
+
+<!-- ═══ キャッシュ生成キュー dock — feeds from GET /api/prepare-jobs ═══ -->
+<div id="queue-dock" style="position:fixed;left:14px;bottom:14px;width:330px;max-height:46vh;overflow:auto;z-index:60;display:none;background:#0d1117;border:1px solid #30363d;border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,0.5);font-size:0.82rem">
+  <header style="display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid #21262d;position:sticky;top:0;background:#0d1117">
+    <strong style="color:#c9d1d9">キャッシュ生成キュー</strong>
+    <span id="queue-dock-badge" style="color:#8b949e"></span>
+    <button id="queue-dock-hide" title="隠す" style="margin-left:auto;background:none;border:none;color:#8b949e;cursor:pointer;font-size:1.1rem;line-height:1">×</button>
+  </header>
+  <div id="queue-dock-body" style="padding:8px 10px"></div>
+</div>
+<script>
+(function () {
+  var dock = document.getElementById('queue-dock');
+  var bodyEl = document.getElementById('queue-dock-body');
+  var badgeEl = document.getElementById('queue-dock-badge');
+  if (!dock) return;
+  function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+
+  var hiddenByUser = false;   // honour the × until new activity appears
+  var prevActive = 0;
+  var timer = null;
+  var waiters = {};           // jobId -> [resolve, ...]  (for prepare buttons)
+  var lastJobs = [];
+
+  var STATE_STYLE = {
+    queued:  { color: '#8b949e', label: 'queued'  },
+    running: { color: '#58a6ff', label: 'running' },
+    done:    { color: '#3fb950', label: 'done'    },
+    failed:  { color: '#f85149', label: 'failed'  }
+  };
+
+  function fmtElapsed(job) {
+    var from = job.startedAt || job.enqueuedAt;
+    if (!from) return '';
+    var end = job.finishedAt ? Date.parse(job.finishedAt) : Date.now();
+    var ms = end - Date.parse(from);
+    if (isNaN(ms) || ms < 0) return '';
+    var s = Math.floor(ms / 1000);
+    if (s < 60) return s + 's';
+    return Math.floor(s / 60) + 'm' + (s % 60) + 's';
+  }
+
+  function render(jobs) {
+    var active = jobs.filter(function (j) { return j.state === 'queued' || j.state === 'running'; }).length;
+    badgeEl.textContent = active ? ('実行/待機 ' + active) : (jobs.length ? '完了' : '');
+    if (!jobs.length) { bodyEl.innerHTML = '<div style="color:#6e7681">キューは空です</div>'; return; }
+    // active first (insertion order), then finished newest-last as returned.
+    bodyEl.innerHTML = jobs.map(function (j) {
+      var st = STATE_STYLE[j.state] || { color: '#8b949e', label: j.state };
+      var spin = j.state === 'running' ? ' ⟳' : '';
+      var line2 = j.state === 'running'
+        ? '<span style="color:#6e7681">' + esc(j.phase || '…') + ' · ' + fmtElapsed(j) + '</span>'
+        : j.state === 'failed'
+          ? '<span style="color:#f85149" title="' + esc(j.error || '') + '">' + esc((j.error || 'failed').slice(0, 60)) + '</span>'
+          : j.state === 'done'
+            ? '<span style="color:#6e7681">' + (j.result ? (j.result.views + ' views') : 'done') + ' · ' + fmtElapsed(j) + '</span>'
+            : '<span style="color:#6e7681">待機中</span>';
+      return '<div style="padding:6px 0;border-bottom:1px solid #161b22">' +
+        '<div style="display:flex;align-items:center;gap:8px">' +
+          '<span style="color:#c9d1d9;font-weight:600">' + esc(j.projectId) + '</span>' +
+          '<span style="margin-left:auto;color:' + st.color + ';font-weight:600">' + st.label + spin + '</span>' +
+        '</div>' + line2 +
+      '</div>';
+    }).join('');
+  }
+
+  function resolveWaiters(jobs) {
+    jobs.forEach(function (j) {
+      if ((j.state === 'done' || j.state === 'failed') && waiters[j.id]) {
+        waiters[j.id].forEach(function (fn) { fn(j); });
+        delete waiters[j.id];
+      }
+    });
+  }
+
+  function schedule(active) {
+    if (timer) clearTimeout(timer);
+    // poll fast while work is in flight, slowly when idle (and stop if empty).
+    var delay = active ? 1200 : 8000;
+    timer = setTimeout(poll, delay);
+  }
+
+  async function poll() {
+    var jobs = [];
+    try {
+      var r = await fetch('/api/prepare-jobs');
+      if (r.ok) { var d = await r.json(); jobs = d.jobs || []; }
+    } catch (e) { /* leave jobs empty; retry on next tick */ }
+    lastJobs = jobs;
+    var active = jobs.filter(function (j) { return j.state === 'queued' || j.state === 'running'; }).length;
+    // Auto-show when new activity appears (overrides a prior manual hide).
+    if (active > prevActive) hiddenByUser = false;
+    prevActive = active;
+    if (!hiddenByUser && jobs.length) dock.style.display = '';
+    if (jobs.length === 0) dock.style.display = 'none';
+    render(jobs);
+    resolveWaiters(jobs);
+    schedule(active);
+  }
+
+  document.getElementById('queue-dock-hide').onclick = function () {
+    hiddenByUser = true; dock.style.display = 'none';
+  };
+
+  // Public API used by the prepare buttons.
+  window.QueueDock = {
+    poll: poll,
+    show: function () { hiddenByUser = false; dock.style.display = ''; },
+    jobs: function () { return lastJobs.slice(); },
+    // Resolve when the given job reaches a terminal state (done/failed).
+    waitFor: function (jobId) {
+      return new Promise(function (resolve) {
+        var found = lastJobs.find(function (j) { return j.id === jobId; });
+        if (found && (found.state === 'done' || found.state === 'failed')) { resolve(found); return; }
+        (waiters[jobId] = waiters[jobId] || []).push(resolve);
+        poll();
+      });
+    }
+  };
+
+  poll();   // initial load (also recovers visibility after a page reload mid-queue)
 })();
 </script>
 </body>

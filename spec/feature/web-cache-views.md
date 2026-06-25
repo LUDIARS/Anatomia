@@ -82,11 +82,30 @@ Haiku で rerank。LLM は claude CLI (`claude -p`) 経由 (API 不使用)。
 ## HTTP ルート
 
 ```
-POST /api/projects/:id/prepare-web-cache   全ビュー生成 + 永続 → manifest
+POST /api/projects/:id/prepare-web-cache   生成をキュー投入 → 202 { jobId, state }
+GET  /api/prepare-jobs                      キュー全体のスナップショット (進捗可視化)
 GET  /api/projects/:id/web/manifest        prepared? + stale?
 GET  /api/projects/:id/web/:view           1 ビュー (未生成は 409 not-prepared)
 POST /api/projects/:id/web/search          { query } → LLM 検索結果
 ```
+
+### prepare はキュー化 (非同期)
+
+全ビュー生成は analyze + build を伴い、大規模リポ (KuzuSurvivors 等) では数分かかる。
+旧実装は POST がそれを同期 await したため、ブラウザの fetch がタイムアウトしていた
+(サーバは処理継続するが UI には失敗に見える)。
+
+いまは **サーバ内の直列キュー** (`src/web-cache/prepare-queue.ts`) に投入して即 202 を返す。
+- ワーカーは**1件ずつ直列**に処理 (重い解析を同時に走らせると tree-sitter WASM ヒープが
+  枯渇するため。[[feedback_anatomia_treesitter_wasm_heap_leak]])。
+- 同一プロジェクトが queued/running 中の再投入は **dedup** (既存 job を返す)。完了後の
+  再投入は新規 job。
+- job は `{ id, projectId, state(queued|running|done|failed), phase, enqueuedAt,
+  startedAt, finishedAt, error, result }`。phase は analyzing → building views → writing。
+- キューはインメモリ (warm サーバは 180 分アイドルで自動停止するため永続不要)。完了履歴は
+  上限付きで保持し、パネルが done/failed を表示できるようにする。
+- ランナー (analyze + buildWebCacheBundle + writeWebCache) は注入で渡し、キュー本体は
+  ProjectManager / HTTP に依存しない (SRP)。
 
 ## 調整サブシステム (E)
 
@@ -110,6 +129,10 @@ web キャッシュは stale になる (UI が再生成を促す)。
 ## パネル (index.html)
 
 - プロジェクト毎 + ダッシュボードに「キャッシュ生成」ボタン (preparedAt/stale 表示)。
+  押下は**キュー投入**で、ボタンは投入後すぐ「キューで生成中…」になり完了でタブを再描画。
+- **キュー dock** (左下固定): `/api/prepare-jobs` を定期ポーリング (実行中は 1.2s、idle は
+  8s、空なら非表示) し、各 job の project / state / phase / 経過 / エラーを表示。`QueueDock`
+  が `waitFor(jobId)` を公開し、生成ボタンが完了を待って後処理する。
 - 全タブは `/web/:view` を読み、未生成は描画せずエラー + 生成ボタン。
 - 新タブ: **Search** / **Scene·Domain·Module** / **Adjust**。
 - 純粋ロジックは `public/web-views-logic.js` (ブラウザ + 単体テスト兼用、
