@@ -14,3 +14,13 @@ export type {
   ReviewOptions,
 } from "./build.js";
 export { formatReview } from "./format.js";
+export {
+  loadBaseline,
+  saveBaseline,
+  applyBaseline,
+  fingerprintViolation,
+  fingerprintDup,
+  fingerprintCycle,
+  fingerprintCoupling,
+} from "./baseline.js";
+export type { ReviewBaseline } from "./baseline.js";

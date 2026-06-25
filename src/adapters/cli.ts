@@ -35,7 +35,7 @@ import {
   buildVerdict,
 } from "../core.js";
 import { resolveLanding } from "../supply/landing.js";
-import { buildReview, formatReview } from "../review/index.js";
+import { buildReview, formatReview, loadBaseline, saveBaseline, applyBaseline } from "../review/index.js";
 import { detectScreens } from "../screens/index.js";
 import type { ScreenGraph } from "../screens/index.js";
 import { ProjectManager } from "../project/manager.js";
@@ -136,6 +136,10 @@ export interface CliArgs {
   traceOut?: string;
   /** For trace ingest: recorded JSONL trace file path. */
   traceFile?: string;
+  /** For review: path to baseline JSON; acknowledged findings are suppressed. */
+  baselinePath?: string;
+  /** For review: write the current report as a new baseline file (no output). */
+  writeBaseline?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -199,6 +203,8 @@ export function parseArgs(argv: string[]): CliArgs {
   let json = false;
   let project: string | undefined;
   let output: string | undefined;
+  let baselinePath: string | undefined;
+  let writeBaseline: string | undefined;
 
   for (let i = 0; i < args.length; i++) {
     const flag = args[i];
@@ -216,6 +222,10 @@ export function parseArgs(argv: string[]): CliArgs {
       project = args[++i];
     } else if (flag === "--output" || flag === "-o") {
       output = args[++i];
+    } else if (flag === "--baseline") {
+      baselinePath = args[++i];
+    } else if (flag === "--write-baseline") {
+      writeBaseline = args[++i];
     } else if (subcommand === "export-graph" && !flag.startsWith("-")) {
       // Positional: export-graph <project-id-or-path>
       // If it looks like a path (contains / or \) use it as repoPath,
@@ -228,7 +238,7 @@ export function parseArgs(argv: string[]): CliArgs {
     }
   }
 
-  return { subcommand, repoPath, diff, file, task, json, project, output };
+  return { subcommand, repoPath, diff, file, task, json, project, output, baselinePath, writeBaseline };
 }
 
 /**
@@ -479,7 +489,15 @@ export async function runCli(
   }
 
   if (args.subcommand === "review") {
-    const report = await buildReview(ctx);
+    let report = await buildReview(ctx);
+    if (args.writeBaseline) {
+      await saveBaseline(args.writeBaseline, report);
+      return { exitCode: 0, output: `baseline written to ${args.writeBaseline}` };
+    }
+    if (args.baselinePath) {
+      const baseline = await loadBaseline(args.baselinePath);
+      report = applyBaseline(report, baseline);
+    }
     if (args.json) {
       return { exitCode: 0, output: JSON.stringify(report, null, 2) };
     }
