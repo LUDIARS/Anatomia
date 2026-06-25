@@ -29,6 +29,7 @@ import {
 } from "./steps.js";
 import { unassignedNodes } from "./grouping.js";
 import { registerTaxonomy } from "./register.js";
+import { detectScreenPlan, persistScreenGraph, summarizeScreens } from "./screens.js";
 import { loadState, saveState, recordPass, shouldHaltForHuman } from "./state.js";
 
 export interface RetuneOptions {
@@ -73,8 +74,14 @@ export async function runRetuneOnContext(
     gatherSpecHeadings(ctx.repoPath),
   ]);
 
+  // ── Screen composition (auto-learned, deterministic) ──────────────────────
+  // Detect the UI screens up front so (a) the step-1 LLM prompt is screen-aware
+  // and (b) the deterministic screen domain can be folded in after step 6.
+  const { graph: screenGraph, plan: screenPlan } = await detectScreenPlan(ctx);
+  const screens = summarizeScreens(screenGraph);
+
   // ── Step 1: domains + big modules ─────────────────────────────────────────
-  const s1 = await step1Domains(input.llm, { project: input.project, purpose, specHeadings, dirs });
+  const s1 = await step1Domains(input.llm, { project: input.project, purpose, specHeadings, dirs, screens });
   steps.push(s1.log);
 
   // ── Step 2: assign heavy (large-node) directories ─────────────────────────
@@ -101,6 +108,20 @@ export async function runRetuneOnContext(
   const s6 = await step6Merge(input.llm, taxonomy, nodes, opts.minNodesPerModule ?? MIN_NODES_PER_MODULE);
   steps.push(s6.log);
 
+  // ── Step 8: fold the auto-learned screen composition in as a domain ───────
+  // Deterministic (no LLM) and added after the LLM steps so split/merge never
+  // reshape it. Owns its screen files by path → surfaces in the Domain View and
+  // feeds supply/verify like any generated domain.
+  if (screenPlan) {
+    taxonomy.domains.push(screenPlan);
+    steps.push({
+      step: 8,
+      title: "画面構成を自動検出しドメイン化",
+      llm: false,
+      summary: `${screenGraph.summary.total} screens, ${screenPlan.modules.length} screen modules, ${screenGraph.summary.edges} edges`,
+    });
+  }
+
   // ── Unassigned transparency ───────────────────────────────────────────────
   const unassigned = unassignedNodes(taxonomy, nodes);
   taxonomy.unassigned = {
@@ -112,6 +133,10 @@ export async function runRetuneOnContext(
   const prior = await loadState(ctx.repoPath, input.project);
   taxonomy.iterations = prior.iterations + 1;
   const { written, ontologyDir } = await registerTaxonomy(ctx.repoPath, taxonomy);
+  // Persist the full screen graph (composition + navigation) alongside the taxonomy.
+  if (screenGraph.summary.total > 0) {
+    written.push(await persistScreenGraph(ctx.repoPath, input.project, screenGraph));
+  }
   const next = recordPass(prior, taxonomy, opts.now);
   await saveState(ctx.repoPath, next);
 

@@ -25,9 +25,10 @@ AI 実装は 1 PR に集約する。
 ### SRP とレイヤ境界
 
 `src/` は責務ごとのレイヤに分割されている（`dag` / `graph` / `spec` / `domains` /
-`supply` / `dynamic` / `integral` / `review` / `patterns` / `modules` / `scenes` /
-`project` / `cache` / `cost` / `branch` / `fs` / `providers` / `plugins` /
-`adapters` / `web-cache` 等）。
+`supply` / `dynamic` / `integral` / `review` / `patterns` / `screens` / `modules` /
+`scenes` / `project` / `cache` / `cost` / `branch` / `fs` / `providers` / `plugins` /
+`adapters` / `web-cache` 等）。`screens` は静的な画面構成（UI 画面の検出・構成・遷移）
+で、`scenes`（動的なシーンステート）とは別レイヤ。
 
 - 新機能は既存レイヤのいずれかに属させる。レイヤ境界を越えた依存を作らない。
 - 新しいトップレベルレイヤを足すのは、既存のどこにも属さない新しい責務が

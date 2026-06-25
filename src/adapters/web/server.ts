@@ -58,6 +58,7 @@ import { mountBranchRoutes } from "./routes/branch.js";
 import { mountDomainViewRoute } from "./routes/domain-view.js";
 import { mountIntegralRoutes, type IntegralRouteDeps } from "./routes/integral.js";
 import { mountPatternRoutes } from "./routes/patterns.js";
+import { mountScreenRoutes } from "./routes/screens.js";
 import { mountWebCacheRoutes } from "./routes/web-cache.js";
 import { mountAdjustRoutes } from "./routes/adjust.js";
 import { resolveIdleMs, checkIntervalMs, shouldShutdown } from "./idle.js";
@@ -170,6 +171,9 @@ export function createApp(
 
   // ── Access-pattern route (heuristic singleton/locator/facade + accessors) ──
   mountPatternRoutes(app, source);
+
+  // ── Screen-composition route (auto-learned UI screens + contains/navigatesTo) ──
+  mountScreenRoutes(app, source);
 
   // ── Prepared web-display cache: build + serve every view + LLM search ──────
   // The panel renders ONLY from these prepared files (no cache → 409 → prompt).
