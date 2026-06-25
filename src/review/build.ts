@@ -191,12 +191,15 @@ export async function buildReview(
   }
   const structuralDup: ReviewDup[] = [];
   for (const [structuralHash, entries] of byStructure) {
+    // 無名関数 (<anonymous>) は小ラムダが多数重複として出るノイズ。除外する。
+    const named = entries.filter((e) => e.name !== "<anonymous>");
+    if (named.length === 0) continue;
     // Distinct source locations sharing one structure = exact clones.
-    const uniqueLocs = entries
+    const uniqueLocs = named
       .map((e) => e.loc)
       .filter((l, i, a) => a.findIndex((x) => x.file === l.file && x.line === l.line) === i);
     if (uniqueLocs.length >= 2) {
-      structuralDup.push({ anchor: structuralHash as AnchorId, name: entries[0]!.name, copies: uniqueLocs.sort(sortLocs) });
+      structuralDup.push({ anchor: structuralHash as AnchorId, name: named[0]!.name, copies: uniqueLocs.sort(sortLocs) });
     }
   }
   structuralDup.sort((a, b) => b.copies.length - a.copies.length || cmp(a.name, b.name));

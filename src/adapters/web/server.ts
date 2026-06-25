@@ -62,6 +62,7 @@ import { mountWebCacheRoutes } from "./routes/web-cache.js";
 import { mountAdjustRoutes } from "./routes/adjust.js";
 import { resolveIdleMs, checkIntervalMs, shouldShutdown } from "./idle.js";
 import { resolveProviders, envConfig } from "../../providers/index.js";
+import { generateCard } from "../../domains/card.js";
 import type { DomainCard } from "../../domains/card.js";
 import type { CachedIntegral } from "../../integral/cache.js";
 import { resolveCacheStore } from "../../cache/resolve.js";
@@ -153,7 +154,26 @@ export function createApp(
   }
 
   // ── Project management routes ────────────────────────────────────────────
-  mountProjectRoutes(app, source, manager);
+  // onAfterAnalyze: fire-and-forget card pre-warm so subsequent verify/context
+  // calls get LLM cache hits instead of cold distillation on first use.
+  const _prewarmVerifyOpts = resolveWebVerifyOpts();
+  mountProjectRoutes(app, source, manager, (ctx) => {
+    const pr = _prewarmVerifyOpts.providers;
+    const cc = _prewarmVerifyOpts.cardCache;
+    if (!pr) return;  // no LLM configured → skip pre-warm
+    void (async () => {
+      for (const d of ctx.domains ?? []) {
+        if (d.implementors.length === 0) continue;
+        try {
+          await generateCard(d.domain, d, ctx.graph, pr.llm, cc, {
+            modelId: pr.llmModelId,
+          });
+        } catch {
+          // pre-warm failure is non-fatal
+        }
+      }
+    })();
+  });
 
   // ── Per-project analysis routes ──────────────────────────────────────────
   mountAnalysisRoutes(app, source);

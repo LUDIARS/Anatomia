@@ -16,18 +16,24 @@
 import type { Hono } from "hono";
 import { ProjectManager } from "../../../project/manager.js";
 import type { WebContextSource } from "../context.js";
+import type { AnalysisContext } from "../../../core.js";
 
 /**
  * Mount all project management routes on `app`.
  *
- * @param app     Hono application to attach routes to.
- * @param source  Context source (read-only list + resolve).
- * @param manager ProjectManager for mutations (null in single-context mode → 501).
+ * @param app             Hono application to attach routes to.
+ * @param source          Context source (read-only list + resolve).
+ * @param manager         ProjectManager for mutations (null in single-context mode → 501).
+ * @param onAfterAnalyze  Optional fire-and-forget callback called after a (re)analyze
+ *                        succeeds. Used to pre-warm LLM caches (domain cards) so
+ *                        subsequent verify/context calls get cache hits instead of
+ *                        cold LLM distillation. Failures are silently ignored.
  */
 export function mountProjectRoutes(
   app: Hono,
   source: WebContextSource,
   manager: ProjectManager | null,
+  onAfterAnalyze?: (ctx: AnalysisContext) => void,
 ): void {
   // GET /api/projects — list + selected
   app.get("/api/projects", (c) => {
@@ -51,6 +57,7 @@ export function mountProjectRoutes(
     }
     const project = await manager.addProject({ name, rootPath });
     const ctx = await manager.analyzeProject(project.id);
+    if (onAfterAnalyze) try { onAfterAnalyze(ctx); } catch { /* pre-warm is optional */ }
     return c.json(
       {
         project,
@@ -80,6 +87,7 @@ export function mountProjectRoutes(
     try {
       manager.cache.invalidate(id);
       const ctx = await manager.analyzeProject(id);
+      if (onAfterAnalyze) try { onAfterAnalyze(ctx); } catch { /* pre-warm is optional */ }
       return c.json({
         project: id,
         files: ctx.files.length,
