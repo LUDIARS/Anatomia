@@ -41,8 +41,30 @@ manifest 取得時に現在値と比較して `stale` を返す。
 
 ## ビュー一覧 (バンドル)
 
-`graph` (vis-data) / `domain-view` / `hotspots` / `spec-links` / `domains` /
-`scene-modules` / `search-corpus`。
+`graph` (vis-data) / `domain-view` / `access-patterns` / `hotspots` /
+`spec-links` / `domains` / `scene-modules` / `search-corpus`。
+
+### access-patterns (アクセスパターン)
+
+`patterns/detect.ts` の singleton / service-locator / facade / network 検出結果。
+**以前は Domain View を開く度にライブルート `/access-patterns` が走り**、warm サーバ
+再起動直後はコンテキストキャッシュが空 → **リポ全体の再解析 + 全ソース再読込** を
+強制していた (キャッシュ非経由のクリティカルパス)。prepare 時に 1 回検出して
+ここに永続し、パネルは `/web/access-patterns` をディスクから読むだけにした。
+ライブルート `GET /api/projects/:id/access-patterns` は API 互換のため残す
+(パネルは使わない)。
+
+### domain-view (ドメインビュー)
+
+`views` (ドメイン + JP 説明 + implementor) / `modulesByDomain` (機能単位の凝集度) /
+`modularity` `granularity` `misfits` に加え、**`graphByDomain`** を含む。これは各
+ドメインの**機能単位グラフを事前集約**したもの (units + 色 + 件数 + 重み付き
+module→module ペア; `domains/view-graph.ts`)。**以前はパネルが全関数粒度の `graph`
+(vis-data) を丸ごと DL し、ドメイン選択の度にクライアントで関数→モジュール集約を
+やり直していた**。事前集約により、パネルは `graphByDomain[domain]` を引いて軽量な
+fold (hub/弱エッジ除去; `public/domain-view-logic.js: foldUnitGraph`) のみを行う。
+集約の単位 (`group`) は vis-data と同一なので、nodes/edges は build 側から渡す
+(domains 層は adapters 層の vis-data builder に依存しない)。
 
 ### scene-modules (シーンステート-ドメイン-モジュール調整ビューの表示面)
 

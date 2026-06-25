@@ -30,10 +30,20 @@ LLM 蒸留の `DomainCard`（[feature/domain-detection.md](./domain-detection.md
 グラフを描画する。**個々の関数までは下ろさず**、機能単位を 1 ノードとし、ラベルに**その機能に属する
 関数の件数**を出す（ノードサイズも件数スケール）。関数→関数のエッジは**モジュール→モジュール**に畳み込み、
 本数を重みにする（同一モジュール内は描かない）。下部に紐づく spec 節（日本語）を表示。route は
-`GET /api/projects/:id/domain-view`。グラフデータは `/api/projects/:id/vis-data` を共有。
+`GET /api/projects/:id/domain-view`。
 
 ノードの tooltip には件数 + 代表関数名（最大 12）を出す。キャンバス上部に
 「N functions across M feature units」（または上限超過時は間引き告知）を表示。
+
+**機能単位グラフは事前集約**する（`src/domains/view-graph.ts` の `aggregateDomainUnits`）。
+以前はパネルが全関数粒度の vis-data を丸ごと取得し、ドメインを選ぶ度にクライアントで
+関数→モジュール集約を回していた（大規模リポで数 MB の DL + O(関数+エッジ) のループ）。
+いまは prepare 時にドメイン毎の `{ units, unit(件数/色/代表名), pairs }` を
+`domain-view` ペイロードの `graphByDomain` に同梱し、パネルは対象ドメイン分を引いて
+**fold（hub/弱エッジ除去）だけ**をクライアントで行う（`public/domain-view-logic.js` の
+`foldUnitGraph`、fold トグルは対話的なのでクライアント保持）。集約の機能単位上限は
+`DV_MAX_UNITS`(=60) で、サーバの `DOMAIN_VIEW_MAX_UNITS` と一致させる。アクセスパターン
+オーバーレイも prepared cache (`/web/access-patterns`) から読む。
 
 **機能単位の上限**: 機能単位（モジュール）はふつう少数だが、念のため件数上位 `DV_MAX_UNITS`(=60) に
 クランプし、超過時は「N functions · showing top 60 of M feature units (by function count)」と表示する。

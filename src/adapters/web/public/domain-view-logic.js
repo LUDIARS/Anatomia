@@ -41,80 +41,42 @@ export function accessRowsFor(accessPatterns, domainName) {
 }
 
 /**
- * Collapse a domain's implementor functions into a feature-unit graph: one node
- * per module (with function count + colour), function→function edges aggregated
- * into module→module edges weighted by crossing count, then optionally fold out
- * cross-cutting hubs and weak links so the layout isn't a hairball.
+ * Fold a precomputed per-domain feature-unit graph for display.
  *
- * Pure: takes vis-data nodes/edges (plain objects) + the domain's implementor
- * anchors, returns plain data. The caller turns this into vis.DataSets + DOM.
+ * The expensive half — collapsing a domain's implementor functions into feature
+ * units and aggregating function→function edges into weighted module pairs — is
+ * now done ONCE on the server (src/domains/view-graph.ts) and shipped in the
+ * Domain View payload as `graphByDomain[domain]`. This function only applies the
+ * INTERACTIVE fold (hub + weak-edge removal driven by the panel's toggle) over
+ * the already-aggregated, module-level `pairs`, so it stays cheap to re-run on
+ * every toggle without touching the function-level graph.
  *
- * @param implementors AnchorId[] of the selected domain.
- * @param nodes        vis-data nodes: { id, group, color:{background}, label, _meta? }.
- * @param edges        vis-data edges: { from, to }.
- * @param opts         { fold:boolean, maxUnits:number }.
+ * Pure: takes the precomputed aggregate + opts, returns plain data. The caller
+ * turns `agg.units`/`agg.unit` + the returned `visiblePairs` into vis.DataSets.
+ *
+ * @param agg  Precomputed aggregate: { units:string[], unit, pairs:[{from,to,w}],
+ *             totalUnits, totalFns } (server-built; see DomainUnitGraph).
+ * @param opts { fold:boolean }.
  * @returns {
- *   units: string[],                  // groups to render (truncated to maxUnits by count)
- *   unit: Record<string,{count,color,fns:string[]}>,
- *   nodeUnit: Record<string,string>,  // implementor nodeId → group
- *   pairs: Array<{from,to,w}>,        // all cross-module edges
- *   visiblePairs: Array<{from,to,w}>, // after folding
+ *   visiblePairs: Array<{from,to,w}>, // pairs after folding
  *   hub: Record<string,true>,         // folded hub groups
  *   degreeByGroup: Record<string,number>,
  *   foldedHubs: number, foldedEdges: number,
- *   totalUnits: number, totalFns: number,
  * }
  */
-export function buildDomainUnitGraph(implementors, nodes, edges, opts) {
+export function foldUnitGraph(agg, opts) {
   const fold = !!(opts && opts.fold);
-  const maxUnits = opts && opts.maxUnits != null ? opts.maxUnits : 60;
+  const units = (agg && agg.units) || [];
+  const pairs = (agg && agg.pairs) || [];
 
-  const impl = {};
-  (implementors || []).forEach((a) => { impl[a] = 1; });
-
-  const unit = {};       // group -> { count, color, fns }
-  const nodeUnit = {};   // implementor nodeId -> group
-  (nodes || []).forEach((n) => {
-    if (!impl[n.id]) return;
-    const g = n.group || "unknown";
-    nodeUnit[n.id] = g;
-    if (!unit[g]) unit[g] = { count: 0, color: n.color && n.color.background, fns: [] };
-    unit[g].count++;
-    if (unit[g].fns.length < 12) unit[g].fns.push(n._meta ? n._meta.name : n.label);
-  });
-
-  let units = Object.keys(unit);
-  const totalUnits = units.length;
-  const totalFns = (implementors || []).length;
-  if (totalUnits > maxUnits) {
-    units = units.sort((a, b) => unit[b].count - unit[a].count).slice(0, maxUnits);
-  }
-  const shown = {};
-  units.forEach((g) => { shown[g] = 1; });
-
-  // Aggregate implementor edges into module→module, weighted, cross-module only.
-  const agg = {};
-  (edges || []).forEach((e) => {
-    const ga = nodeUnit[e.from], gb = nodeUnit[e.to];
-    if (!ga || !gb || ga === gb) return;
-    if (!shown[ga] || !shown[gb]) return;
-    if (!agg[ga]) agg[ga] = {};
-    agg[ga][gb] = (agg[ga][gb] || 0) + 1;
-  });
-  const pairs = [];
-  Object.keys(agg).forEach((from) => {
-    Object.keys(agg[from]).forEach((to) => {
-      pairs.push({ from, to, w: agg[from][to] });
-    });
-  });
-
-  // Fold cross-cutting hubs + weak links (toggle).
+  // Degree (distinct neighbours) per unit, from the precomputed module pairs.
   const degree = {};
   pairs.forEach((p) => {
     (degree[p.from] = degree[p.from] || {})[p.to] = 1;
     (degree[p.to] = degree[p.to] || {})[p.from] = 1;
   });
   const degreeOf = (g) => (degree[g] ? Object.keys(degree[g]).length : 0);
+
   const dense = pairs.length > units.length;
   const EDGE_MIN = fold && dense ? 2 : 1;
   const HUB_DEGREE = Math.max(6, Math.ceil(units.length * 0.6));
@@ -135,13 +97,10 @@ export function buildDomainUnitGraph(implementors, nodes, edges, opts) {
   const degreeByGroup = {};
   units.forEach((g) => { degreeByGroup[g] = degreeOf(g); });
 
-  return {
-    units, unit, nodeUnit, pairs, visiblePairs,
-    hub, degreeByGroup, foldedHubs, foldedEdges, totalUnits, totalFns,
-  };
+  return { visiblePairs, hub, degreeByGroup, foldedHubs, foldedEdges };
 }
 
 // Publish for the panel's classic inline scripts when loaded in a browser.
 if (typeof window !== "undefined") {
-  window.DomainViewLogic = { unitOfFile, accessRowsFor, buildDomainUnitGraph };
+  window.DomainViewLogic = { unitOfFile, accessRowsFor, foldUnitGraph };
 }
