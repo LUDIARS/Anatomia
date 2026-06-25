@@ -735,6 +735,7 @@
     domainNetwork: null,
     domainViewLoaded: false,
     domainViews: null,
+    domainGraphs: null,
     selectedDomain: null,
     accessPatterns: null,
     currentDomainView: null,
@@ -777,6 +778,7 @@
     state.branchDiffBase = null;
     state.domainViewLoaded = false;
     state.domainViews = null;
+    state.domainGraphs = null;
     state.selectedDomain = null;
     state.currentDomainView = null;
     state.accessPatterns = null;
@@ -1115,6 +1117,7 @@
       state.branchDiffBase = null;
       state.domainViewLoaded = false;
       state.domainViews = null;
+      state.domainGraphs = null;
       state.selectedDomain = null;
       state.currentDomainView = null;
       state.accessPatterns = null;
@@ -1365,22 +1368,14 @@
   // A dedicated view that focuses the graph on one domain at a time and shows the
   // spec clauses (Japanese) linked to that domain's functions.
 
-  async function ensureVisData(id) {
-    if (state.rawVisData) return state.rawVisData;
-    var r = await webView(id, 'graph');
-    if (!r.ok) {
-      var err = new Error(r.status === 409 ? 'not-prepared' : (r.body.error || 'error'));
-      err.notPrepared = r.status === 409;
-      throw err;
-    }
-    state.rawVisData = r.data;
-    return state.rawVisData;
-  }
-
   async function ensureAccessPatterns(id) {
     if (state.accessPatterns) return state.accessPatterns;
+    // Served from the prepared web cache (built once at prepare time), NOT the
+    // live /access-patterns route which re-analyzed the repo + re-read every
+    // source file on each Domain View open.
     try {
-      state.accessPatterns = await apiFetch('/api/projects/' + encodeURIComponent(id) + '/access-patterns');
+      var r = await webView(id, 'access-patterns');
+      state.accessPatterns = (r.ok && r.data) ? r.data : [];
     } catch (e) {
       state.accessPatterns = [];
     }
@@ -1415,6 +1410,9 @@
     // module-aggregation evaluation. (Older shape was a bare DomainView[].)
     var views = Array.isArray(data) ? data : (data.views || []);
     state.domainViews = views;
+    // Per-domain feature-unit graph, precomputed server-side (view-graph.ts).
+    // The panel folds it client-side instead of downloading the full graph.
+    state.domainGraphs = (data && data.graphByDomain) || {};
     state.domainModules = (data && data.modulesByDomain) || {};
     state.domainMisfits = (data && data.misfits) || [];
     state.domainModularity = data && typeof data.modularity === 'number' ? data.modularity : null;
@@ -1546,27 +1544,24 @@
     }).join('');
   }
 
-  async function focusDomain(v) {
+  function focusDomain(v) {
     var loadEl = document.getElementById('dv-graph-loading');
-    loadEl.style.display = ''; loadEl.textContent = 'Loading graph…';
-    var data;
-    try {
-      data = await ensureVisData(state.projectId);
-    } catch (e) {
-      loadEl.textContent = 'Error: ' + e.message; return;
-    }
-    // ── Aggregate to FEATURE UNITS (modules) + fold hubs/weak edges ───────────
+    loadEl.style.display = ''; loadEl.textContent = 'Rendering graph…';
+    // ── Render FEATURE UNITS (modules) + fold hubs/weak edges ─────────────────
     // A "feature unit" is the file group (directory/module) vis-data assigns.
-    // The pure core (domain-view-logic.js) collapses the domain's implementor
-    // functions into one node per module and function→function edges into
-    // weighted module→module edges, then folds out cross-cutting hubs / weak
-    // links. We keep only the vis/DOM glue here.
+    // The per-domain aggregation (units + colours + weighted module pairs) is
+    // PRECOMPUTED server-side (view-graph.ts) and shipped in the domain-view
+    // payload, so we just look it up and apply the interactive fold here.
+    var agg = state.domainGraphs && state.domainGraphs[v.domain];
+    if (!agg) {
+      loadEl.textContent = 'No precomputed graph for this domain (re-prepare the cache).';
+      if (state.domainNetwork) { state.domainNetwork.destroy(); state.domainNetwork = null; }
+      return;
+    }
     var fold = document.getElementById('dv-fold').checked;
-    var gr = DomainViewLogic.buildDomainUnitGraph(v.implementors, data.nodes, data.edges, {
-      fold: fold, maxUnits: DV_MAX_UNITS,
-    });
-    var unit = gr.unit, units = gr.units, hub = gr.hub, visiblePairs = gr.visiblePairs;
-    var degreeOf = function (g) { return gr.degreeByGroup[g] || 0; };
+    var fr = DomainViewLogic.foldUnitGraph(agg, { fold: fold });
+    var unit = agg.unit, units = agg.units, hub = fr.hub, visiblePairs = fr.visiblePairs;
+    var degreeOf = function (g) { return fr.degreeByGroup[g] || 0; };
 
     // Which feature units contain a detected access pattern (singleton/locator/facade/network).
     var unitPatterns = {};  // group -> { kinds:{}, names:[], net:bool, targets:{} }
@@ -1580,12 +1575,12 @@
     });
 
     var noteEl = document.getElementById('dv-graph-note');
-    if (gr.totalUnits > DV_MAX_UNITS) {
-      noteEl.textContent = gr.totalFns + ' functions · showing top ' + DV_MAX_UNITS +
-        ' of ' + gr.totalUnits + ' feature units (by function count)';
+    if (agg.totalUnits > DV_MAX_UNITS) {
+      noteEl.textContent = agg.totalFns + ' functions · showing top ' + DV_MAX_UNITS +
+        ' of ' + agg.totalUnits + ' feature units (by function count)';
       noteEl.style.display = '';
-    } else if (gr.totalUnits > 0) {
-      noteEl.textContent = gr.totalFns + ' functions across ' + gr.totalUnits + ' feature units';
+    } else if (agg.totalUnits > 0) {
+      noteEl.textContent = agg.totalFns + ' functions across ' + agg.totalUnits + ' feature units';
       noteEl.style.display = '';
     } else {
       noteEl.style.display = 'none';
@@ -1596,9 +1591,9 @@
       loadEl.style.display = ''; loadEl.textContent = 'No feature units for this domain.'; return;
     }
 
-    if (fold && (gr.foldedHubs || gr.foldedEdges)) {
-      noteEl.textContent += ' · folded ' + gr.foldedHubs + ' hub' + (gr.foldedHubs === 1 ? '' : 's') +
-        ', ' + gr.foldedEdges + ' link' + (gr.foldedEdges === 1 ? '' : 's');
+    if (fold && (fr.foldedHubs || fr.foldedEdges)) {
+      noteEl.textContent += ' · folded ' + fr.foldedHubs + ' hub' + (fr.foldedHubs === 1 ? '' : 's') +
+        ', ' + fr.foldedEdges + ' link' + (fr.foldedEdges === 1 ? '' : 's');
       noteEl.style.display = '';
     }
 
