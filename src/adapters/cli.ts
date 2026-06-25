@@ -36,6 +36,8 @@ import {
 } from "../core.js";
 import { resolveLanding } from "../supply/landing.js";
 import { buildReview, formatReview } from "../review/index.js";
+import { detectScreens } from "../screens/index.js";
+import type { ScreenGraph } from "../screens/index.js";
 import { ProjectManager } from "../project/manager.js";
 import { exportGraphHtml } from "./web/export.js";
 import { startServer } from "./web/server.js";
@@ -84,7 +86,8 @@ export interface CliArgs {
     | "cache-stats"
     | "integral"
     | "domains"
-    | "trace";
+    | "trace"
+    | "screens";
   repoPath: string;
   /** For cache-stats: path to the JSONL transcript (defaults to ANATOMIA_CACHE_LOG). */
   logPath?: string;
@@ -154,10 +157,11 @@ export function parseArgs(argv: string[]): CliArgs {
     subcommand !== "cache-stats" &&
     subcommand !== "integral" &&
     subcommand !== "domains" &&
-    subcommand !== "trace"
+    subcommand !== "trace" &&
+    subcommand !== "screens"
   ) {
     throw new Error(
-      `Unknown subcommand "${subcommand ?? ""}". Expected: verify | context | where | review | project | export-graph | web | cache-stats | integral | domains | trace`,
+      `Unknown subcommand "${subcommand ?? ""}". Expected: verify | context | where | review | project | export-graph | web | cache-stats | integral | domains | trace | screens`,
     );
   }
 
@@ -482,6 +486,14 @@ export async function runCli(
     return { exitCode: 0, output: formatReview(report) };
   }
 
+  if (args.subcommand === "screens") {
+    const graph = await detectScreens(ctx);
+    if (args.json) {
+      return { exitCode: 0, output: JSON.stringify(graph, null, 2) };
+    }
+    return { exitCode: 0, output: formatScreens(graph) };
+  }
+
   if (args.subcommand === "export-graph") {
     const outputPath = args.output ?? "graph.html";
     const html = await exportGraphHtml(ctx, { title: undefined });
@@ -507,6 +519,30 @@ async function resolveContext(args: CliArgs): Promise<AnalysisContext> {
     return mgr.getContext(args.project);
   }
   return analyze(args.repoPath);
+}
+
+/** Human-readable summary of a detected screen composition. */
+function formatScreens(graph: ScreenGraph): string {
+  const lines: string[] = [];
+  const { total, byStack, byKind, edges } = graph.summary;
+  lines.push(`画面構成: ${total} screens, ${edges} edges`);
+  const fmt = (m: Record<string, number>): string =>
+    Object.entries(m)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([k, v]) => `${k}:${v}`)
+      .join(" ");
+  lines.push(`  stacks: ${fmt(byStack) || "-"}`);
+  lines.push(`  kinds:  ${fmt(byKind) || "-"}`);
+  lines.push("");
+  for (const s of graph.screens) {
+    const route = s.route ? ` ${s.route}` : "";
+    const loc = s.file ? ` (${s.file}:${s.line})` : "";
+    lines.push(`- ${s.name} [${s.stack}/${s.kind}]${route}${loc}`);
+    if (s.contains.length) lines.push(`    contains: ${s.contains.join(", ")}`);
+    if (s.navigatesTo.length) lines.push(`    → ${s.navigatesTo.join(", ")}`);
+    if (s.domains.length) lines.push(`    domains: ${s.domains.join(", ")}`);
+  }
+  return lines.join("\n");
 }
 
 // ---------------------------------------------------------------------------

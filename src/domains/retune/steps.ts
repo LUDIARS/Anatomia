@@ -40,7 +40,7 @@ const LOW_CONFIDENCE = 0.5;
 
 export async function step1Domains(
   llm: LLMClient,
-  input: { project: string; purpose: string; specHeadings: string[]; dirs: DirStat[] },
+  input: { project: string; purpose: string; specHeadings: string[]; dirs: DirStat[]; screens?: string[] },
 ): Promise<{ skeleton: DomainSkeleton[]; log: StepLog }> {
   const parsed = await callLlmJson<{ domains?: unknown }>(llm, step1Prompt(input));
   const skeleton: DomainSkeleton[] = asArray<any>(parsed.domains).map((d) => ({

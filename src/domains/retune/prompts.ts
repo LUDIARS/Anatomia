@@ -29,7 +29,18 @@ export function step1Prompt(input: {
   purpose: string;
   specHeadings: string[];
   dirs: DirStat[];
+  /** Auto-detected UI screen composition (screens/ layer), when present. */
+  screens?: string[];
 }): string {
+  const screenSection =
+    input.screens && input.screens.length
+      ? [
+          ``,
+          `## Detected UI screens (auto-learned screen composition)`,
+          `Consider whether a screen/UI-flow domain belongs in the taxonomy.`,
+          input.screens.slice(0, 30).join("\n"),
+        ]
+      : [];
   return [
     `You are designing the DOMAIN taxonomy for the codebase "${input.project}".`,
     `A "domain" is a top-level purpose area (what the code is FOR). A "module" is a`,
@@ -44,6 +55,7 @@ export function step1Prompt(input: {
     ``,
     `## Source directories (module candidates, heaviest first)`,
     input.dirs.slice(0, 40).map(dirLine).join("\n"),
+    ...screenSection,
     ``,
     `Decide 4–8 domains, each with 1–4 module hints. Use concise kebab-case names.`,
     `${JSON_ONLY} Shape:`,
