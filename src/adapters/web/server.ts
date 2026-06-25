@@ -54,6 +54,7 @@ import { mountAnalysisRoutes } from "./routes/analysis.js";
 import { mountCacheRoute } from "./routes/cache.js";
 import { mountCostRoute } from "./routes/cost.js";
 import { mountHarnessRoutes } from "./routes/harness.js";
+import { mountRelayRoutes } from "./routes/relay.js";
 import { mountBranchRoutes } from "./routes/branch.js";
 import { mountDomainViewRoute } from "./routes/domain-view.js";
 import { mountIntegralRoutes, type IntegralRouteDeps } from "./routes/integral.js";
@@ -228,6 +229,9 @@ export function createApp(
 
   // ── Warm supply/verify routes for the agent harness (hooks) ──────────────
   mountHarnessRoutes(app, source, verifyOpts);
+
+  // ── Praeforma(Thaleia) relay: POST /relay/anatomia — 要件束 → 関連処理グラフ ──
+  mountRelayRoutes(app, source);
 
   // ── Legacy data routes (kept for backward compat; also used by old tests) ─
 
