@@ -309,7 +309,7 @@ export function createApp(
   });
 
   // Pure panel logic, loaded by index.html as ES modules (and unit-tested).
-  for (const asset of ["domain-view-logic.js", "web-views-logic.js"]) {
+  for (const asset of ["domain-view-logic.js", "web-views-logic.js", "deeplink-logic.js"]) {
     app.get(`/${asset}`, (c) => {
       const js = loadPublicAsset(asset);
       if (js == null) return c.text(`// ${asset} not found`, 404);
