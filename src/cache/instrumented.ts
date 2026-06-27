@@ -14,6 +14,7 @@
  */
 import type { CacheStore } from "./store.js";
 import type { CacheTranscript } from "./transcript.js";
+import { vgWrite } from "../obs/vestigium.js";
 
 /** Running per-process tally of cache gets. */
 export interface CacheCounters {
@@ -77,6 +78,9 @@ export function instrumentStore<V>(
         key,
         model: opts.model,
       });
+      // 横断 Vg にも hit/miss を残す (debug。 key の中身はハッシュなので出さず ns/hit のみ)。
+      // warm サーバで init 済のときだけ書かれ、 CLI/test では no-op。
+      vgWrite("debug", `cache ${hit ? "hit" : "miss"}`, { ns: opts.ns, hit, model: opts.model });
       return value;
     },
     async set(key, value) {
