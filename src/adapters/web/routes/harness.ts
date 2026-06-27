@@ -22,6 +22,7 @@ import { buildVerdict, buildContextBundle } from "../../../core.js";
 import type { VerifyOptions } from "../../../core.js";
 import type { WebContextSource } from "../context.js";
 import { runWithSession } from "../../../cache/session-context.js";
+import { vgWrite } from "../../../obs/vestigium.js";
 
 /**
  * Mount the warm supply/verify routes on `app`. `verifyOpts` (providers +
@@ -54,6 +55,11 @@ export function mountHarnessRoutes(app: Hono, source: WebContextSource, verifyOp
     // Lictor/Concordia session id) so cache-stats can report a per-session slice.
     const session = typeof body.session === "string" ? body.session : undefined;
     const verdict = await runWithSession(session, () => buildVerdict(ctx, diff, targetPath, verifyOpts));
+    // 解析ログ: verify の合否とゲート内訳を Vg へ (diff の中身は出さない)。
+    const failed = verdict.gates.filter((g) => !g.pass).map((g) => g.gate);
+    vgWrite(verdict.pass ? "info" : "warn", `anatomia verify ${verdict.pass ? "pass" : "fail"}`, {
+      project: project ?? "", session, pass: verdict.pass, gates: verdict.gates.length, failed,
+    });
     return c.json(verdict);
   });
 
@@ -69,6 +75,13 @@ export function mountHarnessRoutes(app: Hono, source: WebContextSource, verifyOp
       return c.json({ error: `no such project "${project ?? ""}"` }, 404);
     }
     const bundle = await runWithSession(session, () => buildContextBundle(ctx, { task }));
+    // 解析ログ: supply で解決したドメイン/ルール/手本の件数を Vg へ (中身は出さない)。
+    vgWrite("info", "anatomia supply", {
+      project: project ?? "", task, session,
+      domains: bundle.existingDomains.length,
+      rules: bundle.applicableRules.length,
+      exemplars: bundle.exemplars.length,
+    });
     return c.json(bundle);
   });
 }
