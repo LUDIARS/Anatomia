@@ -321,6 +321,16 @@
     .dv-acc-facade { background: #2d0d4a; color: #bc8cff; }
     .dv-acc-network { background: #0a3338; color: #39c5cf; }
     .dv-acc-how { color: #8b949e; margin-left: 6px; font-size: 0.7rem; }
+    .dv-scr-row { padding: 4px 0; border-bottom: 1px solid #21262d; font-size: 0.76rem; display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+    .dv-scr-row:last-child { border-bottom: none; }
+    .dv-scr-name { font-family: monospace; font-weight: 600; color: #c9d1d9; }
+    .dv-scr-badge { font-size: 0.65rem; padding: 1px 5px; border-radius: 8px; }
+    .dv-scr-web  { background: #0d2f4a; color: #58a6ff; }
+    .dv-scr-unity { background: #1a2d0d; color: #56d364; }
+    .dv-scr-native { background: #2d0d4a; color: #bc8cff; }
+    .dv-scr-kind { font-size: 0.65rem; color: #6e7681; margin-left: 2px; }
+    .dv-scr-route { font-size: 0.7rem; color: #8b949e; font-family: monospace; }
+    .dv-scr-file { font-size: 0.7rem; color: #484f58; font-family: monospace; }
 
     /* ── Cache-gate card (shown when a view is not yet prepared) ─ */
     .gate-card {
@@ -598,6 +608,10 @@
                 <h4>Access patterns (このドメインが触る)</h4>
                 <div id="dv-access-body"><div class="dv-muted">—</div></div>
               </div>
+              <div id="dv-screens">
+                <h4>Screens (このドメインが属する画面)</h4>
+                <div id="dv-screens-body"><div class="dv-muted">—</div></div>
+              </div>
             </div>
           </div>
           <div id="dv-right">
@@ -738,6 +752,7 @@
     domainGraphs: null,
     selectedDomain: null,
     accessPatterns: null,
+    screens: null,
     currentDomainView: null,
     webManifest: null,
     sceneModules: null,
@@ -782,6 +797,7 @@
     state.selectedDomain = null;
     state.currentDomainView = null;
     state.accessPatterns = null;
+    state.screens = null;
     state.webManifest = null;
     state.sceneModules = null;
     state.sceneFilter = null;
@@ -1141,6 +1157,7 @@
       state.selectedDomain = null;
       state.currentDomainView = null;
       state.accessPatterns = null;
+      state.screens = null;
       if (state.network) { state.network.destroy(); state.network = null; }
       if (state.domainNetwork) { state.domainNetwork.destroy(); state.domainNetwork = null; }
       loadDashboard();
@@ -1402,6 +1419,17 @@
     return state.accessPatterns;
   }
 
+  async function ensureScreens(id) {
+    if (state.screens) return state.screens;
+    try {
+      var r = await apiFetch('/api/projects/' + encodeURIComponent(id) + '/screens');
+      state.screens = (r && r.screens) ? r.screens : [];
+    } catch (e) {
+      state.screens = [];
+    }
+    return state.screens;
+  }
+
   // unitOfFile moved to domain-view-logic.js (DomainViewLogic.unitOfFile).
 
   var PATTERN_ICON = { singleton: '◆', 'service-locator': '⬡', facade: '▤', network: '☁' };
@@ -1467,6 +1495,7 @@
       listEl.appendChild(card);
     });
     await ensureAccessPatterns(id);   // singleton/locator/facade overlay data
+    await ensureScreens(id);          // UI screen overlay data
     selectDomain(views[0]);
   }
 
@@ -1478,6 +1507,7 @@
     });
     renderSpecRefs(v);
     renderAccess(v);
+    renderScreens(v);
     renderModules(v);
     focusDomain(v);
   }
@@ -1544,6 +1574,27 @@
         '<span class="dv-acc-kind dv-acc-' + x.kind + '">' + esc(kindLabel) + '</span>' +
         '<span class="dv-acc-how">' + esc(x.how) + '</span>' +
         '<div class="dv-spec-file">' + esc(x.file) + '</div>' +
+      '</div>';
+    }).join('');
+  }
+
+  // List UI screens whose domains include the selected domain.
+  function renderScreens(v) {
+    var body = document.getElementById('dv-screens-body');
+    var rows = DomainViewLogic.screensRowsFor(state.screens, v.domain);
+    if (!rows.length) {
+      body.innerHTML = '<div class="dv-muted">このドメインに帰属する画面は検出されませんでした。</div>';
+      return;
+    }
+    body.innerHTML = rows.map(function (s) {
+      var stackCls = 'dv-scr-' + (s.stack || 'web');
+      var routeHtml = s.route ? '<span class="dv-scr-route">' + esc(s.route) + '</span>' : '';
+      return '<div class="dv-scr-row">' +
+        '<span class="dv-scr-name">' + esc(s.name) + '</span>' +
+        '<span class="dv-scr-badge ' + stackCls + '">' + esc(s.stack) + '</span>' +
+        '<span class="dv-scr-kind">' + esc(s.kind) + '</span>' +
+        routeHtml +
+        '<div class="dv-scr-file">' + esc(s.file) + '</div>' +
       '</div>';
     }).join('');
   }
