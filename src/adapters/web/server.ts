@@ -48,6 +48,7 @@ import { join, dirname } from "node:path";
 import { Hono } from "hono";
 import { computeMetrics } from "../../supply/metrics.js";
 import { ProjectManager } from "../../project/manager.js";
+import { initVestigium } from "../../obs/vestigium.js";
 import { webContextSourceFrom } from "./context.js";
 import { mountProjectRoutes } from "./routes/projects.js";
 import { mountAnalysisRoutes } from "./routes/analysis.js";
@@ -326,6 +327,10 @@ export function createApp(
 
 export async function startServer(options: WebServerOptions): Promise<void> {
   const { ctx, port = 4200, hostname = "127.0.0.1", traceSource } = options;
+
+  // warm サーバでのみ Vestigium を立ち上げる (CLI 一発 / MCP / test では init しない)。
+  // 以降の cache hit/miss・supply/verify が Vg JSONL に流れる。
+  initVestigium();
 
   // Idle self-shutdown: the warm daemon exits after a window with no HTTP
   // access (default 3h, ANATOMIA_IDLE_SHUTDOWN_MS; <=0 disables). The harness
