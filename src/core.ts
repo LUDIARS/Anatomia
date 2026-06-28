@@ -28,6 +28,9 @@ import { detectDomains } from "./domains/detect.js";
 import { compileDomainRules } from "./domains/compile.js";
 import { generateCard, createCardCache } from "./domains/card.js";
 import type { CardCache, LLMClient } from "./domains/card.js";
+import { createCachedEmbedder, sharedEmbeddingCache } from "./cache/embedding.js";
+import type { CachedVector } from "./cache/embedding.js";
+import type { CacheStore } from "./cache/store.js";
 import type { Providers } from "./providers/index.js";
 import { parseSpecFiles } from "./spec/parse.js";
 import { findExplicitLinks } from "./spec/explicit.js";
@@ -444,6 +447,12 @@ export interface VerifyOptions {
   providers?: Providers;
   /** Reused card cache (content-keyed) so repeated verify calls skip the LLM. */
   cardCache?: CardCache;
+  /**
+   * Reused embedding cache (content-keyed per text) so repeated verify calls
+   * skip re-embedding unchanged domain-card texts. Defaults to a process-shared
+   * store (sharedEmbeddingCache) when providers are present and this is omitted.
+   */
+  embeddingCache?: CacheStore<CachedVector>;
 }
 
 export async function buildVerdict(
@@ -481,6 +490,13 @@ export async function buildVerdict(
   let embed = opts?.providers?.embed;
   let domainCards: { domain: string; text: string }[] | undefined;
   if (opts?.providers) {
+    // Cache embeddings per text: the stable card texts are reused across verifies
+    // and only the changed code is re-embedded (matters for a networked embedder).
+    embed = createCachedEmbedder(
+      opts.providers.embed,
+      opts.embeddingCache ?? sharedEmbeddingCache(),
+      opts.providers.embedModelId,
+    );
     domainCards = await buildDomainCardTexts(
       ctx,
       opts.providers.llm,

@@ -9,6 +9,8 @@
  */
 export type { CacheStore } from "./store.js";
 export { createMemoryStore, versionedKey } from "./store.js";
+export type { Embedder, CachedVector } from "./embedding.js";
+export { createCachedEmbedder, sharedEmbeddingCache, EMBED_CACHE_VERSION } from "./embedding.js";
 export { createFileStore } from "./file-store.js";
 export type { RedisLike, RedisStoreOptions } from "./redis-store.js";
 export { createRedisStore } from "./redis-store.js";

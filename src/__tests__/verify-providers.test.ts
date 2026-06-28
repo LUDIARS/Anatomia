@@ -56,6 +56,7 @@ describe("buildVerdict — provider wiring", () => {
       // Identical vectors → cosine 1 ≥ threshold → duplication must fail.
       embed: async (texts) => texts.map(() => [1, 0, 0]),
       llmModelId: "fake-model",
+      embedModelId: "fake-embed",
       describe: () => "fake",
     };
 
