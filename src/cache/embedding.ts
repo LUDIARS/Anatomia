@@ -25,6 +25,8 @@
 import { createHash } from "node:crypto";
 import { type CacheStore, versionedKey } from "./store.js";
 import { resolveCacheStore } from "./resolve.js";
+import { instrumentStore } from "./instrumented.js";
+import { resolveTranscript } from "./transcript.js";
 
 /** Same shape as providers' EmbeddingClient; kept local to avoid a cache→spec dep. */
 export type Embedder = (texts: string[]) => Promise<number[][]>;
@@ -87,5 +89,9 @@ export function createCachedEmbedder(
  */
 let shared: CacheStore<CachedVector> | undefined;
 export function sharedEmbeddingCache(): CacheStore<CachedVector> {
-  return (shared ??= resolveCacheStore<CachedVector>());
+  if (!shared) {
+    const { transcript, session } = resolveTranscript();
+    shared = instrumentStore(resolveCacheStore<CachedVector>(), { ns: "embedding", transcript, session }).store;
+  }
+  return shared;
 }

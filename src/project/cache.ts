@@ -33,6 +33,7 @@ import { buildRepoNode } from "../dag/merkle.js";
 import { cacheRoot } from "./store.js";
 import type { AnalysisContext } from "../core.js";
 import type { FileNode } from "../types.js";
+import { createNullTranscript, type CacheTranscript } from "../cache/transcript.js";
 
 // The pre-analysis fingerprint (content-addressed) lives in fingerprint.ts;
 // re-exported here so existing importers keep resolving it from "./cache.js".
@@ -131,6 +132,8 @@ export async function summarize(ctx: AnalysisContext): Promise<SummaryCounts> {
 export class AnalysisCache {
   private readonly mem = new Map<string, CacheEntry>();
   private readonly home?: string;
+  private readonly transcript: CacheTranscript;
+  private readonly session: string;
 
   /** Counts work skipped vs. performed (observability / test assertions). */
   hits = 0;
@@ -139,19 +142,22 @@ export class AnalysisCache {
   artifactHits = 0;
   artifactMisses = 0;
 
-  constructor(homeDir?: string) {
+  constructor(homeDir?: string, obs?: { transcript: CacheTranscript; session: string }) {
     this.home = homeDir;
+    this.transcript = obs?.transcript ?? createNullTranscript();
+    this.session = obs?.session ?? "";
   }
 
   /** Return a cached context iff its stored fingerprint equals `fingerprint`. */
   getIfFresh(projectId: string, fingerprint: string): AnalysisContext | null {
     const entry = this.mem.get(projectId);
-    if (entry && entry.fingerprint === fingerprint) {
-      this.hits++;
-      return entry.ctx;
-    }
-    this.misses++;
-    return null;
+    const hit = entry != null && entry.fingerprint === fingerprint;
+    if (hit) this.hits++;
+    else this.misses++;
+    // ns "analysis" = the whole-context fingerprint cache (the warm-server fast
+    // path); recorded so cache-stats reports it alongside the per-file / LLM caches.
+    this.transcript.record({ kind: "get", ts: Date.now(), session: this.session, ns: "analysis", hit, key: fingerprint });
+    return hit ? entry!.ctx : null;
   }
 
   /**

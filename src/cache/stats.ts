@@ -33,11 +33,19 @@ export interface CacheStatsReport {
   llmCalls: number;
   /** Summed token usage of the real LLM calls. */
   tokens: LlmUsage;
-  /** Each hit avoided one LLM call. */
+  /** LLM/embedding-namespace hits — each avoided one real API call. */
   estimatedCallsSaved: number;
-  /** hits × mean (input+output) tokens per observed call. ESTIMATE. */
+  /** llmHits × mean (input+output) tokens per observed call. ESTIMATE. */
   estimatedTokensSaved: number;
 }
+
+/**
+ * Namespaces whose hits avoided a real LLM / embedding API call (the cost the
+ * token estimate is about). The structural caches (analysis / perfile / graph /
+ * detection / bundle) save CPU, not API calls, so they must NOT inflate
+ * estimatedCallsSaved / estimatedTokensSaved — they still show in byNamespace.
+ */
+const LLM_NAMESPACES = new Set(["card", "phase", "embedding"]);
 
 function emptyTally(): HitTally {
   return { gets: 0, hits: 0, misses: 0, hitRate: 0 };
@@ -64,6 +72,7 @@ export function aggregate(events: CacheEvent[]): CacheStatsReport {
     cacheCreationTokens: 0,
   };
   let llmCalls = 0;
+  let llmHits = 0; // hits in LLM/embedding namespaces only (API calls avoided)
 
   for (const ev of events) {
     if (ev.kind === "get") {
@@ -72,6 +81,7 @@ export function aggregate(events: CacheEvent[]): CacheStatsReport {
       bump(byNamespace[ev.ns], ev.hit);
       (bySession[ev.session] ??= emptyTally());
       bump(bySession[ev.session], ev.hit);
+      if (ev.hit && LLM_NAMESPACES.has(ev.ns)) llmHits++;
     } else {
       llmCalls++;
       tokens.inputTokens += ev.usage.inputTokens;
@@ -87,7 +97,7 @@ export function aggregate(events: CacheEvent[]): CacheStatsReport {
 
   const meanCallTokens =
     llmCalls === 0 ? 0 : (tokens.inputTokens + tokens.outputTokens) / llmCalls;
-  const estimatedTokensSaved = Math.round(global.hits * meanCallTokens);
+  const estimatedTokensSaved = Math.round(llmHits * meanCallTokens);
 
   return {
     global,
@@ -95,7 +105,7 @@ export function aggregate(events: CacheEvent[]): CacheStatsReport {
     bySession,
     llmCalls,
     tokens,
-    estimatedCallsSaved: global.hits,
+    estimatedCallsSaved: llmHits,
     estimatedTokensSaved,
   };
 }
@@ -111,12 +121,12 @@ function tallyLine(label: string, t: HitTally): string {
 /** Human-readable report (CLI default output). */
 export function formatReport(r: CacheStatsReport): string {
   const lines: string[] = [];
-  lines.push("Anatomia LLM cache — hit rate");
+  lines.push("Anatomia cache — hit rate (structural + LLM)");
   lines.push("");
   lines.push(tallyLine("GLOBAL", r.global));
   if (r.global.gets === 0) {
     lines.push("");
-    lines.push("  (no cache events recorded — set ANATOMIA_CACHE_LOG and run verify/analyze via MCP)");
+    lines.push("  (no cache events recorded — set ANATOMIA_CACHE_LOG and run analyze/verify)");
     return lines.join("\n");
   }
   lines.push("");

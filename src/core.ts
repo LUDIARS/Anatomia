@@ -36,6 +36,7 @@ import { createCachedEmbedder, sharedEmbeddingCache } from "./cache/embedding.js
 import type { CachedVector } from "./cache/embedding.js";
 import { versionedKey } from "./cache/store.js";
 import type { CacheStore } from "./cache/store.js";
+import type { CacheTranscript } from "./cache/transcript.js";
 import type { Providers } from "./providers/index.js";
 import { parseSpecFiles } from "./spec/parse.js";
 import { findExplicitLinks } from "./spec/explicit.js";
@@ -120,6 +121,15 @@ export interface AnalyzeOptions {
    * and rebuilding. Omit → always rebuild.
    */
   graphCache?: CacheStore<CodeGraph>;
+  /**
+   * Cache transcript + session for observability. When present, the per-file
+   * reuse loop records one `get` event (ns "perfile", hit = reused) per file, so
+   * cache-stats reports the per-file hit-rate alongside the other caches. The
+   * graph/detection caches passed above are expected to be instrumentStore-wrapped
+   * by the caller, so they record themselves. Omit → no measurement.
+   */
+  transcript?: CacheTranscript;
+  session?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -269,7 +279,12 @@ export async function analyze(
     // shrinks the live WASM heap pressure that the per-file tree.delete() guards
     // against, since reused files never touch the parser at all.
     const prior = options.priorFiles?.get(filePath);
-    if (prior && prior.contentHash === contentHash) {
+    const reused = prior != null && prior.contentHash === contentHash;
+    options.transcript?.record({
+      kind: "get", ts: Date.now(), session: options.session ?? "",
+      ns: "perfile", hit: reused, key: contentHash,
+    });
+    if (reused) {
       files.push(prior);
       allFunctions.push(...prior.functions);
       continue;
