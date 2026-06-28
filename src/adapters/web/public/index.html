@@ -12,6 +12,9 @@
   <!-- Pure cache-view logic; publishes window.WebViewsLogic for the inline
        scripts below (Scene·Domain·Module / Search / manifest summary). -->
   <script type="module" src="/web-views-logic.js"></script>
+  <!-- Pure deep-link logic; publishes window.DeeplinkLogic so the boot code can
+       consume Thaleia's `?project=&focus=` links (parse + entity matching). -->
+  <script type="module" src="/deeplink-logic.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     html, body { height: 100%; font-family: system-ui, -apple-system, sans-serif;
@@ -2199,10 +2202,96 @@
     };
   })();
 
-  // ── Boot ───────────────────────────────────────────────────────────────────
+  // ── Deep-link consumption (Thaleia `?project=&focus=`) ───────────────────────
+  // Thaleia (突合サービス) links into this panel as
+  //   /?project=<anatomiaProjectId>&focus=<domain-or-screen>
+  // (Thaleia src/links/deeplink.ts → anatomiaFocusUrl). We select the project and
+  // land on the named domain (Domain View) or scene/screen (Scene·Domain·Module).
+  // Anything that does not resolve is surfaced (console.warn + a banner) rather
+  // than silently swallowed (規約: 無言フォールバック禁止); the dashboard still lands.
 
-  renderCrumb();
-  loadProjects();
+  function flashDeeplinkNote(msg) {
+    var el = document.getElementById('deeplink-note');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'deeplink-note';
+      el.style.cssText =
+        'position:fixed;top:52px;left:50%;transform:translateX(-50%);z-index:80;' +
+        'background:rgba(74,51,13,.96);border:1px solid #d29922;color:#e3b341;' +
+        'border-radius:6px;padding:6px 14px;font-size:0.78rem;max-width:80vw;' +
+        'box-shadow:0 4px 16px rgba(0,0,0,.5)';
+      document.body.appendChild(el);
+    }
+    el.textContent = msg;
+    el.style.display = '';
+    setTimeout(function () { if (el) el.style.display = 'none'; }, 8000);
+  }
+
+  function scrollDvCardIntoView(domain) {
+    var sel = (window.CSS && CSS.escape) ? CSS.escape(domain) : domain;
+    var card = document.querySelector('#dv-list .dv-card[data-domain="' + sel + '"]');
+    if (card && card.scrollIntoView) card.scrollIntoView({ block: 'nearest' });
+  }
+
+  // Land on the domain or scene named by `focus`. Drives each tab's loader
+  // directly (not activateTab's fire-and-forget) for deterministic ordering.
+  async function applyDeeplinkFocus(id, focus) {
+    if (!focus || !window.DeeplinkLogic) return;
+    // 1) Domain (Domain View tab).
+    activateTab('domain-view', false);
+    await loadDomainView(id);
+    var dv = DeeplinkLogic.findDomainMatch(state.domainViews, focus);
+    if (dv) { selectDomain(dv); scrollDvCardIntoView(dv.domain); return; }
+    // 2) Scene / screen (Scene·Domain·Module tab).
+    activateTab('scene-modules', false);
+    await loadSceneModules(id);
+    var sceneId = DeeplinkLogic.findSceneMatch(state.sceneModules, focus);
+    if (sceneId != null) {
+      state.sceneFilter = sceneId;
+      renderSceneBar();
+      renderSceneDomains();
+      return;
+    }
+    // 3) Neither — surface it, keep the dashboard landing.
+    console.warn('[anatomia/deeplink] focus "' + focus +
+      '" matched no domain or scene in project "' + id + '" (cache may be unprepared).');
+    flashDeeplinkNote('リンクの focus「' + focus +
+      '」に一致するドメイン/シーンが見つかりませんでした（キャッシュ未生成の可能性）。');
+  }
+
+  async function bootFromDeeplink() {
+    var dl = window.DeeplinkLogic
+      ? DeeplinkLogic.parseDeeplink(window.location.search)
+      : { project: null, focus: null };
+    if (!dl.project) { renderCrumb(); loadProjects(); return; }
+    renderCrumb();
+    var data;
+    try {
+      data = await apiFetch('/api/projects');
+    } catch (e) {
+      flashDeeplinkNote('プロジェクト一覧の取得に失敗しました: ' + e.message);
+      loadProjects();
+      return;
+    }
+    var proj = (data.projects || []).filter(function (p) { return p.id === dl.project; })[0];
+    if (!proj) {
+      console.warn('[anatomia/deeplink] project "' + dl.project + '" is not registered.');
+      flashDeeplinkNote('リンク先プロジェクト「' + dl.project + '」は登録されていません。');
+      loadProjects();
+      return;
+    }
+    navDashboard(proj.id, proj.name, proj.rootPath);
+    if (dl.focus) applyDeeplinkFocus(proj.id, dl.focus);
+  }
+
+  // ── Boot ───────────────────────────────────────────────────────────────────
+  // Defer until DOMContentLoaded so the deferred `/deeplink-logic.js` module has
+  // executed and published window.DeeplinkLogic before we read the URL.
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bootFromDeeplink);
+  } else {
+    bootFromDeeplink();
+  }
 
 })();
 </script>
