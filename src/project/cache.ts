@@ -32,6 +32,7 @@ import { join } from "node:path";
 import { buildRepoNode } from "../dag/merkle.js";
 import { cacheRoot } from "./store.js";
 import type { AnalysisContext } from "../core.js";
+import type { FileNode } from "../types.js";
 
 // The pre-analysis fingerprint (content-addressed) lives in fingerprint.ts;
 // re-exported here so existing importers keep resolving it from "./cache.js".
@@ -151,6 +152,19 @@ export class AnalysisCache {
     }
     this.misses++;
     return null;
+  }
+
+  /**
+   * The last analyzed project's FileNodes keyed by path — even when the
+   * fingerprint no longer matches. Feeds analyze()'s per-file reuse so a
+   * partial edit only re-parses the files that changed; unchanged files come
+   * straight from the prior context's (live, in-memory) FileNodes. Returns
+   * undefined when the project has never been analyzed this process.
+   */
+  lastFiles(projectId: string): Map<string, FileNode> | undefined {
+    const entry = this.mem.get(projectId);
+    if (!entry) return undefined;
+    return new Map(entry.ctx.files.map((f) => [f.path, f]));
   }
 
   /** Record a freshly-analyzed context and persist its disk snapshot. */
