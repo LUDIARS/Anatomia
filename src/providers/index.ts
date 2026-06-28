@@ -146,11 +146,13 @@ export function resolveProviders(
   const embed = embedReal
     ? createOpenAiEmbedder({ baseUrl: config.embedBaseUrl!, model: embedModel, apiKey: config.embedApiKey })
     : createHashEmbedder(embedDim);
+  const embedModelId = embedReal ? embedModel : `hash-embedder-${embedDim}`;
 
   return {
     llm,
     embed,
     llmModelId,
+    embedModelId,
     describe() {
       const llmDesc =
         backend === "anthropic"
