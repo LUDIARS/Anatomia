@@ -19,6 +19,8 @@
 
 import { type CacheStore } from "../cache/store.js";
 import { resolveCacheStore } from "../cache/resolve.js";
+import { instrumentStore } from "../cache/instrumented.js";
+import { resolveTranscript } from "../cache/transcript.js";
 import type { ContextBundle } from "../types.js";
 
 /** BUMP when ContextBundle's shape or assembly semantics change. */
@@ -33,5 +35,9 @@ export type BundleCache = CacheStore<ContextBundle>;
  */
 let shared: BundleCache | undefined;
 export function sharedBundleCache(): BundleCache {
-  return (shared ??= resolveCacheStore<ContextBundle>());
+  if (!shared) {
+    const { transcript, session } = resolveTranscript();
+    shared = instrumentStore(resolveCacheStore<ContextBundle>(), { ns: "bundle", transcript, session }).store;
+  }
+  return shared;
 }

@@ -18,6 +18,8 @@ import type { SummaryCounts } from "./cache.js";
 import { loadRegistry, saveRegistry } from "./store.js";
 import type { Project, ProjectInput } from "./types.js";
 import { createMemoryStore, type CacheStore } from "../cache/store.js";
+import { instrumentStore } from "../cache/instrumented.js";
+import { resolveTranscript, type CacheTranscript } from "../cache/transcript.js";
 import type { DetectionResult } from "../domains/detect.js";
 import type { CodeGraph } from "../graph/build.js";
 
@@ -32,17 +34,21 @@ export class ProjectManager {
   readonly registry: ProjectRegistry;
   readonly cache: AnalysisCache;
   /**
-   * Process-shared domain-detection cache (memory). Reused across this manager's
+   * Process-shared domain-detection cache (memory), instrumented so its hit/miss
+   * lands in the cache transcript (ns "detection"). Reused across this manager's
    * analyze() calls so a fingerprint miss that left the code identical (spec /
    * config edit) skips re-detection. See domains/cache.ts.
    */
-  private readonly detectionCache: CacheStore<DetectionResult[]> = createMemoryStore<DetectionResult[]>();
+  private readonly detectionCache: CacheStore<DetectionResult[]>;
   /**
-   * Process-shared built-graph cache (memory). Reused across analyze() calls so a
-   * fingerprint miss that left the code identical (spec/config edit) skips edge
-   * extraction + graph build — the largest uncached slice. See graph/cache.ts.
+   * Process-shared built-graph cache (memory), instrumented (ns "graph"). Reused
+   * across analyze() calls so a fingerprint miss that left the code identical
+   * skips edge extraction + graph build — the largest uncached slice.
    */
-  private readonly graphCache: CacheStore<CodeGraph> = createMemoryStore<CodeGraph>();
+  private readonly graphCache: CacheStore<CodeGraph>;
+  /** Cache transcript + session, resolved once from ANATOMIA_CACHE_LOG. */
+  private readonly transcript: CacheTranscript;
+  private readonly session: string;
   private readonly homeDir?: string;
   private readonly analyzeOptions: AnalyzeOptions;
   /** Project ids with an in-flight background revalidation (SWR de-dup). */
@@ -52,7 +58,16 @@ export class ProjectManager {
     this.registry = registry ?? new ProjectRegistry();
     this.homeDir = options.homeDir;
     this.analyzeOptions = options.analyzeOptions ?? {};
-    this.cache = new AnalysisCache(this.homeDir);
+    const obs = resolveTranscript();
+    this.transcript = obs.transcript;
+    this.session = obs.session;
+    this.detectionCache = instrumentStore(createMemoryStore<DetectionResult[]>(), {
+      ns: "detection", transcript: this.transcript, session: this.session,
+    }).store;
+    this.graphCache = instrumentStore(createMemoryStore<CodeGraph>(), {
+      ns: "graph", transcript: this.transcript, session: this.session,
+    }).store;
+    this.cache = new AnalysisCache(this.homeDir, { transcript: this.transcript, session: this.session });
   }
 
   /** Build a manager with the registry loaded from disk (projects.json). */
@@ -155,6 +170,9 @@ export class ProjectManager {
       detectionCache: this.detectionCache,
       // Reuse the built graph on the same code-unchanged path.
       graphCache: this.graphCache,
+      // Per-file reuse hit/miss → transcript (ns "perfile").
+      transcript: this.transcript,
+      session: this.session,
     };
     const ctx = await analyze(project.rootPath, opts);
     await this.cache.put(projectId, fingerprint, ctx);
