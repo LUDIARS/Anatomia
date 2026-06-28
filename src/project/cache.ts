@@ -10,8 +10,11 @@
  *
  *   - To detect change cheaply WITHOUT re-parsing, we compute a pre-analysis
  *     `fingerprint`: a Merkle-style hash over each source file's
- *     {path, size, mtimeMs}. Same files + same mtimes ⇒ same fingerprint ⇒
- *     cached context is valid (no parse, no hash, no graph build).
+ *     {path, contentHash} (see fingerprint.ts). Same files + same content ⇒ same
+ *     fingerprint ⇒ cached context is valid (no parse, no hash, no graph build).
+ *     Hashing content (not size/mtime) keeps the cache valid across git
+ *     checkouts and fresh worktrees that rewrite mtimes without changing what
+ *     the files say.
  *
  *   - After analysis we additionally derive a `merkleHash` from the real DAG
  *     (buildRepoNode over the FileNodes' content hashes) and persist a small
@@ -24,30 +27,15 @@
  * unchanged-project case is detected without recomputation.
  */
 
-import { createHash } from "node:crypto";
-import { stat, mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { collectFilesByExt, readGitignoreDirs, EXCLUDE_DIRS } from "../fs/walk.js";
 import { buildRepoNode } from "../dag/merkle.js";
 import { cacheRoot } from "./store.js";
 import type { AnalysisContext } from "../core.js";
 
-/** Source extensions whose presence/mtime define a project's fingerprint. */
-const SOURCE_EXTS = new Set([".cpp", ".h", ".cs", ".ts", ".tsx", ".md"]);
-
-/**
- * Extensions stamped from a project's *config* dirs (ontologyDir / specDirs).
- * Folding these into the fingerprint means editing an ontology def or a spec
- * outside the code root busts the cache, so a re-analyze actually re-runs.
- */
-const CONFIG_EXTS = new Set([".md", ".mjs", ".js", ".json"]);
-
-/** One file's identity contribution to the fingerprint. */
-interface FileStamp {
-  path: string;
-  size: number;
-  mtimeMs: number;
-}
+// The pre-analysis fingerprint (content-addressed) lives in fingerprint.ts;
+// re-exported here so existing importers keep resolving it from "./cache.js".
+export { computeFingerprint } from "./fingerprint.js";
 
 /**
  * First-view summary counts for a project. This is exactly the payload the
@@ -67,7 +55,7 @@ export interface SummaryCounts {
 export interface CacheSnapshot {
   version: 1;
   projectId: string;
-  /** Pre-analysis fingerprint (files + mtimes). */
+  /** Pre-analysis fingerprint (files + content hashes; see fingerprint.ts). */
   fingerprint: string;
   /** Post-analysis Merkle hash of the DAG (repo node over file hashes). */
   merkleHash: string;
@@ -99,59 +87,6 @@ export interface ArtifactEnvelope<T> {
   fingerprint: string;
   builtAt: string;
   data: T;
-}
-
-/**
- * Compute a cheap pre-analysis fingerprint of a project's source tree.
- * Walks the root once collecting {path, size, mtimeMs} for source/spec files,
- * then hashes the sorted stamps. No file contents are read; no parsing.
- */
-export async function computeFingerprint(
-  rootPath: string,
-  opts: { configDirs?: string[] } = {},
-): Promise<string> {
-  const stamps = await collectStamps(rootPath, SOURCE_EXTS);
-  // Config dirs (ontologyDir / specDirs) outside the code root: stamp their
-  // .md/.mjs/.js/.json so config changes invalidate the cached analysis.
-  for (const dir of opts.configDirs ?? []) {
-    stamps.push(...(await collectStamps(dir, CONFIG_EXTS)));
-  }
-  // A config dir nested under rootPath would double-count; de-dupe by path.
-  const seen = new Set<string>();
-  const unique = stamps.filter((s) => (seen.has(s.path) ? false : (seen.add(s.path), true)));
-  unique.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
-  return hashStamps(unique);
-}
-
-/** Hash a sorted stamp list into a 32-char fingerprint. */
-function hashStamps(stamps: FileStamp[]): string {
-  const h = createHash("sha256");
-  for (const s of stamps) {
-    h.update(s.path.replace(/\\/g, "/"));
-    h.update("\0");
-    h.update(String(s.size));
-    h.update("\0");
-    h.update(String(Math.floor(s.mtimeMs)));
-    h.update("\n");
-  }
-  return h.digest("hex").slice(0, 32);
-}
-
-async function collectStamps(root: string, exts: Set<string>): Promise<FileStamp[]> {
-  const out: FileStamp[] = [];
-  // Directory-pruning walk (fs/walk.ts): node_modules/dist/.git/.anatomia are
-  // never descended into, so the fingerprint scan is O(source tree) not O(repo).
-  const gitDirs = await readGitignoreDirs(root);
-  const paths = await collectFilesByExt(root, exts, new Set([...EXCLUDE_DIRS, ...gitDirs]));
-  for (const full of paths) {
-    try {
-      const st = await stat(full);
-      out.push({ path: full, size: st.size, mtimeMs: st.mtimeMs });
-    } catch {
-      // file vanished between walk and stat — ignore.
-    }
-  }
-  return out;
 }
 
 /**
