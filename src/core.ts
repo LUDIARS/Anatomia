@@ -19,6 +19,8 @@ import { normalize } from "./dag/normalize.js";
 import { assignAnchorId } from "./dag/hash.js";
 import { buildFileNode } from "./dag/merkle.js";
 import { buildGraph, extractEdgeInfo, augmentGraph } from "./graph/build.js";
+import type { CodeGraph } from "./graph/build.js";
+import { graphCacheKey } from "./graph/cache.js";
 import { InMemoryCodeGraph } from "./graph/in-memory.js";
 import { assembleBundle } from "./supply/bundle.js";
 import { verify, buildDefaultGates } from "./supply/verify.js";
@@ -109,6 +111,13 @@ export interface AnalyzeOptions {
    * of re-running O(domains × functions). Omit → always recompute.
    */
   detectionCache?: CacheStore<DetectionResult[]>;
+  /**
+   * Content-keyed cache for the Phase 2/3 built code graph. Keyed by file paths +
+   * structural hashes (graph/cache.ts), so a fingerprint miss that left the code
+   * identical (spec/config edit) reuses the graph instead of re-extracting edges
+   * and rebuilding. Omit → always rebuild.
+   */
+  graphCache?: CacheStore<CodeGraph>;
 }
 
 // ---------------------------------------------------------------------------
@@ -310,11 +319,23 @@ export async function analyze(
     allFunctions.push(...fns);
   }
 
-  // Phase 2 — extract edge info from the detached bodyAst mirrors.
-  const edgeInfo = extractEdgeInfo(files);
-
-  // Phase 3 — build graph (safe after edge extraction).
-  const codeGraph = buildGraph(files, edgeInfo);
+  // Phase 2/3 — edge extraction + graph build. Reused when the code identity is
+  // unchanged (e.g. a spec/config-only edit that busts the fingerprint but not
+  // the code): the largest uncached slice of a re-analysis. No cache → build.
+  let codeGraph: CodeGraph;
+  const graphCache = options.graphCache;
+  if (graphCache) {
+    const key = graphCacheKey(files);
+    const hit = await graphCache.get(key);
+    if (hit) {
+      codeGraph = hit;
+    } else {
+      codeGraph = buildGraph(files, extractEdgeInfo(files));
+      await graphCache.set(key, codeGraph);
+    }
+  } else {
+    codeGraph = buildGraph(files, extractEdgeInfo(files));
+  }
   const graph = new InMemoryCodeGraph(codeGraph);
 
   // Phase 4 — domain detection (G3). Builtin ontology + optional plugins.

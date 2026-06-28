@@ -19,6 +19,7 @@ import { loadRegistry, saveRegistry } from "./store.js";
 import type { Project, ProjectInput } from "./types.js";
 import { createMemoryStore, type CacheStore } from "../cache/store.js";
 import type { DetectionResult } from "../domains/detect.js";
+import type { CodeGraph } from "../graph/build.js";
 
 export interface ProjectManagerOptions {
   /** Anatomia home dir (projects.json + cache/). Default: ANATOMIA_HOME or <cwd>/.anatomia. */
@@ -36,6 +37,12 @@ export class ProjectManager {
    * config edit) skips re-detection. See domains/cache.ts.
    */
   private readonly detectionCache: CacheStore<DetectionResult[]> = createMemoryStore<DetectionResult[]>();
+  /**
+   * Process-shared built-graph cache (memory). Reused across analyze() calls so a
+   * fingerprint miss that left the code identical (spec/config edit) skips edge
+   * extraction + graph build — the largest uncached slice. See graph/cache.ts.
+   */
+  private readonly graphCache: CacheStore<CodeGraph> = createMemoryStore<CodeGraph>();
   private readonly homeDir?: string;
   private readonly analyzeOptions: AnalyzeOptions;
   /** Project ids with an in-flight background revalidation (SWR de-dup). */
@@ -146,6 +153,8 @@ export class ProjectManager {
       // Reuse domain detection when code identity + ontology are unchanged
       // (e.g. a spec/config-only edit that busts the fingerprint).
       detectionCache: this.detectionCache,
+      // Reuse the built graph on the same code-unchanged path.
+      graphCache: this.graphCache,
     };
     const ctx = await analyze(project.rootPath, opts);
     await this.cache.put(projectId, fingerprint, ctx);
