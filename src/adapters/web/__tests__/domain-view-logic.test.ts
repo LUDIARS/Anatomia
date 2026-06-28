@@ -10,6 +10,7 @@ import {
   unitOfFile,
   accessRowsFor,
   foldUnitGraph,
+  screensRowsFor,
 } from "../public/domain-view-logic.js";
 
 describe("unitOfFile", () => {
@@ -53,6 +54,34 @@ describe("accessRowsFor", () => {
   it("returns [] when no pattern touches the domain (and tolerates null input)", () => {
     expect(accessRowsFor(patterns, "audio")).toEqual([]);
     expect(accessRowsFor(null, "combat")).toEqual([]);
+  });
+});
+
+describe("screensRowsFor", () => {
+  const screens = [
+    { name: "HomePage", kind: "page", stack: "web", route: "/", file: "src/pages/HomePage.tsx", domains: ["home", "layout"] },
+    { name: "DashboardView", kind: "view", stack: "web", route: "/dashboard", file: "src/views/Dashboard.tsx", domains: ["analytics"] },
+    { name: "BattlePanel", kind: "panel", stack: "unity", file: "UI/BattlePanel.cs", domains: ["combat", "ui"] },
+    { name: "NoDomainsScreen", kind: "view", stack: "web", file: "src/views/Empty.tsx", domains: [] },
+  ];
+
+  it("returns only screens belonging to the domain, sorted by (stack, kind, name)", () => {
+    const rows = screensRowsFor(screens, "home");
+    expect(rows).toHaveLength(1);
+    expect(rows[0].name).toBe("HomePage");
+    expect(rows[0].route).toBe("/");
+  });
+
+  it("sorts by (stack, kind, name)", () => {
+    const rows = screensRowsFor(screens, "ui");
+    expect(rows).toHaveLength(1);
+    expect(rows[0].name).toBe("BattlePanel");
+    expect(rows[0].stack).toBe("unity");
+  });
+
+  it("returns [] for a domain with no screens, and tolerates null input", () => {
+    expect(screensRowsFor(screens, "audio")).toEqual([]);
+    expect(screensRowsFor(null, "home")).toEqual([]);
   });
 });
 

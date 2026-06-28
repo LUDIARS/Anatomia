@@ -100,7 +100,30 @@ export function foldUnitGraph(agg, opts) {
   return { visiblePairs, hub, degreeByGroup, foldedHubs, foldedEdges };
 }
 
+/**
+ * The screens (UI pages/views/panels) that belong to a domain, shaped into
+ * sorted rows for the Domain View panel.
+ *
+ * A screen "belongs to" a domain when its `domains` array contains `domainName`
+ * (attribution is via call-graph: which domains' functions live in the screen's
+ * file).
+ *
+ * @returns Array<{ name, kind, stack, route, file }> sorted by (stack, kind, name).
+ */
+export function screensRowsFor(screens, domainName) {
+  const rows = (screens || [])
+    .filter((s) => (s.domains || []).includes(domainName))
+    .map((s) => ({ name: s.name, kind: s.kind, stack: s.stack, route: s.route || null, file: s.file }));
+  rows.sort(
+    (a, b) =>
+      a.stack.localeCompare(b.stack) ||
+      a.kind.localeCompare(b.kind) ||
+      a.name.localeCompare(b.name),
+  );
+  return rows;
+}
+
 // Publish for the panel's classic inline scripts when loaded in a browser.
 if (typeof window !== "undefined") {
-  window.DomainViewLogic = { unitOfFile, accessRowsFor, foldUnitGraph };
+  window.DomainViewLogic = { unitOfFile, accessRowsFor, foldUnitGraph, screensRowsFor };
 }
