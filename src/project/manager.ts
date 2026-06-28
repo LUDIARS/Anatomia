@@ -131,6 +131,10 @@ export class ProjectManager {
       ...this.analyzeOptions,
       pluginDir: project.ontologyDir ?? this.analyzeOptions.pluginDir,
       specDirs: project.specDirs ?? this.analyzeOptions.specDirs,
+      // Fingerprint changed → some file changed. Hand analyze() the prior
+      // FileNodes so it only re-parses the ones whose content actually moved;
+      // unchanged files are reused from the last (in-memory) context.
+      priorFiles: this.cache.lastFiles(projectId),
     };
     const ctx = await analyze(project.rootPath, opts);
     await this.cache.put(projectId, fingerprint, ctx);
