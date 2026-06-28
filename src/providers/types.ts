@@ -27,6 +27,12 @@ export interface Providers {
    * distinct in a persistent store.
    */
   llmModelId: string;
+  /**
+   * Resolved embed model id (e.g. "text-embedding-3-small", or
+   * "hash-embedder-256" offline). Folded into the embedding cache key so vectors
+   * from different embedders never collide in a shared store.
+   */
+  embedModelId: string;
   /** One-line human-readable description of what is wired (diagnostics). */
   describe(): string;
 }

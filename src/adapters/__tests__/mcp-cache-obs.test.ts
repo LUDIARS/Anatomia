@@ -29,6 +29,7 @@ describe("createHandlers — cache observability", () => {
         JSON.stringify({ summary: "s", rules: [], specRefs: [], complexity: "low" }),
       embed: async (texts) => texts.map(() => [1, 0, 0]),
       llmModelId: "fake-model",
+      embedModelId: "fake-embed",
       describe: () => "fake",
     };
 
