@@ -21,6 +21,7 @@ import { createHash } from "node:crypto";
 import { versionedKey } from "../cache/store.js";
 import type { DomainOntology } from "./ontology.js";
 import type { FileNode } from "../types.js";
+import { filesContentKey } from "../graph/cache.js";
 
 /** BUMP when detectDomains' inputs/semantics change (shared-store correctness). */
 export const DETECTION_CACHE_VERSION = "1";
@@ -33,15 +34,9 @@ export function hashOntology(ontology: DomainOntology): string {
   return createHash("sha256").update(entries.join("\n"), "utf8").digest("hex");
 }
 
-/** Code identity for detection: each file's path + structural Merkle hash. */
-function dagContentKey(files: FileNode[]): string {
-  const stamps = files
-    .map((f) => `${f.path.replace(/\\/g, "/")}\0${f.hash ?? ""}`)
-    .sort();
-  return createHash("sha256").update(stamps.join("\n"), "utf8").digest("hex");
-}
-
 /** Cache key for a detectDomains result over `files` with `ontology`. */
 export function detectionCacheKey(files: FileNode[], ontology: DomainOntology): string {
-  return versionedKey(dagContentKey(files), hashOntology(ontology), DETECTION_CACHE_VERSION);
+  // Code identity (path + structural hash) shared with the graph cache, folded
+  // with the ontology so an ontology edit also busts detection.
+  return versionedKey(filesContentKey(files), hashOntology(ontology), DETECTION_CACHE_VERSION);
 }
