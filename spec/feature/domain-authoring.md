@@ -61,6 +61,40 @@ analyze → specClauses + module map
 - 保存先 = `<repoRoot>/.anatomia/domains/`(= ontology pluginDir)。draft 時に
   project.ontologyDir 未設定なら自動で配線。ファイル名は名前ハッシュ付きで衝突回避。
 
+## ライブ / E2E 検証 runbook (#364)
+
+ユニットは LLM/fs を注入で差し替えており実挙動を保証しない。実機検証は次の3経路。
+
+### (1) 仕様 → ドラフト抽出 (実 LLM, claude -p) — **実走可・検証済**
+
+```sh
+npm run build                       # CLI は dist/ を読む
+$env:ANATOMIA_LLM_BACKEND = "claude-cli"   # LUDIARS は claude -p 経由 (API 直叩き禁止)
+node bin/anatomia.mjs domains draft --repo <repo> --dir <out> --json   # 実 LLM
+node bin/anatomia.mjs domains draft --repo <repo> --dir <out> --no-llm # 決定的 seed (配線確認)
+```
+
+実測 (Anatomia 自身, fresh cache): 13 ドメインを抽出し **path/name パターンが実レイヤに
+13/13 的中** (`/src/dag/` `/src/cache/` `/src/supply/` …)。description / specRefs (実 §9・G5
+見出し) も充足。`mechanics` は空 = Anatomia は非ゲームなので正しい挙動。配線の hermetic
+回帰は `src/domains/authoring/__tests__/draft-e2e.test.ts` (prompt 組立→LLM seam→parse→
+reconcile→disk roundtrip) で固定。
+
+> ⚠ **キャッシュのステール所見**: draft は content-keyed cache (spec 見出し+module map+
+> modelId+prompt version) で再利用される。過去セッションの劣化出力 (description/specRefs が
+> 空の最小ドラフト) がキャッシュに残っていると **次回も無言でそれが返る**。空キャッシュで
+> 再走すると高品質出力が得られた。フォローアップ候補: prompt version bump / 品質ガード
+> (空 description 比率が高い結果はキャッシュしない) / 明示的な cache 無効化フラグ。
+
+### (2) Web `/flow` ファイル選択・URL/パス取得 — **未実装**
+
+`src/adapters/web/routes/` に `/flow` ルートは存在しない。task #364 はこの機能が在る前提
+だが現状は別途実装が必要 → 別タスクに分離すべき。
+
+### (3) Discord フォーラム添付の実 DL — **未実装**
+
+サーバ側に Discord 連携 (添付 URL 取得・DL) は無い。実トークンも要る → 別タスクに分離。
+
 ## 限界
 
 - 下書き品質は LLM/仕様の質に依存(雑でよい設計)。membership は人が締める。
