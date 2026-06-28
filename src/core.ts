@@ -8,6 +8,7 @@
  * SRP: wiring only. No new analysis logic lives here.
  */
 
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { extname } from "node:path";
 import type { Tree } from "web-tree-sitter";
@@ -85,6 +86,18 @@ export interface AnalyzeOptions {
    * clean graph, point specDirs at the spec tree for linkage.
    */
   specDirs?: string[];
+  /**
+   * Per-file analysis reuse: prior FileNodes keyed by absolute path. When a
+   * file's current source SHA-256 equals the prior FileNode's `contentHash`, the
+   * whole FileNode (with its already-detached bodyAst mirrors) is reused as-is
+   * and parse/extract/normalize is skipped for that file. Only the project's
+   * changed files are re-parsed — the rest come straight from this map. The
+   * project's fingerprint already short-circuits the all-unchanged case
+   * (project/cache.ts); this is the partial-change fast path. In-process only
+   * (bodyAst mirrors are not serialisable), so prior FileNodes must come from a
+   * live earlier analyze() of the same project.
+   */
+  priorFiles?: Map<string, FileNode>;
 }
 
 // ---------------------------------------------------------------------------
@@ -227,6 +240,18 @@ export async function analyze(
       warn(filePath, `read failed (${String(err)})`);
       continue;
     }
+    const contentHash = createHash("sha256").update(src, "utf8").digest("hex");
+    // Per-file reuse: an unchanged file's prior FileNode (with its detached
+    // bodyAst mirrors) is reused verbatim, skipping parse/extract entirely — so
+    // a partial edit only re-parses the files that actually changed. This also
+    // shrinks the live WASM heap pressure that the per-file tree.delete() guards
+    // against, since reused files never touch the parser at all.
+    const prior = options.priorFiles?.get(filePath);
+    if (prior && prior.contentHash === contentHash) {
+      files.push(prior);
+      allFunctions.push(...prior.functions);
+      continue;
+    }
     const lang = langFor(filePath);
     let fns: FunctionNode[];
     let typeDecls: TypeDecl[] = [];
@@ -268,7 +293,9 @@ export async function analyze(
         }
       }
     }
-    files.push(buildFileNode(filePath, fns, typeDecls));
+    const fileNode = buildFileNode(filePath, fns, typeDecls);
+    fileNode.contentHash = contentHash;
+    files.push(fileNode);
     allFunctions.push(...fns);
   }
 

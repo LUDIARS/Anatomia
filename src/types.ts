@@ -172,6 +172,14 @@ export interface FileNode {
   path: string;
   /** Merkle hash of this file (hash of sorted child function hashes). Filled by T07. */
   hash: string | null;
+  /**
+   * SHA-256 of the file's raw source bytes. Distinct from `hash` (a Merkle hash
+   * over function structure): this keys the per-file analysis reuse in analyze()
+   * — an unchanged file's whole FileNode (with its detached bodyAst mirrors) is
+   * reused as-is, skipping parse/extract. Filled in analyze(); optional so
+   * hand-built FileNodes can omit it.
+   */
+  contentHash?: string;
   functions: FunctionNode[];
   /**
    * Class/struct/interface declarations in this file. Metadata for type-aware
