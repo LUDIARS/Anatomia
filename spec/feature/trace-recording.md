@@ -40,6 +40,51 @@ scene 層([[integral-search]] の第3層)は「トレースがあれば流れる
   `--entry state-machine` で integral に `scenes: 1` が surface(KS domains=ks-layer-spine/
   ks-presentation-barrier/state-machine)。
 
+## ローカル実機検証 runbook
+
+実ゲーム/GPU を使わずに録画経路を点検する手順と、実ゲームでライブトレースを取る手順を分ける。
+
+### A. GPU 無しのローカル検証 (経路の点灯を先に確かめる)
+
+実ゲームのビルド前に、録画 JSONL を手書きして **parse → decode → stitch → scene → 局面発見 → FSM** が
+最後まで流れることを確認できる。`src/dynamic/record/__tests__/phase-flow.test.ts` が複数フェーズの
+trace を生成し、この全段を 1 テストで検証する(GPU 不要・決定的)。
+
+```sh
+npx vitest run src/dynamic/record/__tests__/phase-flow   # 経路が通ることの即時確認
+```
+
+JSONL 1 行の形式 (各 zone の anchorId は注入時に焼き込み済み):
+
+```json
+{"type":"frame_begin","frameId":1,"timestampUs":0}
+{"type":"zone_enter","anchorId":"combat_hit","timestampUs":5}
+{"type":"zone_exit","anchorId":"combat_hit","timestampUs":95}
+{"type":"frame_end","frameId":1,"timestampUs":100}
+```
+
+手書き trace を CLI に通すこともできる(anchorId は対象プロジェクトの domain implementor に一致させる):
+
+```sh
+anatomia trace ingest --project <id> --file ./hand-trace.jsonl            # scene 一覧
+anatomia trace ingest --project <id> --file ./hand-trace.jsonl --entry <domain> --scope domain
+```
+
+### B. 実ゲームでライブトレースを取る (GPU/ビルドが要る = ユーザ側)
+
+| 手順 | コマンド / 操作 |
+|------|----------------|
+| 1. 注入計画を生成 | `anatomia trace plan --project <id> --out ./trace-plan` → `anatomia_zones.h` + `anatomia_zones.patches.json` |
+| 2. ヘッダを取り込む | 計装する .cpp で `#define ANATOMIA_MEASUREMENT_BUILD` → `#include "trace-plan/anatomia_zones.h"` |
+| 3. zone マーカー適用 | `patches.json` の各 `{filePath,line,code}` をドメイン実装関数へ挿入(`ANATOMIA_ZONE("name","anchorId")`) |
+| 4. frame マーカー手置き | メインループ先頭/末尾に `ANATOMIA_FRAME_BEGIN(idx)` / `ANATOMIA_FRAME_END(idx)`(loop 自動特定は未対応) |
+| 5. 計測ビルド | `ANATOMIA_MEASUREMENT_BUILD` 定義で Release ビルド(Pictor/KS の実行はユーザ側 = [[feedback_pictor_no_run]]) |
+| 6. 実走して録画 | `ANATOMIA_TRACE_FILE=/tmp/game.jsonl ./game ...` で JSONL が貯まる |
+| 7. ingest で scene 化 | `anatomia trace ingest --project <id> --file /tmp/game.jsonl` |
+| 8. warm で確認 | `ANATOMIA_TRACE_FILE=/tmp/game.jsonl anatomia web --project <id>` → `POST /api/integral` が実 scene を返す |
+
+ステップ 1〜4・7・8 は Anatomia 側で完結 (私が支援可)。GPU を要する 5・6 のみゲーム側 (ユーザ実行)。
+
 ## 限界
 
 - **ライブ録画(ゲームを実走させて記録)は本 PR の範囲外**: C++ 計装ヘッダ + 注入計画 + ingest は
