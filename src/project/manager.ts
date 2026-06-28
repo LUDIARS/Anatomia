@@ -17,6 +17,8 @@ import { AnalysisCache, computeFingerprint, summarize } from "./cache.js";
 import type { SummaryCounts } from "./cache.js";
 import { loadRegistry, saveRegistry } from "./store.js";
 import type { Project, ProjectInput } from "./types.js";
+import { createMemoryStore, type CacheStore } from "../cache/store.js";
+import type { DetectionResult } from "../domains/detect.js";
 
 export interface ProjectManagerOptions {
   /** Anatomia home dir (projects.json + cache/). Default: ANATOMIA_HOME or <cwd>/.anatomia. */
@@ -28,6 +30,12 @@ export interface ProjectManagerOptions {
 export class ProjectManager {
   readonly registry: ProjectRegistry;
   readonly cache: AnalysisCache;
+  /**
+   * Process-shared domain-detection cache (memory). Reused across this manager's
+   * analyze() calls so a fingerprint miss that left the code identical (spec /
+   * config edit) skips re-detection. See domains/cache.ts.
+   */
+  private readonly detectionCache: CacheStore<DetectionResult[]> = createMemoryStore<DetectionResult[]>();
   private readonly homeDir?: string;
   private readonly analyzeOptions: AnalyzeOptions;
   /** Project ids with an in-flight background revalidation (SWR de-dup). */
@@ -135,6 +143,9 @@ export class ProjectManager {
       // FileNodes so it only re-parses the ones whose content actually moved;
       // unchanged files are reused from the last (in-memory) context.
       priorFiles: this.cache.lastFiles(projectId),
+      // Reuse domain detection when code identity + ontology are unchanged
+      // (e.g. a spec/config-only edit that busts the fingerprint).
+      detectionCache: this.detectionCache,
     };
     const ctx = await analyze(project.rootPath, opts);
     await this.cache.put(projectId, fingerprint, ctx);

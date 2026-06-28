@@ -25,6 +25,7 @@ import { verify, buildDefaultGates } from "./supply/verify.js";
 import { resolveLanding } from "./supply/landing.js";
 import { loadOntology } from "./domains/ontology.js";
 import { detectDomains } from "./domains/detect.js";
+import { detectionCacheKey } from "./domains/cache.js";
 import { compileDomainRules } from "./domains/compile.js";
 import { generateCard, createCardCache } from "./domains/card.js";
 import type { CardCache, LLMClient } from "./domains/card.js";
@@ -101,6 +102,13 @@ export interface AnalyzeOptions {
    * live earlier analyze() of the same project.
    */
   priorFiles?: Map<string, FileNode>;
+  /**
+   * Content-keyed cache for the Phase-4 domain-detection result. Keyed by file
+   * paths + structural hashes + ontology (domains/cache.ts), so a fingerprint
+   * miss that left the code identical (spec/config edit) reuses detection instead
+   * of re-running O(domains × functions). Omit → always recompute.
+   */
+  detectionCache?: CacheStore<DetectionResult[]>;
 }
 
 // ---------------------------------------------------------------------------
@@ -314,7 +322,23 @@ export async function analyze(
   let rules: Rule[] = [];
   try {
     const ontology = await loadOntology(options.pluginDir);
-    domains = await detectDomains(ontology, graph, allFunctions);
+    // Detection is O(domains × functions). Reuse the prior result when the code
+    // identity (file paths + structural hashes) and ontology are unchanged — the
+    // spec/config-only-edit case, where the fingerprint busts but the DAG does
+    // not. No cache configured → always recompute (the hermetic default).
+    const detectionCache = options.detectionCache;
+    if (detectionCache) {
+      const key = detectionCacheKey(files, ontology);
+      const hit = await detectionCache.get(key);
+      if (hit) {
+        domains = hit;
+      } else {
+        domains = await detectDomains(ontology, graph, allFunctions);
+        await detectionCache.set(key, domains);
+      }
+    } else {
+      domains = await detectDomains(ontology, graph, allFunctions);
+    }
     // Surface the ontology's preset rules so supply can list them and verify
     // can evaluate them (detection only reports violations on existing code).
     rules = compileDomainRules(ontology);
