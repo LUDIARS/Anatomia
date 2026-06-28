@@ -20,9 +20,10 @@ import { assignAnchorId } from "./dag/hash.js";
 import { buildFileNode } from "./dag/merkle.js";
 import { buildGraph, extractEdgeInfo, augmentGraph } from "./graph/build.js";
 import type { CodeGraph } from "./graph/build.js";
-import { graphCacheKey } from "./graph/cache.js";
+import { graphCacheKey, filesContentKey } from "./graph/cache.js";
 import { InMemoryCodeGraph } from "./graph/in-memory.js";
 import { assembleBundle } from "./supply/bundle.js";
+import { sharedBundleCache, BUNDLE_CACHE_VERSION } from "./supply/cache.js";
 import { verify, buildDefaultGates } from "./supply/verify.js";
 import { resolveLanding } from "./supply/landing.js";
 import { loadOntology } from "./domains/ontology.js";
@@ -33,6 +34,7 @@ import { generateCard, createCardCache } from "./domains/card.js";
 import type { CardCache, LLMClient } from "./domains/card.js";
 import { createCachedEmbedder, sharedEmbeddingCache } from "./cache/embedding.js";
 import type { CachedVector } from "./cache/embedding.js";
+import { versionedKey } from "./cache/store.js";
 import type { CacheStore } from "./cache/store.js";
 import type { Providers } from "./providers/index.js";
 import { parseSpecFiles } from "./spec/parse.js";
@@ -421,7 +423,12 @@ export async function analyze(
 export async function buildContextBundle(
   ctx: AnalysisContext,
   req: BundleRequest,
+  bundleCache: CacheStore<ContextBundle> = sharedBundleCache(),
 ): Promise<ContextBundle> {
+  const key = bundleCacheKey(ctx, req);
+  const cached = await bundleCache.get(key);
+  if (cached) return cached;
+
   // Up to 5 hashed exemplars from the context (source-order first).
   const exemplars = ctx.functions.filter((f) => f.id !== null).slice(0, 5);
 
@@ -462,7 +469,34 @@ export async function buildContextBundle(
     existingDomains,
   });
 
+  await bundleCache.set(key, bundle);
   return bundle;
+}
+
+/**
+ * Cache key for a context bundle. Folds the request (task + domain hints) with a
+ * digest of EVERY ctx field the bundle reads — files (path + structural hash),
+ * spec clauses (which can live outside ctx.files), domains and rules — so a
+ * change to any of them busts the cache and no stale bundle is served.
+ */
+function bundleCacheKey(ctx: AnalysisContext, req: BundleRequest): string {
+  const h = createHash("sha256");
+  h.update(req.task);
+  h.update("\0");
+  h.update([...(req.domainHints ?? [])].sort().join(","));
+  h.update("\0");
+  h.update(filesContentKey(ctx.files));
+  h.update("\0");
+  for (const c of ctx.specClauses ?? []) {
+    h.update(`${c.id}|${c.heading ?? ""}|${c.text ?? ""}\0`);
+  }
+  h.update("\0");
+  for (const d of ctx.domains ?? []) {
+    h.update(`${d.domain}|${[...d.implementors].sort().join(",")}\0`);
+  }
+  h.update("\0");
+  for (const r of ctx.rules ?? []) h.update(`${r.id}\0`);
+  return versionedKey(h.digest("hex"), "bundle", BUNDLE_CACHE_VERSION);
 }
 
 // ---------------------------------------------------------------------------
