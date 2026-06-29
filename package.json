@@ -12,7 +12,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.104.1",
     "@hono/node-server": "^2.0.4",
-    "@ludiars/vestigium": "^0.1.0",
+    "@ludiars/vestigium": "file:./lib/vestigium",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "hono": "^4.12.25",
     "kuzu": "^0.11.3",
