@@ -1,0 +1,38 @@
+[
+  {
+    "model": "claude-haiku-4-5",
+    "arm": "off",
+    "rep": 1,
+    "runId": "claude-haiku-4-5__off__r1",
+    "ok": true,
+    "diffEmpty": false,
+    "graded": true
+  },
+  {
+    "model": "claude-haiku-4-5",
+    "arm": "supply",
+    "rep": 1,
+    "runId": "claude-haiku-4-5__supply__r1",
+    "ok": true,
+    "diffEmpty": false,
+    "graded": true
+  },
+  {
+    "model": "claude-haiku-4-5",
+    "arm": "verify",
+    "rep": 1,
+    "runId": "claude-haiku-4-5__verify__r1",
+    "ok": true,
+    "diffEmpty": false,
+    "graded": true
+  },
+  {
+    "model": "claude-haiku-4-5",
+    "arm": "both",
+    "rep": 1,
+    "runId": "claude-haiku-4-5__both__r1",
+    "ok": true,
+    "diffEmpty": false,
+    "graded": true
+  }
+]

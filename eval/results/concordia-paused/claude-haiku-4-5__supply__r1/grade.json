@@ -1,0 +1,56 @@
+{
+  "footguns": {
+    "bool_serialize": {
+      "tripped": false,
+      "evidence": "serializeSession() correctly converts paused with `!!s.paused` (line 1149 of sessions.ts), matching the same pattern used throughout the codebase for boolean conversion from SQLite integers. PatchSchema validates paused as z.number().int().min(0).max(1) ensuring only 0/1 values enter the DB. Web API interface declares paused as boolean (api.ts:64), creating clean contract."
+    },
+    "index_after_alter": {
+      "tripped": false,
+      "evidence": "schema.ts correctly places ALTER TABLE ADD COLUMN in COLUMN_ADDITIONS array (line 767-770), separate from CREATE TABLE statement (line 30-31). This pattern matches existing column additions (delegation_emoji at line 762-765), ensuring new DBs get paused in CREATE while old DBs get it via ALTER, avoiding 'no such column' on migrations."
+    },
+    "persist_pattern": {
+      "tripped": false,
+      "evidence": "Persistence uses established SessionsRepo.patchSession() mechanism (sessions-repo.ts:109-119), which updates the sessions table column directly. This follows existing patterns for metadata/branch/repo_path—all stored as session table columns, not separate schema_meta key/value. No custom persistence layer invented."
+    },
+    "reinvent_flag": {
+      "tripped": false,
+      "evidence": "Implementation adds a per-session boolean flag separate from admin-level kill-switches (chat_muted/rules_enabled in schema_meta). The kill-switch exemplars are DB-global toggles in admin.state; paused is a per-session field. Two different concerns with appropriate scoping—no duplication or parallel mechanics."
+    },
+    "endpoint_convention": {
+      "tripped": false,
+      "evidence": "Uses existing PATCH /v1/sessions/:id endpoint (sessions.ts:376-398), which already handles metadata merging and other column updates. New `paused` field integrated via PatchSchema (line 76-77) and patchSession() call (line 385). Naming/structure identical to branch/repo_path/current_task updates on same endpoint—no new endpoint created."
+    },
+    "layer": {
+      "tripped": false,
+      "evidence": "Dependency flow: UI calls api.sessionPatch() → PATCH endpoint → repo.patchSession() → DB update. No reverse dependencies (persistence layer never calls upward). SessionRow type updated in shared/types.ts, propagating cleanly through stack. No cross-layer inversions."
+    }
+  },
+  "axes": {
+    "domain_landing": {
+      "score": 5,
+      "note": "Correctly identified sessions table as the domain for per-session state and extended it using existing patchSession() pattern. No reinvention of storage or session lifecycle mechanics."
+    },
+    "exemplar_adherence": {
+      "score": 5,
+      "note": "Follows established patterns: migration via COLUMN_ADDITIONS array, schema_version bump (24→25), boolean-to-int serialization (!!), web type narrowing to boolean, PATCH endpoint integration. Nearly identical structure to recent column additions like delegation_emoji."
+    },
+    "completeness": {
+      "score": 5,
+      "note": "All four requirements present: (1) read/write API via PATCH, (2) persistence in sessions table, (3) UI toggle in SessionDetail (pause/resume button), (4) Monitor page badge. Test coverage added for patchSession. Web API interface updated."
+    },
+    "correctness": {
+      "score": 4,
+      "note": "Implementation is correct overall. Minor: togglePaused calls onStopped() after PATCH succeeds, which refreshes the parent component—refetch semantics appear intentional but could be clearer whether 'stopped' is the right lifecycle callback. No functional bug, just a naming consistency question in SessionDetail.tsx:467."
+    }
+  },
+  "findings": [
+    {
+      "severity": "low",
+      "desc": "Callback naming: SessionDetail.ActionButtonRow passes `onStopped` callback which fires after pause toggle succeeds (line 467). This callback likely triggers parent refetch, but name suggests it's session-end-only. Consider renaming to onStateChanged or adding a comment explaining refresh semantics.",
+      "file": "web/src/pages/SessionDetail.tsx"
+    }
+  ],
+  "summary": "Implementation fully satisfies the task: boolean paused flag added to sessions table via proper migration, serialized correctly in API, integrated into existing PATCH endpoint, and UI toggle complete. Adheres to all existing kill-switch and column-addition conventions with no invented mechanics. Only trivial naming ambiguity in callback semantics.",
+  "graded": true,
+  "graderCostUsd": 0.15694130000000003
+}

@@ -1,0 +1,35 @@
+{
+  "runId": "claude-haiku-4-5__supply__r1",
+  "arm": "supply",
+  "model": "claude-haiku-4-5",
+  "ok": true,
+  "timedOut": false,
+  "wallMs": 427055,
+  "diffLines": 250,
+  "diffEmpty": false,
+  "agent": {
+    "durationMs": 424657,
+    "apiMs": 261228,
+    "numTurns": 72,
+    "costUsd": 0.7422957000000001,
+    "inputTokens": 154,
+    "outputTokens": 15656,
+    "cacheReadTokens": 4911097,
+    "cacheCreationTokens": 86376,
+    "result": "좋습니다! schema 마이그레이션 테스트가 통과합니다. 이제 구현이 완료되었는지 확인하기 위해 변경 내용을 정리합니다.\n\n## 요약\n\nConcordia에 세션 일시 중지 (paused) 기능을 추가했습니다. 다음이 변경되었습니다:\n\n### 1. **데이터베이스 스키마** (`src/db/schema.ts`)\n- `SCHEMA_VERSION`을 24에서 25로 업그레이드\n- `sessions` 테이블에 `paused INTEGER NOT NULL DEFAULT 0` 컬럼 추가\n- migration 스크립트에 column addition 추가\n\n### 2. **타입 정의**\n- `SessionRow` 인터페이스에 `paused: number` 필드 추가 (`src/shared/types.ts`)\n- 웹 API의 `SessionRow` 인터페이스에 `paused: boolean` 필드 추가 (`web/src/api.ts`)\n\n### 3. **데이터베이스 리포지토리** (`src/db/s",
+    "isError": false
+  },
+  "anatomiaOverheadMs": 0,
+  "hookInvocations": 0,
+  "verifyFired": [],
+  "supplyFired": 0,
+  "cache": {
+    "gets": 0,
+    "hits": 0,
+    "misses": 0,
+    "hitRate": 0,
+    "llmCalls": 0,
+    "inputTokens": 0,
+    "outputTokens": 0
+  }
+}

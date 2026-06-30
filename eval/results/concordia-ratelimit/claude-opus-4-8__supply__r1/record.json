@@ -1,0 +1,35 @@
+{
+  "runId": "claude-opus-4-8__supply__r1",
+  "arm": "supply",
+  "model": "claude-opus-4-8",
+  "ok": true,
+  "timedOut": false,
+  "wallMs": 688558,
+  "diffLines": 1006,
+  "diffEmpty": false,
+  "agent": {
+    "durationMs": 685565,
+    "apiMs": 604832,
+    "numTurns": 61,
+    "costUsd": 6.2182415,
+    "inputTokens": 6400,
+    "outputTokens": 43068,
+    "cacheReadTokens": 5776863,
+    "cacheCreationTokens": 222111,
+    "result": "Lint passes clean. The feature is complete and left in the working tree (uncommitted, as requested).\n\n## 実装まとめ\n\n**セッション別 提案レートリミット**を、既存の kill-switch / 設定永続化 / dispatcher ゲートの作法に寄せて追加しました。\n\n### 変更内容（9 ファイル変更 + 2 新規）\n\n**1. ゲートのコア — `src/dispatcher-rate-limit.ts`（新規）**\n`ProposalRateLimiter.tryDispatch(sessionId)` が「窓 (秒) 内に最大 N 回」を session ごとに評価。窓内で上限到達なら `{allowed:false, reason}` を返してスキップ、窓が明けたらカウントをリセットして再開。設定解決とカウンタ load/save は注入（AdminState に委譲）。`now` 注入でテスト可能。\n\n**2. 永続化 — `src/admin/state.ts`*",
+    "isError": false
+  },
+  "anatomiaOverheadMs": 0,
+  "hookInvocations": 0,
+  "verifyFired": [],
+  "supplyFired": 0,
+  "cache": {
+    "gets": 0,
+    "hits": 0,
+    "misses": 0,
+    "hitRate": 0,
+    "llmCalls": 0,
+    "inputTokens": 0,
+    "outputTokens": 0
+  }
+}
