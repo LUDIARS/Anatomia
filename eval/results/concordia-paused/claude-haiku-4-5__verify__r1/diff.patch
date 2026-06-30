@@ -1,0 +1,359 @@
+diff --git a/src/admin/state.ts b/src/admin/state.ts
+index 1690ae0..8c2a20f 100644
+--- a/src/admin/state.ts
++++ b/src/admin/state.ts
+@@ -244,6 +244,19 @@ export class AdminState {
+     this.setRaw(KEY_DAILY_TOKEN_BUDGET, String(Math.max(0, Math.floor(value))));
+   }
+ 
++  /** セッション一時停止フラグの取得 (database から live 読み取り). */
++  isSessionPaused(db: Database.Database, sessionId: string): boolean {
++    const row = db.prepare(`SELECT paused FROM sessions WHERE id = ?`).get(sessionId) as
++      | { paused: number }
++      | undefined;
++    return row?.paused === 1;
++  }
++
++  /** セッション一時停止フラグの設定. */
++  setSessionPaused(db: Database.Database, sessionId: string, paused: boolean): void {
++    db.prepare(`UPDATE sessions SET paused = ? WHERE id = ?`).run(paused ? 1 : 0, sessionId);
++  }
++
+   snapshot(): {
+     chat_muted: boolean;
+     rules_enabled: boolean;
+diff --git a/src/app.ts b/src/app.ts
+index 3ef33de..e886d73 100644
+--- a/src/app.ts
++++ b/src/app.ts
+@@ -536,6 +536,26 @@ export function buildApp(deps: AppDeps): Hono {
+     });
+   });
+ 
++  // セッション一時停止フラグの read/write API.
++  app.get("/v1/admin/sessions/:id/paused", (c) => {
++    const id = c.req.param("id");
++    const session = deps.repo.findSession(id);
++    if (!session) return c.json({ error: "not_found" }, 404);
++    return c.json({ paused: session.paused === 1 });
++  });
++
++  app.put("/v1/admin/sessions/:id/paused", async (c) => {
++    const id = c.req.param("id");
++    const session = deps.repo.findSession(id);
++    if (!session) return c.json({ error: "not_found" }, 404);
++    const body = await c.req.json().catch(() => null);
++    if (typeof body?.paused !== "boolean") {
++      return c.json({ error: "body.paused (boolean) required" }, 400);
++    }
++    deps.repo.setPaused(id, body.paused);
++    return c.json({ paused: body.paused });
++  });
++
+   // 管理 API: 新コード反映用の self-restart.
+   // 子プロセスとして `npm run dev:backend` を detach spawn → 自分は 300ms 後に process.exit(0).
+   // listen socket は exit で OS が回収. 数 100ms の downtime あり (in-flight request は drop).
+diff --git a/src/db/schema.ts b/src/db/schema.ts
+index 776bd1a..b8e5c86 100644
+--- a/src/db/schema.ts
++++ b/src/db/schema.ts
+@@ -26,7 +26,8 @@ const STATEMENTS = [
+     current_task    TEXT,
+     transcript_path TEXT,
+     metadata        TEXT,
+-    ws_clients      INTEGER NOT NULL DEFAULT 0
++    ws_clients      INTEGER NOT NULL DEFAULT 0,
++    paused          INTEGER NOT NULL DEFAULT 0
+   )`,
+ 
+   `CREATE INDEX IF NOT EXISTS idx_sessions_repo_path_active ON sessions(repo_path, status)`,
+@@ -761,6 +762,11 @@ const COLUMN_ADDITIONS: Array<{ table: string; column: string; ddl: string }> =
+     column: "delegation_emoji",
+     ddl: `ALTER TABLE discord_session_channels ADD COLUMN delegation_emoji TEXT`,
+   },
++  {
++    table: "sessions",
++    column: "paused",
++    ddl: `ALTER TABLE sessions ADD COLUMN paused INTEGER NOT NULL DEFAULT 0`,
++  },
+ ];
+ 
+ function applyColumnAdditions(db: Database.Database): void {
+diff --git a/src/db/sessions-repo.ts b/src/db/sessions-repo.ts
+index c7887e3..fd0f2cf 100644
+--- a/src/db/sessions-repo.ts
++++ b/src/db/sessions-repo.ts
+@@ -123,6 +123,10 @@ export class SessionsRepo {
+     this.db.prepare(`UPDATE sessions SET metadata = ? WHERE id = ?`).run(metadata, id);
+   }
+ 
++  setPaused(id: string, paused: boolean): void {
++    this.db.prepare(`UPDATE sessions SET paused = ? WHERE id = ?`).run(paused ? 1 : 0, id);
++  }
++
+   /**
+    * Aggregate distinct hosts with session counts per status. Used by the
+    * machines API to present a "what's running where" overview.
+diff --git a/src/dispatcher.ts b/src/dispatcher.ts
+index 87b3742..df82bf8 100644
+--- a/src/dispatcher.ts
++++ b/src/dispatcher.ts
+@@ -112,9 +112,10 @@ export class Dispatcher {
+ 
+   /** session_event insert 後に呼ぶ. 発火条件を全部評価する */
+   onEventAppended(session: SessionRow, _eventCount: number): void {
+-    // chat 全停止スイッチが入っているなら chitchat / chat-reply / 雑談関連を
+-    // 一切 enqueue しない. role 推定だけ走らせて metadata 保持し、 task 列は触らない.
+-    if (this.isChatMuted() || this.isCostBlocked()) {
++    // paused セッション / chat 全停止スイッチ / コスト予算超過中は、
++    // chitchat / chat-reply / 雑談関連を一切 enqueue しない.
++    // role 推定だけ走らせて metadata 保持し、 task 列は触らない.
++    if (session.paused === 1 || this.isChatMuted() || this.isCostBlocked()) {
+       this.refreshRole(session);
+       return;
+     }
+@@ -193,8 +194,10 @@ export class Dispatcher {
+     const enqueued: string[] = [];
+     const skippedSelf: string[] = [];
+     const skippedProb: string[] = [];
++    const skippedPaused: string[] = [];
+     for (const peer of peers) {
+       if (peer.id === message.session_id) { skippedSelf.push(peer.id); continue; }
++      if (peer.paused === 1) { skippedPaused.push(peer.id); continue; }
+       if (this.rng() >= replyProb) { skippedProb.push(peer.id); continue; }
+ 
+       const role = this.refreshRole(peer);
+@@ -221,6 +224,7 @@ export class Dispatcher {
+         source_session_id: message.session_id,
+         enqueued_peer_ids: enqueued,
+         skipped_self: skippedSelf,
++        skipped_paused: skippedPaused,
+         skipped_by_probability: skippedProb,
+       },
+       "dispatcher.onChatPosted result",
+@@ -233,6 +237,7 @@ export class Dispatcher {
+     const lastTask = lost.current_task ?? "(不明)";
+     const peers = this.deps.sessions.listSessions({ status: "active" });
+     for (const peer of peers) {
++      if (peer.paused === 1) continue;
+       this.deps.tasks.enqueue({
+         session_id: peer.id,
+         kind: "session-departed",
+@@ -265,7 +270,7 @@ export class Dispatcher {
+     if (now - last < PEER_LOG_REACT_COOLDOWN_SEC) return;
+ 
+     const peers = this.deps.sessions.listSessions({ status: "active" })
+-      .filter((s) => s.id !== ev.source_session_id);
++      .filter((s) => s.id !== ev.source_session_id && s.paused === 0);
+     if (peers.length === 0) return;
+ 
+     // round-robin: cursor を peers の数で取り回す. log 量が多い時に偏らない.
+diff --git a/src/rules/proposer.ts b/src/rules/proposer.ts
+index 7a4b8d4..26ed9fd 100644
+--- a/src/rules/proposer.ts
++++ b/src/rules/proposer.ts
+@@ -83,7 +83,8 @@ export function startRuleProposer(deps: ProposerDeps): ProposerHandle {
+ 
+       const recentChat = deps.chat.list({ limit: 30 });
+       const recentLogs = deps.rules.recentLogs(20);
+-      const activeSessions = deps.sessions.listSessions({ status: "active" });
++      const allActiveSessions = deps.sessions.listSessions({ status: "active" });
++      const activeSessions = allActiveSessions.filter((s) => s.paused === 0);
+ 
+       const ctx = {
+         now_iso: new Date().toISOString(),
+diff --git a/src/shared/types.ts b/src/shared/types.ts
+index b73f3e5..7e42804 100644
+--- a/src/shared/types.ts
++++ b/src/shared/types.ts
+@@ -27,6 +27,8 @@ export interface SessionRow {
+   metadata: string | null; // JSON
+   /** 永続 WS client の接続数. > 0 なら sweeper の lost 判定から除外. */
+   ws_clients: number;
++  /** セッション一時停止フラグ. 1 なら提案・通知の対象外. */
++  paused: number;
+ }
+ 
+ export interface SessionEventRow {
+diff --git a/tests/dispatcher.test.ts b/tests/dispatcher.test.ts
+index c68e740..7aec5df 100644
+--- a/tests/dispatcher.test.ts
++++ b/tests/dispatcher.test.ts
+@@ -247,4 +247,58 @@ describe("Dispatcher 強制ルール — 深夜帯 (23:00–翌05:00) は行動
+     d.onSessionLost(env.sessions.findSession("lost-one")!);
+     expect(env.tasks.pull("active-one").find((t) => t.kind === "session-departed")).toBeTruthy();
+   });
++
++  it("paused セッションは onEventAppended で task をキューイングしない", () => {
++    startSession(env.sessions, "paused-session");
++    env.sessions.setPaused("paused-session", true);
++    const d = new Dispatcher({ ...env, rng: () => 0, now: DAYTIME });
++    for (let i = 0; i < 5; i++) {
++      env.sessions.appendEvent({
++        session_id: "paused-session", ts: i, kind: "edit",
++        payload: { file: "src/foo.ts" },
++      });
++    }
++    const session = env.sessions.findSession("paused-session")!;
++    d.onEventAppended(session, 5);
++    const tasks = env.tasks.pull("paused-session");
++    expect(tasks).toHaveLength(0);
++  });
++
++  it("paused セッションは onChatPosted で chat-reply をキューイングしない", () => {
++    startSession(env.sessions, "a");
++    startSession(env.sessions, "b");
++    env.sessions.setPaused("b", true);
++    const d = new Dispatcher({ ...env, rng: () => 0, now: DAYTIME });
++    d.onChatPosted({
++      id: 1, channel: "chitchat", session_id: "a",
++      text: "hello", author_label: "test", is_actionable: false,
++    });
++    const tasks = env.tasks.pull("b");
++    expect(tasks.find((t) => t.kind === "chat-reply")).toBeFalsy();
++  });
++
++  it("paused セッションは onSessionLost で session-departed をキューイングしない", () => {
++    startSession(env.sessions, "lost");
++    startSession(env.sessions, "active");
++    env.sessions.setPaused("active", true);
++    env.sessions.setStatus("lost", "lost", 100);
++    const d = new Dispatcher({ ...env, rng: () => 0.99, now: DAYTIME });
++    d.onSessionLost(env.sessions.findSession("lost")!);
++    const tasks = env.tasks.pull("active");
++    expect(tasks.find((t) => t.kind === "session-departed")).toBeFalsy();
++  });
++
++  it("paused セッションは onLogUpdate で peer-log-react をキューイングしない", () => {
++    startSession(env.sessions, "a");
++    startSession(env.sessions, "b");
++    env.sessions.setPaused("b", true);
++    const d = new Dispatcher({ ...env, rng: () => 0.99, now: DAYTIME });
++    d.onLogUpdate({
++      kind: "rule.add",
++      summary: "new rule added",
++      source_session_id: "a",
++    });
++    const tasks = env.tasks.pull("b");
++    expect(tasks.find((t) => t.kind === "peer-log-react")).toBeFalsy();
++  });
+ });
+diff --git a/tests/session-paused.test.ts b/tests/session-paused.test.ts
+new file mode 100644
+index 0000000..aeef41a
+--- /dev/null
++++ b/tests/session-paused.test.ts
+@@ -0,0 +1,113 @@
++import { describe, it, expect, beforeEach } from "vitest";
++import Database from "better-sqlite3";
++import { SessionsRepo } from "../src/db/sessions-repo.js";
++
++describe("session paused flag", () => {
++  let db: Database.Database;
++  let repo: SessionsRepo;
++
++  beforeEach(() => {
++    db = new Database(":memory:");
++    db.pragma("journal_mode = WAL");
++    db.pragma("foreign_keys = ON");
++    repo = new SessionsRepo(db);
++
++    // minimal schema for test
++    db.exec(`
++      CREATE TABLE sessions (
++        id TEXT PRIMARY KEY,
++        provider TEXT NOT NULL,
++        repo_path TEXT NOT NULL,
++        repo_origin TEXT,
++        branch TEXT,
++        host TEXT NOT NULL,
++        started_at INTEGER NOT NULL,
++        ended_at INTEGER,
++        status TEXT NOT NULL,
++        last_seen_at INTEGER NOT NULL,
++        current_task TEXT,
++        transcript_path TEXT,
++        metadata TEXT,
++        ws_clients INTEGER NOT NULL DEFAULT 0,
++        paused INTEGER NOT NULL DEFAULT 0
++      )
++    `);
++  });
++
++  it("paused defaults to 0", () => {
++    repo.insertSession({
++      id: "test-1",
++      provider: "claude-code",
++      repo_path: "/repo",
++      repo_origin: null,
++      branch: null,
++      host: "local",
++      started_at: 1000,
++      last_seen_at: 1000,
++      transcript_path: null,
++      metadata: null,
++    });
++
++    const session = repo.findSession("test-1");
++    expect(session?.paused).toBe(0);
++  });
++
++  it("setPaused sets paused flag to 1", () => {
++    repo.insertSession({
++      id: "test-2",
++      provider: "claude-code",
++      repo_path: "/repo",
++      repo_origin: null,
++      branch: null,
++      host: "local",
++      started_at: 1000,
++      last_seen_at: 1000,
++      transcript_path: null,
++      metadata: null,
++    });
++
++    repo.setPaused("test-2", true);
++    const session = repo.findSession("test-2");
++    expect(session?.paused).toBe(1);
++  });
++
++  it("setPaused sets paused flag to 0", () => {
++    repo.insertSession({
++      id: "test-3",
++      provider: "claude-code",
++      repo_path: "/repo",
++      repo_origin: null,
++      branch: null,
++      host: "local",
++      started_at: 1000,
++      last_seen_at: 1000,
++      transcript_path: null,
++      metadata: null,
++    });
++
++    repo.setPaused("test-3", true);
++    repo.setPaused("test-3", false);
++    const session = repo.findSession("test-3");
++    expect(session?.paused).toBe(0);
++  });
++
++  it("listSessions includes paused flag", () => {
++    repo.insertSession({
++      id: "test-4",
++      provider: "claude-code",
++      repo_path: "/repo",
++      repo_origin: null,
++      branch: null,
++      host: "local",
++      started_at: 1000,
++      last_seen_at: 1000,
++      transcript_path: null,
++      metadata: null,
++    });
++
++    repo.setPaused("test-4", true);
++    const sessions = repo.listSessions({});
++    expect(sessions).toHaveLength(1);
++    expect(sessions[0].paused).toBe(1);
++  });
++});

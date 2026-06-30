@@ -1,0 +1,58 @@
+{
+  "footguns": {
+    "bool_serialize": {
+      "tripped": false,
+      "evidence": "window_sec / max はそれぞれ String(n) で schema_meta に書き込み、readClampedInt (Number → isFinite → clamp) で読み出す。overrides は JSON 文字列として保存し、読み出し時に Number(o.window_sec) / Number(o.max) で数値化してから clampProposalRateLimit に渡す。API 側も typeof body.window_sec !== 'number' で 400 を返し型安全が維持されている。変換漏れなし。"
+    },
+    "index_after_alter": {
+      "tripped": false,
+      "evidence": "新規 DB カラムは追加していない。既存の schema_meta テーブルに新キーを INSERT OR REPLACE するだけなので ALTER/INDEX 問題は発生しない。"
+    },
+    "persist_pattern": {
+      "tripped": false,
+      "evidence": "グローバル設定は AdminState.setRaw/getRaw → schema_meta に格納。カウンタ状態も ProposalRateLimiter 内で同じ schema_meta に INSERT OR REPLACE。既存の kill-switch / config 永続化パターンに完全に沿っており、独自ストア・グローバル変数の新設なし。"
+    },
+    "window_reset": {
+      "tripped": false,
+      "evidence": "tryConsume で !prev || now - prev.start >= cfg.window_sec のとき { start: now, count: 0 } にリセットしてから判定する固定窓方式。clock=1059 で false、clock=1060 で true に戻るテストが窓明けの正確性を確認している。恒久ブロックなし、カウンタ単調増加なし。"
+    },
+    "dispatcher_gate": {
+      "tripped": false,
+      "evidence": "enqueueProposal (rate limiter ゲート) が chitchat-suggest (enqueueChitchat 経由)、review-summary、chat-reply、peer-log-react の 4 経路すべてに挿入されている。session-departed / daily-report は既存の isChatMuted 設計と同様にライフサイクル通知として意図的にゲート外 (enqueueProposal のコメントにも明記)。"
+    },
+    "reinvent": {
+      "tripped": false,
+      "evidence": "AdminState を拡張して KEY_PROPOSAL_RL_* を追加、DispatcherDeps に tryConsumeProposal? を追加という既存拡張パターン。ProposalRateLimiter は新ファイルだが独立サブシステムではなく、既存ゲート (isChatMuted/isCostBlocked) と同じ挿入点に並列で乗るヘルパー。並行する別永続化ストアや別ルーターは存在しない。"
+    },
+    "endpoint_convention": {
+      "tripped": false,
+      "evidence": "GET/PUT /v1/admin/proposal-ratelimit は既存 chat-mute / cost-budget と同じ構造。DELETE /v1/admin/proposal-ratelimit/override/:sessionId は reaction-mappings の DELETE /v1/admin/reaction-mappings/:emoji と同パターン。override upsert を PUT .../override で分けた点は reaction-mappings (PUT 本体に emoji 含める) とわずかに異なるが、設定対象が複合オブジェクトであるため合理的な差異。"
+    },
+    "layer": {
+      "tripped": false,
+      "evidence": "ProposalRateLimiter は src/admin/ に配置し、下位の Database (dep 注入)・同層の ./state.js (型のみ)・shared/logger.js のみをインポート。server.ts がインスタンス生成して dispatcher に注入するコンポジションルートパターン。上位層への逆流なし。"
+    }
+  },
+  "axes": {
+    "domain_landing": {
+      "score": 5,
+      "note": "AdminState (既存 schema_meta 永続化)・DispatcherDeps (既存ゲート差し込み口)・app.ts /v1/admin/ ルーター (既存 admin API) という正しい 3 点に着地。独立ドメインを新設せず既存機構の自然な拡張として実装されている。"
+    },
+    "exemplar_adherence": {
+      "score": 5,
+      "note": "定数パターン (DEFAULT_/MIN_/MAX_ + ADMIN_* export)、readClampedInt ヘルパー、clampXxx pure 関数、overrides の JSON 永続化、DispatcherDeps への optional 関数注入、constructor でのデフォルト束縛、すべて既存の proposer-interval / reaction-mappings / isChatMuted パターンを正確に踏襲している。"
+    },
+    "completeness": {
+      "score": 5,
+      "note": "グローバル既定 (get/set)、session 上書き (upsert/delete/resolve)、dispatcher ゲート (全 4 提案経路)、schema_meta 永続化 (設定 + カウンタ)、REST API (GET/PUT global + PUT/DELETE override)、Settings UI (ProposalRateLimitSection)、テスト (unit/state/api/dispatcher統合) のすべての要件を充足。"
+    },
+    "correctness": {
+      "score": 5,
+      "note": "固定窓リセット条件・上限判定・max=0/window=0 無効化・NaN throw・文字列→数値変換・GC 掃除・DB 永続化の一貫性すべてに明白なバグなし。テストで clock 操作による窓明け・セッション独立・永続化引き継ぎ・AdminState 連動・Dispatcher 統合の各シナリオを網羅。"
+    }
+  },
+  "findings": [],
+  "summary": "全 footgun 未踏・全 axis 満点。既存の kill-switch/config-persistence/dispatcher-gate 規約を正確に踏襲した教科書的な実装で、バグ・規約逸脱・未配線ともに検出されない。",
+  "graded": true,
+  "graderCostUsd": 0.48728280000000007
+}

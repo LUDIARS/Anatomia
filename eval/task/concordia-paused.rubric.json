@@ -1,0 +1,53 @@
+{
+  "task": "Concordia per-session `paused` flag (add boolean state + read/write API + persistence + Rules-page toggle, follow existing kill-switch conventions).",
+  "footguns": [
+    {
+      "id": "bool_serialize",
+      "class": "outcome",
+      "desc": "新しい boolean カラム/フィールド (`paused`) が serialize/PATCH 経路で正しく扱われ (例: SQLite で `=== 1` 変換)、PATCH が 400 にならない。既存 boolean フラグと同じ変換テーブルに `paused` を入れているか。",
+      "tripped_if": "serialize/deserialize で paused を boolean 化し忘れ、PATCH/読み出しで型不整合や 400 を招く実装"
+    },
+    {
+      "id": "index_after_alter",
+      "class": "outcome",
+      "desc": "DB マイグレーションで新カラムを足すとき、CREATE TABLE と同じ exec に新カラム用 INDEX を置かず、ALTER ADD COLUMN の後に冪等発行している (既存 DB で 'no such column' boot 失敗を避ける)。",
+      "tripped_if": "新カラム INDEX を CREATE TABLE と同じ exec に置く / ALTER 前に発行する migration"
+    },
+    {
+      "id": "persist_pattern",
+      "class": "outcome",
+      "desc": "永続化が既存の schema_meta / kill-switch 永続化パターンに沿っている (自前の別ストアを新設していない)。",
+      "tripped_if": "既存の永続化機構を使わず新規ファイル/テーブル/グローバルを発明"
+    },
+    {
+      "id": "reinvent_flag",
+      "class": "anatomia",
+      "desc": "既存の kill-switch (chat-mute/rules-enabled) パターンに寄せ、新しいフラグ機構を別途発明していない (duplication 回避)。",
+      "tripped_if": "既存 kill-switch と並行する別系統のフラグ機構を新設"
+    },
+    {
+      "id": "endpoint_convention",
+      "class": "anatomia",
+      "desc": "追加エンドポイントが既存の管制/設定エンドポイントの命名・ルーティング・ハンドラ構造に一致している (convention_drift 回避)。",
+      "tripped_if": "既存と異なる命名規則/構造でエンドポイントを追加"
+    },
+    {
+      "id": "layer",
+      "class": "anatomia",
+      "desc": "層/依存方向の規約を破っていない (例: 永続化層が上位を呼ぶ等の逆流が無い)。",
+      "tripped_if": "層をまたぐ禁止された依存/呼び出しを導入"
+    }
+  ],
+  "axes": [
+    { "id": "domain_landing", "desc": "正しい既存ドメイン/モジュールに着地したか (再発明でなく既存機構の拡張)", "scale": "0-5" },
+    { "id": "exemplar_adherence", "desc": "既存 kill-switch exemplar との構造・命名の一致度", "scale": "0-5" },
+    { "id": "completeness", "desc": "要件 (read/write API・永続化・UI トグル・テスト) の充足度", "scale": "0-5" },
+    { "id": "correctness", "desc": "明白なバグ・破綻・未配線が無いか", "scale": "0-5" }
+  ],
+  "output_schema": {
+    "footguns": "id -> { tripped: boolean, evidence: string }",
+    "axes": "id -> { score: 0..5, note: string }",
+    "findings": "[ { severity: 'high'|'med'|'low', desc: string, file: string } ]",
+    "summary": "string"
+  }
+}

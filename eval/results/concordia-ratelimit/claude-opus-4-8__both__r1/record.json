@@ -1,0 +1,35 @@
+{
+  "runId": "claude-opus-4-8__both__r1",
+  "arm": "both",
+  "model": "claude-opus-4-8",
+  "ok": true,
+  "timedOut": false,
+  "wallMs": 728352,
+  "diffLines": 957,
+  "diffEmpty": false,
+  "agent": {
+    "durationMs": 726435,
+    "apiMs": 803910,
+    "numTurns": 49,
+    "costUsd": 4.838163699999999,
+    "inputTokens": 5699,
+    "outputTokens": 40292,
+    "cacheReadTokens": 4408652,
+    "cacheCreationTokens": 114437,
+    "result": "Implementation complete. Changes are in the working tree, uncommitted.\n\n## 実装概要：セッション別 提案レートリミット\n\n既存の kill-switch / 設定永続化 / dispatcher ゲートの作法に寄せて実装しました。\n\n### 1. 設定 (`src/admin/state.ts`)\n`AdminState` に既存 setting と同じ schema_meta パターンで追加：\n- **グローバル既定** `proposal_ratelimit` = **60秒 / 5回**（`admin.proposal_ratelimit_window_sec` / `_max`）。\n- **session 個別の上書き** `admin.proposal_ratelimit_overrides`（JSON、reaction-overrides と同じ作法）。\n- `resolveProposalRateLimit(sessionId)` で「上書き優先、なければ既定」を解決。`snapshot()` にも",
+    "isError": false
+  },
+  "anatomiaOverheadMs": 7019,
+  "hookInvocations": 26,
+  "verifyFired": [],
+  "supplyFired": 1,
+  "cache": {
+    "gets": 0,
+    "hits": 0,
+    "misses": 0,
+    "hitRate": 0,
+    "llmCalls": 0,
+    "inputTokens": 0,
+    "outputTokens": 0
+  }
+}

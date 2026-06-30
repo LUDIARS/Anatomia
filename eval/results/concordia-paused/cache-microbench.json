@@ -1,0 +1,28 @@
+{
+  "K": 4,
+  "noCache": {
+    "name": "noCache (毎回クリア)",
+    "K": 4,
+    "gets": 4,
+    "hits": 0,
+    "misses": 4,
+    "hitRate": 0,
+    "llmCalls": 0,
+    "inputTokens": 0,
+    "outputTokens": 0
+  },
+  "withCache": {
+    "name": "withCache (初回のみ蒸留)",
+    "K": 4,
+    "gets": 4,
+    "hits": 3,
+    "misses": 1,
+    "hitRate": 0.75,
+    "llmCalls": 0,
+    "inputTokens": 0,
+    "outputTokens": 0
+  },
+  "callsSaved": 0,
+  "tokensSaved": 0,
+  "llmCallReductionPct": 0
+}

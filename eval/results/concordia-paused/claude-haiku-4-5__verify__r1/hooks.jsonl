@@ -1,0 +1,15 @@
+{"hook":"verify","ts":1781597847383,"ms":6902,"fired":false,"file":"E:\\anatomia-eval\\ws\\concordia\\src\\db\\schema.ts","project":"concordia-eval","result":"pass"}
+{"hook":"verify","ts":1781597857760,"ms":7134,"fired":false,"file":"E:\\anatomia-eval\\ws\\concordia\\src\\db\\schema.ts","project":"concordia-eval","result":"pass"}
+{"hook":"verify","ts":1781597879331,"ms":7340,"fired":false,"file":"E:\\anatomia-eval\\ws\\concordia\\src\\shared\\types.ts","project":"concordia-eval","result":"pass"}
+{"hook":"verify","ts":1781597912216,"ms":7111,"fired":false,"file":"E:\\anatomia-eval\\ws\\concordia\\src\\db\\sessions-repo.ts","project":"concordia-eval","result":"pass"}
+{"hook":"verify","ts":1781597925459,"ms":7089,"fired":false,"file":"E:\\anatomia-eval\\ws\\concordia\\src\\admin\\state.ts","project":"concordia-eval","result":"pass"}
+{"hook":"verify","ts":1781597943505,"ms":6643,"fired":false,"file":"E:\\anatomia-eval\\ws\\concordia\\src\\app.ts","project":"concordia-eval","result":"pass"}
+{"hook":"verify","ts":1781597961834,"ms":7388,"fired":false,"file":"E:\\anatomia-eval\\ws\\concordia\\src\\rules\\proposer.ts","project":"concordia-eval","result":"pass"}
+{"hook":"verify","ts":1781597991295,"ms":6923,"fired":false,"file":"E:\\anatomia-eval\\ws\\concordia\\src\\dispatcher.ts","project":"concordia-eval","result":"pass"}
+{"hook":"verify","ts":1781598010125,"ms":6771,"fired":false,"file":"E:\\anatomia-eval\\ws\\concordia\\src\\dispatcher.ts","project":"concordia-eval","result":"pass"}
+{"hook":"verify","ts":1781598022993,"ms":6869,"fired":false,"file":"E:\\anatomia-eval\\ws\\concordia\\src\\dispatcher.ts","project":"concordia-eval","result":"pass"}
+{"hook":"verify","ts":1781598039498,"ms":6722,"fired":false,"file":"E:\\anatomia-eval\\ws\\concordia\\src\\dispatcher.ts","project":"concordia-eval","result":"pass"}
+{"hook":"verify","ts":1781598061320,"ms":6759,"fired":false,"file":"E:\\anatomia-eval\\ws\\concordia\\src\\dispatcher.ts","project":"concordia-eval","result":"pass"}
+{"hook":"verify","ts":1781598096422,"ms":7555,"fired":false,"file":"E:\\anatomia-eval\\ws\\concordia\\tests\\session-paused.test.ts","project":"concordia-eval","result":"pass"}
+{"hook":"verify","ts":1781598117947,"ms":8117,"fired":false,"file":"E:\\anatomia-eval\\ws\\concordia\\tests\\session-paused.test.ts","project":"concordia-eval","result":"no-verdict"}
+{"hook":"verify","ts":1781598149311,"ms":7873,"fired":false,"file":"E:\\anatomia-eval\\ws\\concordia\\tests\\dispatcher.test.ts","project":"concordia-eval","result":"pass"}

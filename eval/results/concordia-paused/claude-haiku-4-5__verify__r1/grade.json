@@ -1,0 +1,66 @@
+{
+  "footguns": {
+    "bool_serialize": {
+      "tripped": false,
+      "evidence": "Boolean conversion is consistent throughout: values stored as 0/1 in SQLite, checked with === 1, and converted with ternary ? 1 : 0. GET endpoint properly converts to boolean for JSON response ({ paused: session.paused === 1 }), PUT endpoint validates boolean input before converting for storage."
+    },
+    "index_after_alter": {
+      "tripped": false,
+      "evidence": "Schema changes correctly separate CREATE TABLE (includes paused column inline) from COLUMN_ADDITIONS array (uses ALTER TABLE for existing databases). No index is duplicated or placed in the same statement, avoiding boot failures on existing databases."
+    },
+    "persist_pattern": {
+      "tripped": false,
+      "evidence": "New flag stored in existing sessions table via standard UPDATE/SELECT patterns. No new files, tables, or global state invented. Follows established session-state persistence model."
+    },
+    "reinvent_flag": {
+      "tripped": false,
+      "evidence": "Correctly implements per-session flag in sessions table rather than replicating global AdminState pattern (which appropriately stores chat_muted/rules_enabled globally). AdminState helper methods are read-through convenience wrappers, not a parallel mechanism."
+    },
+    "endpoint_convention": {
+      "tripped": false,
+      "evidence": "Endpoints follow /v1/admin/sessions/:id/paused REST pattern consistent with adjacent admin endpoints. GET validates session existence (404), PUT validates body.paused type (400). Handler structure matches existing patterns."
+    },
+    "layer": {
+      "tripped": false,
+      "evidence": "Dependency flow is correct: view (app.ts) → repo (SessionsRepo) → database. No reverse dependencies or prohibited cross-layer calls. Dispatcher reads from SessionRow without back-calling into higher layers."
+    }
+  },
+  "axes": {
+    "domain_landing": {
+      "score": 5,
+      "note": "All required modules modified correctly: SessionRow type, database schema, SessionsRepo, Dispatcher (4 integration points), rule proposer filtering, and admin API. No unnecessary files touched."
+    },
+    "exemplar_adherence": {
+      "score": 4,
+      "note": "Appropriately adapts kill-switch concept for per-session scope: stored in sessions table (not AdminState), integrated into dispatcher checks, filters rule proposals. Differs from global kill-switch pattern where semantically appropriate rather than blindly copying exemplar."
+    },
+    "completeness": {
+      "score": 4,
+      "note": "Backend fully implemented: boolean state (SessionRow), read API (GET), write API (PUT), persistence (schema + migrations), and test coverage (5 dispatcher test cases + dedicated session-paused.test.ts). Rules-page UI toggle component not present in diff."
+    },
+    "correctness": {
+      "score": 4,
+      "note": "Implementation sound: boolean serialization correct, database migration pattern proper, API input validation in place, dispatcher consistently skips paused sessions across 4 methods. Minor: AdminState.isSessionPaused/setSessionPaused unused in provided diff; PUT returns request value instead of post-update database read (minor robustness concern)."
+    }
+  },
+  "findings": [
+    {
+      "severity": "med",
+      "desc": "Rules-page toggle UI component missing from diff. Task explicitly requires 'Rules-page toggle' but only backend API and persistence are shown.",
+      "file": "(not in diff)"
+    },
+    {
+      "severity": "low",
+      "desc": "AdminState.isSessionPaused() and AdminState.setSessionPaused() methods defined but unused in app.ts endpoint (which directly uses deps.repo.setPaused()). Unclear if these are intended for other consumers or should be removed.",
+      "file": "src/admin/state.ts"
+    },
+    {
+      "severity": "low",
+      "desc": "PUT /v1/admin/sessions/:id/paused returns request body value instead of querying updated state from database. While consistent with typical API patterns, reading back would be more defensive.",
+      "file": "src/app.ts"
+    }
+  ],
+  "summary": "Technically sound backend implementation with correct boolean serialization, database patterns, and dispatcher integration; missing Rules-page UI toggle required by task and contains minor unused helper methods.",
+  "graded": true,
+  "graderCostUsd": 0.0789028
+}

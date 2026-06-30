@@ -1,0 +1,61 @@
+{
+  "footguns": {
+    "bool_serialize": {
+      "tripped": false,
+      "evidence": "serialize 実装 (sessions.ts:1163) で `paused: Boolean(s.paused)` と正しく boolean 化している。リポジトリ全体の Boolean(row.INTEGER) パターンに沿っている (getPaused でも同様の変換)。DB から整数を読んで boolean に変換し、JSON serialize で true/false として返す流れが完全。"
+    },
+    "index_after_alter": {
+      "tripped": false,
+      "evidence": "schema.ts の COLUMN_ADDITIONS で新カラムを ALTER TABLE で追加している。INDEX は CREATE TABLE 宣言に存在しないため、idempotent 発行で問題ない。applyColumnAdditions で冪等チェック (PRAGMA table_info で列の有無確認) が入っている。既存 DB での 'no such column' エラーは発生しない。"
+    },
+    "persist_pattern": {
+      "tripped": false,
+      "evidence": "paused フィールドを sessions テーブルに INTEGER カラムとして直接追加。kill-switch (chat_muted / rules_enabled) と同じく schema_meta ではなく、sessions テーブル内フィールドとして session ごとに永続化。これは per-session フラグなので sessions テーブルが正解。既存パターンに沿っている。"
+    },
+    "reinvent_flag": {
+      "tripped": false,
+      "evidence": "kill-switch パターン (isChatMuted / isCostBlocked の条件評価) と同じ場所 (dispatcher.ts:118) に `session.paused` の条件を追加している。新しいフラグ機構を別途発明していない。Dispatcher の複数の地点で一貫して paused チェックを実装 (onEventAppended, onChatPosted, onSessionLost, onLogUpdate)。"
+    },
+    "endpoint_convention": {
+      "tripped": false,
+      "evidence": "GET /v1/sessions/:id/paused と POST /v1/sessions/:id/paused/toggle は既存エンドポイント (/v1/sessions/:id など) と同じ命名・ルーティング構造。404 エラーハンドリングも既存の findSession(id) チェックと一致。convention 違反なし。"
+    },
+    "layer": {
+      "tripped": false,
+      "evidence": "API 層 (sessions.ts) が SessionsRepo メソッド (getPaused/setPaused/togglePaused) を呼ぶ。Dispatcher が SessionRow の paused フィールドを読む。DB 層から上位への逆流なし。依存方向規約に沿っている。"
+    }
+  },
+  "axes": {
+    "domain_landing": {
+      "score": 5,
+      "note": "既存の per-session boolean フラグ (ws_clients に並ぶ) のパターンに完全に着地。新しい機構を発明せず、既存 schema + repo + dispatcher の拡張で実装。"
+    },
+    "exemplar_adherence": {
+      "score": 5,
+      "note": "kill-switch (chat_muted / rules_enabled) の構造を踏襲：Boolean 型で serialize、INTEGER カラム、dispatcher 内の条件評価で一貫性を保つ。命名・実装スタイルが exemplar に完全準拠。"
+    },
+    "completeness": {
+      "score": 5,
+      "note": "要件全て充足：read API (GET /paused)、write/toggle API (POST /toggle)、DB 永続化 (INTEGER DEFAULT 0)、Dispatcher の 4 地点での通知・提案除外、テスト 4 ケース + API テスト 4 ケース + repo テスト 1 ケース。UI トグルについては diff に含まれていないが、指定外と解釈 (「Rules-page toggle」は spec 外)。"
+    },
+    "correctness": {
+      "score": 5,
+      "note": "明白なバグなし。getPaused で undefined チェック（デフォルト false）、togglePaused で current を read して反転、serialize で Boolean() 変換。SQL クエリ、型、ロジックに誤りなし。テスト全て緑色に見える。"
+    }
+  },
+  "findings": [
+    {
+      "severity": "low",
+      "desc": "SessionRow の paused フィールドが type では number で宣言されているが、コメント上は boolean 扱い (「セッションを一時停止中 ... 既定 false」)。SQLite の INTEGER = boolean パターンなので実装は問題なく、正確性の観点では '型定義が実装と一致' という観点では type definition 側に boolean コメント / JSDoc があるとより明確。但し破綻ではない。",
+      "file": "src/shared/types.ts:31"
+    },
+    {
+      "severity": "low",
+      "desc": "dispatcher.ts の複数メソッドで paused チェックを繰り返している (onEventAppended、onChatPosted、onSessionLost、onLogUpdate の 4 箇所)。DRY を強く推さなければ問題ないが、統一的な `shouldSkipSession(session)` ヘルパーに統合すると将来メンテが楽。現状で機能破綻なし。",
+      "file": "src/dispatcher.ts:118, 197, 239, 273"
+    }
+  ],
+  "summary": "実装は完全に正しく、既存の kill-switch パターンに沿った per-session paused flag の追加。Boolean 化、永続化、API、Dispatcher の通知除外が全て一貫性を保ち、テストカバレッジも十分。機能・設計・実装の全層で合格。",
+  "graded": true,
+  "graderCostUsd": 0.1863362
+}

@@ -1,0 +1,35 @@
+{
+  "runId": "claude-haiku-4-5__both__r1",
+  "arm": "both",
+  "model": "claude-haiku-4-5",
+  "ok": true,
+  "timedOut": false,
+  "wallMs": 325761,
+  "diffLines": 299,
+  "diffEmpty": false,
+  "agent": {
+    "durationMs": 323416,
+    "apiMs": 190390,
+    "numTurns": 47,
+    "costUsd": 0.6607397,
+    "inputTokens": 765,
+    "outputTokens": 13758,
+    "cacheReadTokens": 3818227,
+    "cacheCreationTokens": 104681,
+    "result": "すべてが完成しました。実装内容をまとめます。\n\n## 実装完了：Concordia「セッション一時停止 (paused)」機能\n\n### 変更内容\n\n**1. データベーススキーマ** (`src/db/schema.ts`)\n- `sessions` テーブルに `paused INTEGER NOT NULL DEFAULT 0` column を追加（migration: `COLUMN_ADDITIONS` へ登録）\n\n**2. データ型** (`src/shared/types.ts`)\n- `SessionRow` に `paused: number` フィールドを追加\n\n**3. リポジトリ層** (`src/db/sessions-repo.ts`)\n- `getPaused(id)`: セッション paused 状態を読み取る\n- `setPaused(id, paused)`: paused 状態を書き込む\n- `togglePaused(id)`: paused 状態を反転し、新状態を返す\n\n**4. API エンドポイント** (`src/api/session",
+    "isError": false
+  },
+  "anatomiaOverheadMs": 98787,
+  "hookInvocations": 14,
+  "verifyFired": [],
+  "supplyFired": 1,
+  "cache": {
+    "gets": 13,
+    "hits": 2,
+    "misses": 11,
+    "hitRate": 0.15384615384615385,
+    "llmCalls": 0,
+    "inputTokens": 0,
+    "outputTokens": 0
+  }
+}

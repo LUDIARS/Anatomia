@@ -1,0 +1,38 @@
+[
+  {
+    "model": "claude-opus-4-8",
+    "arm": "off",
+    "rep": 1,
+    "runId": "claude-opus-4-8__off__r1",
+    "ok": true,
+    "diffEmpty": false,
+    "graded": true
+  },
+  {
+    "model": "claude-opus-4-8",
+    "arm": "supply",
+    "rep": 1,
+    "runId": "claude-opus-4-8__supply__r1",
+    "ok": true,
+    "diffEmpty": false,
+    "graded": true
+  },
+  {
+    "model": "claude-opus-4-8",
+    "arm": "verify",
+    "rep": 1,
+    "runId": "claude-opus-4-8__verify__r1",
+    "ok": true,
+    "diffEmpty": false,
+    "graded": true
+  },
+  {
+    "model": "claude-opus-4-8",
+    "arm": "both",
+    "rep": 1,
+    "runId": "claude-opus-4-8__both__r1",
+    "ok": true,
+    "diffEmpty": false,
+    "graded": true
+  }
+]

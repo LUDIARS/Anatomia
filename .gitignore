@@ -9,3 +9,4 @@ ks-graph.html
 
 # ローカル依存ライブラリ (git submodule update --init でセットアップ)
 /lib/
+eval/ws/

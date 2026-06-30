@@ -1,0 +1,249 @@
+diff --git a/src/api/sessions.ts b/src/api/sessions.ts
+index cbf958e..44b0ae8 100644
+--- a/src/api/sessions.ts
++++ b/src/api/sessions.ts
+@@ -73,6 +73,8 @@ const PatchSchema = z.object({
+    * is bound (the initial register happens BEFORE the port is known).
+    */
+   metadata: z.record(z.unknown()).optional(),
++  /** Session paused flag. 1 = paused (no proposals / notifications). */
++  paused: z.number().int().min(0).max(1).optional(),
+ });
+ 
+ const EventSchema = z.object({
+@@ -1144,6 +1146,7 @@ export function serializeSession(s: SessionRow) {
+     last_seen_at: s.last_seen_at,
+     current_task: s.current_task,
+     metadata: s.metadata ? safeParse(s.metadata) : null,
++    paused: !!s.paused,
+   };
+ }
+ 
+diff --git a/src/db/schema.ts b/src/db/schema.ts
+index 776bd1a..f38ebe4 100644
+--- a/src/db/schema.ts
++++ b/src/db/schema.ts
+@@ -4,7 +4,7 @@
+ 
+ import type Database from "better-sqlite3";
+ 
+-export const SCHEMA_VERSION = 24;
++export const SCHEMA_VERSION = 25;
+ 
+ const STATEMENTS = [
+   `CREATE TABLE IF NOT EXISTS schema_meta (
+@@ -26,7 +26,8 @@ const STATEMENTS = [
+     current_task    TEXT,
+     transcript_path TEXT,
+     metadata        TEXT,
+-    ws_clients      INTEGER NOT NULL DEFAULT 0
++    ws_clients      INTEGER NOT NULL DEFAULT 0,
++    paused          INTEGER NOT NULL DEFAULT 0
+   )`,
+ 
+   `CREATE INDEX IF NOT EXISTS idx_sessions_repo_path_active ON sessions(repo_path, status)`,
+@@ -761,6 +762,11 @@ const COLUMN_ADDITIONS: Array<{ table: string; column: string; ddl: string }> =
+     column: "delegation_emoji",
+     ddl: `ALTER TABLE discord_session_channels ADD COLUMN delegation_emoji TEXT`,
+   },
++  {
++    table: "sessions",
++    column: "paused",
++    ddl: `ALTER TABLE sessions ADD COLUMN paused INTEGER NOT NULL DEFAULT 0`,
++  },
+ ];
+ 
+ function applyColumnAdditions(db: Database.Database): void {
+diff --git a/src/db/sessions-repo.ts b/src/db/sessions-repo.ts
+index c7887e3..abe45f1 100644
+--- a/src/db/sessions-repo.ts
++++ b/src/db/sessions-repo.ts
+@@ -106,6 +106,7 @@ export class SessionsRepo {
+       branch?: string;
+       repo_path?: string;
+       repo_origin?: string | null;
++      paused?: number;
+     },
+   ): void {
+     const sets: string[] = [];
+@@ -114,6 +115,7 @@ export class SessionsRepo {
+     if (patch.branch !== undefined)       { sets.push("branch = ?");       args.push(patch.branch); }
+     if (patch.repo_path !== undefined)    { sets.push("repo_path = ?");    args.push(patch.repo_path); }
+     if (patch.repo_origin !== undefined)  { sets.push("repo_origin = ?");  args.push(patch.repo_origin); }
++    if (patch.paused !== undefined)       { sets.push("paused = ?");       args.push(patch.paused); }
+     if (sets.length === 0) return;
+     args.push(id);
+     this.db.prepare(`UPDATE sessions SET ${sets.join(", ")} WHERE id = ?`).run(...args);
+diff --git a/src/shared/types.ts b/src/shared/types.ts
+index b73f3e5..285d759 100644
+--- a/src/shared/types.ts
++++ b/src/shared/types.ts
+@@ -27,6 +27,8 @@ export interface SessionRow {
+   metadata: string | null; // JSON
+   /** 永続 WS client の接続数. > 0 なら sweeper の lost 判定から除外. */
+   ws_clients: number;
++  /** セッション一時停止フラグ. 1 = paused (提案・通知対象外). */
++  paused: number;
+ }
+ 
+ export interface SessionEventRow {
+diff --git a/tests/sessions-repo.test.ts b/tests/sessions-repo.test.ts
+index 6aa6578..2508d24 100644
+--- a/tests/sessions-repo.test.ts
++++ b/tests/sessions-repo.test.ts
+@@ -101,4 +101,20 @@ describe("SessionsRepo", () => {
+     expect(repo.abandonLost(20)).toBe(1);
+     expect(repo.findSession("a")?.status).toBe("abandoned");
+   });
++
++  it("patchSession can toggle paused flag", () => {
++    repo.insertSession({
++      id: "a", provider: "claude-code", repo_path: "/x", repo_origin: null,
++      branch: null, host: "h", started_at: 1, last_seen_at: 1,
++      transcript_path: null, metadata: null,
++    });
++    const s1 = repo.findSession("a");
++    expect(s1?.paused).toBe(0);
++    repo.patchSession("a", { paused: 1 });
++    const s2 = repo.findSession("a");
++    expect(s2?.paused).toBe(1);
++    repo.patchSession("a", { paused: 0 });
++    const s3 = repo.findSession("a");
++    expect(s3?.paused).toBe(0);
++  });
+ });
+diff --git a/web/src/api.ts b/web/src/api.ts
+index c4d8711..ee53f61 100644
+--- a/web/src/api.ts
++++ b/web/src/api.ts
+@@ -61,6 +61,7 @@ export interface SessionRow {
+   last_seen_at: number;
+   current_task: string | null;
+   metadata: Record<string, any> | null;
++  paused: boolean;
+ }
+ 
+ export interface SessionEvent {
+@@ -390,6 +391,8 @@ export const api = {
+       `/v1/sessions/${encodeURIComponent(id)}/request-title`,
+       {},
+     ),
++  sessionPatch: (id: string, body: { paused?: number; current_task?: string; branch?: string; metadata?: Record<string, unknown> }) =>
++    patch<{ ok: boolean }>(`/v1/sessions/${encodeURIComponent(id)}`, body),
+   permissionRespond: (id: string, body: { request_id: string; decision: "allow" | "deny" | "ask"; reason?: string }) =>
+     post<{ ok: boolean }>(`/v1/sessions/${encodeURIComponent(id)}/permission-response`, body),
+   fsList: (id: string, path: string) => {
+diff --git a/web/src/pages/Monitor.tsx b/web/src/pages/Monitor.tsx
+index 16d5dca..c364406 100644
+--- a/web/src/pages/Monitor.tsx
++++ b/web/src/pages/Monitor.tsx
+@@ -378,6 +378,7 @@ function SessionCard({
+       <div className="flex items-center gap-2 text-xs">
+         <span className={`px-1.5 py-0.5 rounded ${statusBadge(s.status)}`}>{s.status}</span>
+         <span className="text-subtle">{s.provider}</span>
++        {s.paused && <span className="px-1.5 py-0.5 rounded bg-warn/20 border border-warn text-warn text-[10px] font-medium">paused</span>}
+         <span className="ml-auto text-subtle">{s.id.slice(0, 8)}…</span>
+         {canStop && <StopButton sessionId={s.id} />}
+       </div>
+diff --git a/web/src/pages/SessionDetail.tsx b/web/src/pages/SessionDetail.tsx
+index 1d7ca21..4f2d1be 100644
+--- a/web/src/pages/SessionDetail.tsx
++++ b/web/src/pages/SessionDetail.tsx
+@@ -83,8 +83,8 @@ export function SessionDetail() {
+       {/* 5. 直近 stat */}
+       <LatestStatPanel sessionId={s.id} />
+ 
+-      {/* 6. 停止 / stat / rename ボタン (active 時のみ) */}
+-      {isActive && <ActionButtonRow sessionId={s.id} canStop={lictorPid !== null} onStopped={refetch} />}
++      {/* 6. 停止 / stat / rename / paused ボタン (active 時のみ) */}
++      {isActive && <ActionButtonRow session={s} canStop={lictorPid !== null} onStopped={refetch} />}
+ 
+       {/* 7. event log (toggle) */}
+       <EventLogToggle events={data.events} />
+@@ -401,15 +401,15 @@ function StatPayloadView({ payload }: { payload: Record<string, unknown> }) {
+ // ─── 6. 停止 / stat / rename ボタン群 ──────────────────────────────────
+ 
+ function ActionButtonRow({
+-  sessionId,
++  session,
+   canStop,
+   onStopped,
+ }: {
+-  sessionId: string;
++  session: SessionRow;
+   canStop: boolean;
+   onStopped: () => void;
+ }) {
+-  const [busy, setBusy] = useState<"stop" | "stat" | "rename" | null>(null);
++  const [busy, setBusy] = useState<"stop" | "stat" | "rename" | "paused" | null>(null);
+   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+ 
+   const stop = async () => {
+@@ -417,7 +417,7 @@ function ActionButtonRow({
+     setBusy("stop");
+     setMsg(null);
+     try {
+-      await api.adminStop(sessionId);
++      await api.adminStop(session.id);
+       onStopped();
+       setMsg({ kind: "ok", text: "停止しました" });
+     } catch (e) {
+@@ -431,7 +431,7 @@ function ActionButtonRow({
+     setBusy("stat");
+     setMsg(null);
+     try {
+-      const r = await api.sessionRequestStat(sessionId);
++      const r = await api.sessionRequestStat(session.id);
+       setMsg({
+         kind: "ok",
+         text: r.enqueued ? "stat を依頼しました" : "既に依頼中です",
+@@ -447,7 +447,7 @@ function ActionButtonRow({
+     setBusy("rename");
+     setMsg(null);
+     try {
+-      const r = await api.sessionRequestTitle(sessionId);
++      const r = await api.sessionRequestTitle(session.id);
+       setMsg({
+         kind: "ok",
+         text: r.enqueued ? "rename を依頼しました" : "既に依頼中です",
+@@ -459,6 +459,20 @@ function ActionButtonRow({
+     }
+   };
+ 
++  const togglePaused = async () => {
++    setBusy("paused");
++    setMsg(null);
++    try {
++      await api.sessionPatch(session.id, { paused: session.paused ? 0 : 1 });
++      onStopped();
++      setMsg({ kind: "ok", text: session.paused ? "再開しました" : "一時停止しました" });
++    } catch (e) {
++      setMsg({ kind: "err", text: (e as Error).message });
++    } finally {
++      setBusy(null);
++    }
++  };
++
+   return (
+     <section className="bg-surface border border-border rounded p-3 space-y-2">
+       <div className="flex flex-wrap gap-2">
+@@ -489,6 +503,19 @@ function ActionButtonRow({
+         >
+           {busy === "rename" ? "依頼中…" : "rename 依頼"}
+         </button>
++        <button
++          type="button"
++          onClick={togglePaused}
++          disabled={busy !== null}
++          className={`px-3 py-1.5 border rounded text-sm disabled:opacity-50 ${
++            session.paused
++              ? "bg-warn/20 border-warn text-warn hover:bg-warn/30"
++              : "bg-muted border-border text-subtle hover:border-accent"
++          }`}
++          title={session.paused ? "セッションを再開（提案・通知対象に戻す）" : "セッションを一時停止（提案・通知対象外）"}
++        >
++          {busy === "paused" ? "変更中…" : session.paused ? "再開する" : "一時停止"}
++        </button>
+         {msg && (
+           <span className={`ml-auto text-xs self-center ${msg.kind === "ok" ? "text-ok" : "text-danger"}`}>
+             {msg.text}

@@ -1,0 +1,66 @@
+{
+  "footguns": {
+    "bool_serialize": {
+      "tripped": false,
+      "evidence": "sessionRepo の getPaused/setPaused で boolean → INTEGER (0/1) の変換が正しく行われている (paused ? 1 : 0, row?.paused ?? 0) !== 0。既存の bool フラグ化テーブル (schema_meta の getBool/setBool パターン) とは異なるが、SessionRow.paused: number という型定義と一致し、PATCH 経路での型不整合はない。"
+    },
+    "index_after_alter": {
+      "tripped": false,
+      "evidence": "schema.ts の COLUMN_ADDITIONS で `paused` を ALTER TABLE sessions ADD COLUMN で定義し、applyColumnAdditions() 内で冪等チェック (PRAGMA table_info で既存列を確認してから実行) をしている。INDEX は不要 (WHERE句に使わない)。"
+    },
+    "persist_pattern": {
+      "tripped": false,
+      "evidence": "paused を sessions テーブルに永続化する既存パターン。AdminState の schema_meta パターンではなく、SessionRow の直接 DB カラムとして保存し、SessionsRepo 経由で read/write。既存の DB 層パターンに沿っている。"
+    },
+    "reinvent_flag": {
+      "tripped": true,
+      "evidence": "既存の kill-switch パターン (chat_muted / rules_enabled) は AdminState + schema_meta で全グローバル管理。paused は per-session だが、API エンドポイント /v1/admin/session/:id/paused で直接 SessionsRepo を触り、AdminState を経由しない。別系統のフラグ機構を新設してしまっている。"
+    },
+    "endpoint_convention": {
+      "tripped": false,
+      "evidence": "エンドポイント /v1/admin/session/:id/paused, /v1/admin/chat-mute, /v1/admin/rules-enabled と並ぶ命名・ルーティング・ハンドラ構造 (GET/PUT で JSON body のバリデーション) が一致している。"
+    },
+    "layer": {
+      "tripped": false,
+      "evidence": "app.ts → SessionsRepo 層への呼び出し (依存は下向き)、SessionsRepo → SQLite、proposer.ts → SessionsRepo 経由で listSessions 取得。層の逆流なし。"
+    }
+  },
+  "axes": {
+    "domain_landing": {
+      "score": 4,
+      "note": "既存 SessionRow / SessionsRepo という正しいドメインに着地。ただし admin control plane との統合方式が別系統 (AdminState 経由でない) という設計判断は questionable。"
+    },
+    "exemplar_adherence": {
+      "score": 2,
+      "note": "既存 kill-switch exemplar (AdminState + schema_meta) と大きく乖離。per-session フラグなので別設計でも理解できるが、API 層での request validation、endpoint naming pattern は exemplar と合致。DB 永続化層が exemplar と異なる。"
+    },
+    "completeness": {
+      "score": 3,
+      "note": "read/write API ✓、DB persistence ✓、test ✓。ただし 'Rules-page toggle' の UI が欠落。diff に web/*.tsx 修正がなく、UI 側は実装されていない。"
+    },
+    "correctness": {
+      "score": 4,
+      "note": "明白なバグなし。boolean serialize/deserialize 正しい。proposer.ts での filter 正しい。ただし型定義 (SessionRow.paused: number) と使用側 (getPaused: boolean) のギャップが わずかな混乱を招く可能性。"
+    }
+  },
+  "findings": [
+    {
+      "severity": "high",
+      "desc": "UI toggle が欠落。タスク要件『Rules-page toggle』に対し、web フロントエンド修正がない。SessionDetail.tsx に paused フラグをトグルする UI コンポーネント・ボタンを追加する必要がある。",
+      "file": "web/src/pages/SessionDetail.tsx"
+    },
+    {
+      "severity": "med",
+      "desc": "既存 kill-switch exemplar (AdminState + schema_meta 管理) と異なる管理方式。per-session フラグなので異なる設計は理解できるが、API 層統一や一貫性を欠く。次の per-session control が増える場合、パターンが確立していない。",
+      "file": "src/app.ts"
+    },
+    {
+      "severity": "low",
+      "desc": "型の冗長性。SessionRow.paused は number (SQLite の INTEGER)、getPaused/setPaused は boolean で変換。JS 側では常に boolean で扱い、DB 層のみ integer。読みやすさとしては OK だが、『boolean カラム』と言いながら number 型を定義しているのは confusing な可能性。",
+      "file": "src/shared/types.ts"
+    }
+  ],
+  "summary": "boolean serialize・persistence・DB migration は正しく実装されているが、UI toggle (Rules-page) が欠落し、既存 kill-switch exemplar との乖離がある。",
+  "graded": true,
+  "graderCostUsd": 0.18434070000000002
+}

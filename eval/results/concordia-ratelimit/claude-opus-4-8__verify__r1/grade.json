@@ -1,0 +1,74 @@
+{
+  "footguns": {
+    "bool_serialize": {
+      "tripped": false,
+      "evidence": "新フィールド window_sec/max_count は JSON 文字列として schema_meta に保存 (setRaw(key, JSON.stringify(...))), 読み出し時は parseRateLimit で Number() + isFinite() 検証。API 層は Number(body?.window_sec) + isFinite ガード → 非数で 400 返却。型変換漏れ無し。"
+    },
+    "index_after_alter": {
+      "tripped": false,
+      "evidence": "新 DB カラムを一切追加していない。既存の schema_meta (key/value) テーブルに新キーを追加するだけなので DDL 変更が不要。"
+    },
+    "persist_pattern": {
+      "tripped": false,
+      "evidence": "KEY_PROPOSAL_RATE_LIMIT / _OVERRIDES / _COUNTERS の 3 キーすべてを既存の getRaw/setRaw (schema_meta テーブル) 経由で永続化。新テーブル・新グローバル・外部ファイルを一切発明していない。"
+    },
+    "window_reset": {
+      "tripped": false,
+      "evidence": "tryConsumeProposal の windowActive 判定: `nowSec - prev.window_start_sec < cfg.window_sec`。falseになった瞬間に `{ window_start_sec: nowSec, count: 0 }` にリセットして count を 0 から再開。テスト `t=110 = 100+10` でリセット確認済み。カウンタは単調増加せず恒久ブロックにもならない。"
+    },
+    "dispatcher_gate": {
+      "tripped": false,
+      "evidence": "chitchat-suggest (enqueueChitchat→enqueueProposal)、review-summary (enqueueProposal)、chat-reply (enqueueProposal)、peer-log-react (enqueueProposal) の 4 経路すべてが private enqueueProposal を通る。ライフサイクル通知 session-departed / daily-report は tasks.enqueue 直呼びで意図的に除外 (設計コメントあり)。既存ゲート (isCostBlocked) と同列の checkProposalRate フックで統一されている。"
+    },
+    "reinvent": {
+      "tripped": false,
+      "evidence": "AdminState に 3 メソッド群を追加し schema_meta 永続化を再利用。DispatcherDeps に checkProposalRate を isChatMuted/isCostBlocked と同じフック形式で追加。独立サブシステムを新設していない。"
+    },
+    "endpoint_convention": {
+      "tripped": false,
+      "evidence": "パス `/v1/admin/proposal-rate-limit` は既存 `/v1/admin/rule-proposer-interval` と同じ `/v1/admin/<kebab>` パターン。ハンドラ構造も `c.req.json().catch(()=>null)` → 型検証 → try/catch → c.json() で統一されている。DELETE /:sessionId は sessions/:id と同じ path param 形式。"
+    },
+    "layer": {
+      "tripped": false,
+      "evidence": "AdminState.tryConsumeProposal は純粋な状態操作のみ。server.ts が `adminState.tryConsumeProposal(sessionId, Math.floor(Date.now()/1000)).allowed` をクロージャに包んで Dispatcher に注入する形で依存方向を維持。AdminState → Dispatcher の逆流呼び出しはない。"
+    }
+  },
+  "axes": {
+    "domain_landing": {
+      "score": 5,
+      "note": "設定ロジックは AdminState、ゲートは DispatcherDeps フック + private enqueueProposal、API は app.ts、UI は sections.tsx と各関心事が既存ドメインに正確に着地。再発明なし。"
+    },
+    "exemplar_adherence": {
+      "score": 5,
+      "note": "isChatMuted / isCostBlocked の exemplar を忠実に踏襲: DispatcherDeps に optional フック宣言、constructor でデフォルト代入、private フィールドに格納。schema_meta 永続化・定数エクスポート命名 (ADMIN_PROPOSAL_*)・parseXxx/normalizeXxx 分離も既存パターンと揃っている。"
+    },
+    "completeness": {
+      "score": 5,
+      "note": "グローバル既定 + session 個別上書き + dispatcher ゲート (4 経路) + 固定窓リセット + schema_meta 永続化 + GET/PUT/DELETE API + Settings UI + admin-state/admin-api/dispatcher 3 ファイルのテストがすべて揃っている。"
+    },
+    "correctness": {
+      "score": 4,
+      "note": "窓リセット・型変換・ゲート配置に明白なバグなし。軽微な懸念: (1) tryConsumeProposal がカウンタ increment を DB に commit した後に tasks.enqueue が例外を投げるとスロットが消費済みになる (稼働上は極めてレア)。(2) counters 辞書がセッション数に比例して肥大し続ける (pruning なし) — schema_meta の 1 行に JSON 全体を詰めるため長寿命サーバで肥大リスク。いずれも実害は低い。"
+    }
+  },
+  "findings": [
+    {
+      "severity": "low",
+      "desc": "KEY_PROPOSAL_RATE_LIMIT_COUNTERS に保存する counters 辞書は session ごとに 1 エントリが追加され続けるが pruning ロジックがない。長寿命・大量セッションのサーバでは schema_meta 1 行の JSON が数 MB 規模に肥大する可能性がある。",
+      "file": "src/admin/state.ts"
+    },
+    {
+      "severity": "low",
+      "desc": "checkProposalRate (= tryConsumeProposal) の呼び出しと tasks.enqueue は atomic でない。enqueueProposal 内で rate 枠を消費した直後に tasks.enqueue が例外を投げると、カウントは進んだが task は積まれない状態になる。better-sqlite3 の同期 API で確率は極低だが考慮の余地がある。",
+      "file": "src/dispatcher.ts"
+    },
+    {
+      "severity": "low",
+      "desc": "snapshot() に proposal_rate_limit (グローバル既定) は含まれるが overrides と counters は含まれない。GET /v1/admin/proposal-rate-limit で取得可能だが snapshot の完全性に差がある (既存 reaction_emoji_overrides も同様のパターンなので規約逸脱ではない)。",
+      "file": "src/admin/state.ts"
+    }
+  ],
+  "summary": "全 footgun を踏まず、既存 kill-switch / schema_meta 永続化 / DispatcherDeps フックの exemplar を正確に踏襲した高品質な実装で、要件の全項目 (グローバル設定・session 上書き・dispatcher 4 経路ゲート・固定窓リセット・API・UI・テスト) が充足されている。",
+  "graded": true,
+  "graderCostUsd": 0.417471
+}

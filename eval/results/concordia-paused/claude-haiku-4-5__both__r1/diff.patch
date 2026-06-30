@@ -1,0 +1,298 @@
+diff --git a/src/api/sessions.ts b/src/api/sessions.ts
+index cbf958e..0c71c69 100644
+--- a/src/api/sessions.ts
++++ b/src/api/sessions.ts
+@@ -1051,6 +1051,22 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
+     return c.json({ ok: true, enqueued: true });
+   });
+ 
++  // GET /v1/sessions/:id/paused
++  app.get("/:id/paused", (c) => {
++    const id = c.req.param("id");
++    if (!deps.repo.findSession(id)) return c.json({ error: "not_found" }, 404);
++    const paused = deps.repo.getPaused(id);
++    return c.json({ paused });
++  });
++
++  // POST /v1/sessions/:id/paused/toggle
++  app.post("/:id/paused/toggle", (c) => {
++    const id = c.req.param("id");
++    if (!deps.repo.findSession(id)) return c.json({ error: "not_found" }, 404);
++    const next = deps.repo.togglePaused(id);
++    return c.json({ paused: next });
++  });
++
+   // DELETE /v1/sessions/:id  — end + 独立した per-session report 生成 (claude CLI narrative)
+   // session-end フロー (report 生成 / 独白投稿 / persona release) は control/end-session-flow.ts に
+   // 集約済. ここでは status 遷移と end event の append だけ行い、 残りは helper に委譲する.
+@@ -1144,6 +1160,7 @@ export function serializeSession(s: SessionRow) {
+     last_seen_at: s.last_seen_at,
+     current_task: s.current_task,
+     metadata: s.metadata ? safeParse(s.metadata) : null,
++    paused: Boolean(s.paused),
+   };
+ }
+ 
+diff --git a/src/db/schema.ts b/src/db/schema.ts
+index 776bd1a..1582530 100644
+--- a/src/db/schema.ts
++++ b/src/db/schema.ts
+@@ -761,6 +761,11 @@ const COLUMN_ADDITIONS: Array<{ table: string; column: string; ddl: string }> =
+     column: "delegation_emoji",
+     ddl: `ALTER TABLE discord_session_channels ADD COLUMN delegation_emoji TEXT`,
+   },
++  {
++    table: "sessions",
++    column: "paused",
++    ddl: `ALTER TABLE sessions ADD COLUMN paused INTEGER NOT NULL DEFAULT 0`,
++  },
+ ];
+ 
+ function applyColumnAdditions(db: Database.Database): void {
+diff --git a/src/db/sessions-repo.ts b/src/db/sessions-repo.ts
+index c7887e3..bd5413e 100644
+--- a/src/db/sessions-repo.ts
++++ b/src/db/sessions-repo.ts
+@@ -303,6 +303,25 @@ export class SessionsRepo {
+     return idList.length;
+   }
+ 
++  getPaused(id: string): boolean {
++    const row = this.db
++      .prepare(`SELECT paused FROM sessions WHERE id = ?`)
++      .get(id) as { paused: number } | undefined;
++    return row ? Boolean(row.paused) : false;
++  }
++
++  setPaused(id: string, paused: boolean): void {
++    this.db
++      .prepare(`UPDATE sessions SET paused = ? WHERE id = ?`)
++      .run(paused ? 1 : 0, id);
++  }
++
++  togglePaused(id: string): boolean {
++    const current = this.getPaused(id);
++    this.setPaused(id, !current);
++    return !current;
++  }
++
+   // ─── session_events ─────────────────────────────────
+ 
+   appendEvent(input: { session_id: string; ts: number; kind: string; payload: object }): void {
+diff --git a/src/dispatcher.ts b/src/dispatcher.ts
+index 87b3742..1caacf1 100644
+--- a/src/dispatcher.ts
++++ b/src/dispatcher.ts
+@@ -114,7 +114,8 @@ export class Dispatcher {
+   onEventAppended(session: SessionRow, _eventCount: number): void {
+     // chat 全停止スイッチが入っているなら chitchat / chat-reply / 雑談関連を
+     // 一切 enqueue しない. role 推定だけ走らせて metadata 保持し、 task 列は触らない.
+-    if (this.isChatMuted() || this.isCostBlocked()) {
++    // paused セッションも同様に提案・通知対象から外す.
++    if (this.isChatMuted() || this.isCostBlocked() || session.paused) {
+       this.refreshRole(session);
+       return;
+     }
+@@ -193,8 +194,10 @@ export class Dispatcher {
+     const enqueued: string[] = [];
+     const skippedSelf: string[] = [];
+     const skippedProb: string[] = [];
++    const skippedPaused: string[] = [];
+     for (const peer of peers) {
+       if (peer.id === message.session_id) { skippedSelf.push(peer.id); continue; }
++      if (peer.paused) { skippedPaused.push(peer.id); continue; }
+       if (this.rng() >= replyProb) { skippedProb.push(peer.id); continue; }
+ 
+       const role = this.refreshRole(peer);
+@@ -221,6 +224,7 @@ export class Dispatcher {
+         source_session_id: message.session_id,
+         enqueued_peer_ids: enqueued,
+         skipped_self: skippedSelf,
++        skipped_paused: skippedPaused,
+         skipped_by_probability: skippedProb,
+       },
+       "dispatcher.onChatPosted result",
+@@ -231,7 +235,8 @@ export class Dispatcher {
+     if (this.isCostBlocked()) return;
+     const role = this.parseRole(lost);
+     const lastTask = lost.current_task ?? "(不明)";
+-    const peers = this.deps.sessions.listSessions({ status: "active" });
++    const peers = this.deps.sessions.listSessions({ status: "active" })
++      .filter((s) => !s.paused);
+     for (const peer of peers) {
+       this.deps.tasks.enqueue({
+         session_id: peer.id,
+@@ -265,7 +270,7 @@ export class Dispatcher {
+     if (now - last < PEER_LOG_REACT_COOLDOWN_SEC) return;
+ 
+     const peers = this.deps.sessions.listSessions({ status: "active" })
+-      .filter((s) => s.id !== ev.source_session_id);
++      .filter((s) => s.id !== ev.source_session_id && !s.paused);
+     if (peers.length === 0) return;
+ 
+     // round-robin: cursor を peers の数で取り回す. log 量が多い時に偏らない.
+diff --git a/src/shared/types.ts b/src/shared/types.ts
+index b73f3e5..d6b309b 100644
+--- a/src/shared/types.ts
++++ b/src/shared/types.ts
+@@ -27,6 +27,8 @@ export interface SessionRow {
+   metadata: string | null; // JSON
+   /** 永続 WS client の接続数. > 0 なら sweeper の lost 判定から除外. */
+   ws_clients: number;
++  /** セッションを一時停止中 (提案・通知対象外). 既定 false. */
++  paused: number;
+ }
+ 
+ export interface SessionEventRow {
+diff --git a/tests/dispatcher.test.ts b/tests/dispatcher.test.ts
+index c68e740..952b176 100644
+--- a/tests/dispatcher.test.ts
++++ b/tests/dispatcher.test.ts
+@@ -248,3 +248,60 @@ describe("Dispatcher 強制ルール — 深夜帯 (23:00–翌05:00) は行動
+     expect(env.tasks.pull("active-one").find((t) => t.kind === "session-departed")).toBeTruthy();
+   });
+ });
++
++describe("Dispatcher paused sessions — 一時停止セッションを提案・通知対象から外す", () => {
++  let env: ReturnType<typeof fresh>;
++  beforeEach(() => { env = fresh(); });
++
++  it("paused セッションの onEventAppended は何も enqueue しない", () => {
++    startSession(env.sessions, "paused-session");
++    env.sessions.setPaused("paused-session", true);
++    env.sessions.appendEvent({
++      session_id: "paused-session", ts: 1, kind: "prompt", payload: { summary: "hi" },
++    });
++    const d = new Dispatcher({ ...env, rng: () => 0.01, now: DAYTIME });
++    const session = env.sessions.findSession("paused-session")!;
++    d.onEventAppended(session, 1);
++    const pulled = env.tasks.pull("paused-session");
++    expect(pulled.find((t) => t.kind === "chitchat-suggest")).toBeFalsy();
++  });
++
++  it("paused セッションは onChatPosted の chat-reply 対象から除外される", () => {
++    startSession(env.sessions, "a");
++    startSession(env.sessions, "b-paused");
++    startSession(env.sessions, "c");
++    env.sessions.setPaused("b-paused", true);
++    const d = new Dispatcher({ ...env, rng: () => 0.05, now: DAYTIME });
++    d.onChatPosted({
++      id: 1, channel: "chitchat", session_id: "a",
++      text: "雑談", author_label: "テスト魂", is_actionable: false,
++    });
++    expect(env.tasks.pull("b-paused").find((t) => t.kind === "chat-reply")).toBeFalsy();
++    expect(env.tasks.pull("c").find((t) => t.kind === "chat-reply")).toBeTruthy();
++  });
++
++  it("paused セッションは onSessionLost の session-departed 通知対象から除外される", () => {
++    startSession(env.sessions, "lost");
++    startSession(env.sessions, "active");
++    startSession(env.sessions, "paused");
++    env.sessions.setStatus("lost", "lost", 100);
++    env.sessions.setPaused("paused", true);
++    const d = new Dispatcher({ ...env, rng: () => 0.99 });
++    d.onSessionLost(env.sessions.findSession("lost")!);
++    expect(env.tasks.pull("active").find((t) => t.kind === "session-departed")).toBeTruthy();
++    expect(env.tasks.pull("paused").find((t) => t.kind === "session-departed")).toBeFalsy();
++  });
++
++  it("paused セッションは onLogUpdate の peer-log-react 対象から除外される", () => {
++    startSession(env.sessions, "src");
++    startSession(env.sessions, "p1");
++    startSession(env.sessions, "p2-paused");
++    env.sessions.setPaused("p2-paused", true);
++    const d = new Dispatcher({ ...env, rng: () => 0.5 });
++    d.onLogUpdate({ kind: "rule.add", ref: "r1", source_session_id: "src", summary: "added" });
++    expect(env.tasks.pull("p2-paused").find((t) => t.kind === "peer-log-react")).toBeFalsy();
++    // p1 が反応対상
++    const reactions = env.tasks.pull("p1").filter((t) => t.kind === "peer-log-react");
++    expect(reactions.length).toBeGreaterThan(0);
++  });
++});
+diff --git a/tests/sessions-api.test.ts b/tests/sessions-api.test.ts
+index 604c930..6cdad81 100644
+--- a/tests/sessions-api.test.ts
++++ b/tests/sessions-api.test.ts
+@@ -216,4 +216,56 @@ describe("sessions API", () => {
+       expect(r2.status).toBe(404);
+     });
+   });
++
++  describe("GET/POST /v1/sessions/:id/paused — session pause control", () => {
++    it("GET /paused returns default paused=false", async () => {
++      await app.request("/v1/sessions", {
++        method: "POST",
++        headers: { "content-type": "application/json" },
++        body: JSON.stringify({
++          id: "pause-test", provider: "claude-code", repo_path: "/x", host: "h",
++        }),
++      });
++      const r = await app.request("/v1/sessions/pause-test/paused");
++      expect(r.status).toBe(200);
++      const j = (await r.json()) as { paused: boolean };
++      expect(j.paused).toBe(false);
++    });
++
++    it("POST /paused/toggle flips paused state", async () => {
++      await app.request("/v1/sessions", {
++        method: "POST",
++        headers: { "content-type": "application/json" },
++        body: JSON.stringify({
++          id: "toggle-test", provider: "claude-code", repo_path: "/x", host: "h",
++        }),
++      });
++      const r1 = await app.request("/v1/sessions/toggle-test/paused/toggle", { method: "POST" });
++      expect(r1.status).toBe(200);
++      const j1 = (await r1.json()) as { paused: boolean };
++      expect(j1.paused).toBe(true);
++      const r2 = await app.request("/v1/sessions/toggle-test/paused/toggle", { method: "POST" });
++      const j2 = (await r2.json()) as { paused: boolean };
++      expect(j2.paused).toBe(false);
++    });
++
++    it("serializeSession includes paused field", async () => {
++      await app.request("/v1/sessions", {
++        method: "POST",
++        headers: { "content-type": "application/json" },
++        body: JSON.stringify({
++          id: "serialize-test", provider: "claude-code", repo_path: "/x", host: "h",
++        }),
++      });
++      await app.request("/v1/sessions/serialize-test/paused/toggle", { method: "POST" });
++      const r = await app.request("/v1/sessions/serialize-test");
++      const j = (await r.json()) as { session: { paused: boolean } };
++      expect(j.session.paused).toBe(true);
++    });
++
++    it("404 for unknown session", async () => {
++      const r = await app.request("/v1/sessions/unknown/paused");
++      expect(r.status).toBe(404);
++    });
++  });
+ });
+diff --git a/tests/sessions-repo.test.ts b/tests/sessions-repo.test.ts
+index 6aa6578..53f6fa1 100644
+--- a/tests/sessions-repo.test.ts
++++ b/tests/sessions-repo.test.ts
+@@ -101,4 +101,21 @@ describe("SessionsRepo", () => {
+     expect(repo.abandonLost(20)).toBe(1);
+     expect(repo.findSession("a")?.status).toBe("abandoned");
+   });
++
++  it("getPaused, setPaused, togglePaused for session paused state", () => {
++    repo.insertSession({
++      id: "a", provider: "claude-code", repo_path: "/x", repo_origin: null,
++      branch: null, host: "h", started_at: 0, last_seen_at: 10,
++      transcript_path: null, metadata: null,
++    });
++    // default paused = false
++    expect(repo.getPaused("a")).toBe(false);
++    // set paused = true
++    repo.setPaused("a", true);
++    expect(repo.getPaused("a")).toBe(true);
++    // toggle paused back to false
++    const next = repo.togglePaused("a");
++    expect(next).toBe(false);
++    expect(repo.getPaused("a")).toBe(false);
++  });
+ });
