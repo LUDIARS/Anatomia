@@ -29,6 +29,12 @@
  *   GET /api/projects/:id/domain-view per-domain focus + spec-derived JP descriptions
  *   GET /api/projects/:id/access-patterns heuristic singleton/locator/facade + accessor domains
  *
+ * 学習フロー routes (domain authoring via HTTP):
+ *   POST /api/projects/:id/flow/draft  run domains draft (spec → LLM → reconcile → save)
+ *   GET  /api/projects/:id/flow/drafts list current editable domains for a project
+ *   POST /api/flow/draft               repo-path or spec-file based draft (no project)
+ *   GET  /api/flow/drafts              list drafts from an explicit dir (?dir=)
+ *
  * Dynamic trace routes (G8):
  *   GET /api/trace/timeline -- TimelineData (T40)
  *   GET /api/trace/active   -- ActiveOverlay (T41)
@@ -62,11 +68,13 @@ import { mountPatternRoutes } from "./routes/patterns.js";
 import { mountScreenRoutes } from "./routes/screens.js";
 import { mountWebCacheRoutes } from "./routes/web-cache.js";
 import { mountAdjustRoutes } from "./routes/adjust.js";
+import { mountFlowRoutes } from "./routes/flow.js";
 import { resolveIdleMs, checkIntervalMs, shouldShutdown } from "./idle.js";
 import { resolveProviders, envConfig } from "../../providers/index.js";
 import { generateCard } from "../../domains/card.js";
 import type { DomainCard } from "../../domains/card.js";
 import type { CachedIntegral } from "../../integral/cache.js";
+import type { DomainDraft } from "../../domains/authoring/index.js";
 import { resolveCacheStore } from "../../cache/resolve.js";
 import { instrumentStore } from "../../cache/instrumented.js";
 import { resolveTranscript } from "../../cache/transcript.js";
@@ -219,6 +227,14 @@ export function createApp(
     manager,
     retuneLlm: aux.retuneLlm,
     retuneModelId: aux.retuneModelId,
+  });
+
+  // ── 学習フロー routes: domains draft synthesis via HTTP ───────────────────
+  mountFlowRoutes(app, {
+    manager,
+    draftLlm: aux.retuneLlm,
+    draftModelId: aux.retuneModelId,
+    draftCache: resolveCacheStore<DomainDraft[]>(),
   });
 
   // ── Global LLM-cache stats route (A-3 measurement) ───────────────────────
