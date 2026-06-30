@@ -1,0 +1,65 @@
+{
+  "task": "Concordia per-session proposal rate limit (global default + per-session override of window/limit, dispatcher gate that skips proposals over the limit and resets when the window elapses, persistence, read/write API, Rules-page UI, tests — follow existing kill-switch / config-persistence / dispatcher-gate conventions).",
+  "footguns": [
+    {
+      "id": "bool_serialize",
+      "class": "outcome",
+      "desc": "新しいフィールド (数値の窓/上限、カウンタ、boolean の enabled 等) が serialize/PATCH 経路で正しく型変換され、PATCH が型不整合で 400 にならない。既存の変換テーブルに新フィールドを入れているか。",
+      "tripped_if": "新フィールドの boolean/number 変換漏れで PATCH/読み出しが壊れる"
+    },
+    {
+      "id": "index_after_alter",
+      "class": "outcome",
+      "desc": "DB に新カラムを足す場合、その INDEX を CREATE TABLE と同じ exec に置かず ALTER ADD COLUMN の後に冪等発行している (既存 DB で 'no such column' boot 失敗を避ける)。",
+      "tripped_if": "新カラム INDEX を CREATE TABLE と同 exec / ALTER 前に発行"
+    },
+    {
+      "id": "persist_pattern",
+      "class": "outcome",
+      "desc": "設定/状態の永続化が既存の schema_meta / kill-switch / config 永続化パターンに沿う (自前の別ストアを新設していない)。",
+      "tripped_if": "既存の永続化機構を使わず新規ファイル/テーブル/グローバルを発明"
+    },
+    {
+      "id": "window_reset",
+      "class": "outcome",
+      "desc": "レート判定がスライディング/固定窓として正しく、窓が明けたらカウントがリセットされ提案が再開する (恒久ブロックや、いつまでも増え続けるカウンタになっていない)。",
+      "tripped_if": "窓明けでリセットされず一度上限に達すると永久にスキップ / カウンタが単調増加でリセット無し"
+    },
+    {
+      "id": "dispatcher_gate",
+      "class": "anatomia",
+      "desc": "レート確認が dispatcher の提案を出す全経路に正しく挿入され、既存の kill-switch ゲート (chat-mute 等) と同じ場所・作法で行われている。",
+      "tripped_if": "一部の提案経路にゲートが無い / 既存ゲートと別の場所・別作法で挿入"
+    },
+    {
+      "id": "reinvent",
+      "class": "anatomia",
+      "desc": "既存の kill-switch / 設定機構の拡張として実装し、並行する別系統のレート制限サブシステムを発明していない (duplication 回避)。",
+      "tripped_if": "既存機構と無関係な独立サブシステムを新設"
+    },
+    {
+      "id": "endpoint_convention",
+      "class": "anatomia",
+      "desc": "追加エンドポイントが既存の管制/設定エンドポイントの命名・ルーティング・ハンドラ構造に一致している (convention_drift 回避)。",
+      "tripped_if": "既存と異なる命名規則/構造でエンドポイントを追加"
+    },
+    {
+      "id": "layer",
+      "class": "anatomia",
+      "desc": "層/依存方向の規約を破っていない (永続化層が上位を呼ぶ等の逆流が無い)。",
+      "tripped_if": "層をまたぐ禁止された依存/呼び出しを導入"
+    }
+  ],
+  "axes": [
+    { "id": "domain_landing", "desc": "正しい既存ドメイン/モジュール (dispatcher / session / config 永続) に着地したか (再発明でなく既存機構の拡張)", "scale": "0-5" },
+    { "id": "exemplar_adherence", "desc": "既存 kill-switch / 設定永続 / dispatcher ゲート exemplar との構造・命名の一致度", "scale": "0-5" },
+    { "id": "completeness", "desc": "要件 (グローバル+session設定・dispatcher適用・永続化・API・UI・テスト) の充足度", "scale": "0-5" },
+    { "id": "correctness", "desc": "レート判定・窓リセット・ゲート配置・型変換に明白なバグ/破綻/未配線が無いか", "scale": "0-5" }
+  ],
+  "output_schema": {
+    "footguns": "id -> { tripped: boolean, evidence: string }",
+    "axes": "id -> { score: 0..5, note: string }",
+    "findings": "[ { severity: 'high'|'med'|'low', desc: string, file: string } ]",
+    "summary": "string"
+  }
+}

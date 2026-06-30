@@ -1,0 +1,79 @@
+{
+  "footguns": {
+    "bool_serialize": {
+      "tripped": false,
+      "evidence": "新フィールド (window_sec, max_count) は JSON.parse/stringify 経由で数値として読み書きされ、API 層では typeof body.window_sec !== 'number' で型チェック済み。既存の getBool/setRaw とは別系統だが、新フィールドに boolean は存在せず変換漏れはない。"
+    },
+    "index_after_alter": {
+      "tripped": false,
+      "evidence": "新 DB カラムは追加されておらず、既存の schema_meta (KEY/VALUE) テーブルのみ使用。ALTER TABLE / INDEX 発行なし。"
+    },
+    "persist_pattern": {
+      "tripped": false,
+      "evidence": "config・overrides・state すべて AdminState の getRaw/setRaw (schema_meta INSERT OR REPLACE) に乗せており、既存 daily_token_budget / reaction_emoji_overrides と同じパターン。"
+    },
+    "window_reset": {
+      "tripped": false,
+      "evidence": "evaluateProposalRate: nowSec - window_start_sec >= window のとき window_start_sec=nowSec / count=0 にリセット後 allow する。skip 時は count を増やさない。max_count<=0 は常に allow。カウンタは単調増加せず窓ごとに正しくリセットされる。"
+    },
+    "dispatcher_gate": {
+      "tripped": false,
+      "evidence": "private propose() を新設し、onEventAppended / onChatPosted / onSessionLost / onLogUpdate / onSessionEnd / enqueueChitchat の全 enqueue を this.propose() に一本化。diff 確認で漏れた enqueue 経路はない。"
+    },
+    "reinvent": {
+      "tripped": false,
+      "evidence": "AdminState (schema_meta) を永続化 backend として使い、DispatcherDeps の proposalGate 注入パターンを isChatMuted / isCostBlocked と同じ形で拡張。独立したサブシステムは新設していない。"
+    },
+    "endpoint_convention": {
+      "tripped": false,
+      "evidence": "GET/PUT /v1/admin/proposal-rate は既存の /v1/admin/cost-budget・/v1/admin/chat-mute と同じ kebab-case + /v1/admin/ プレフィックス。PUT /v1/admin/proposal-rate/override と DELETE /v1/admin/proposal-rate/override/:session_id は引数方式に非対称さがあるが命名規則自体は逸脱しない。"
+    },
+    "layer": {
+      "tripped": false,
+      "evidence": "ProposalRateLimiter → AdminState、Dispatcher → proposalGate (DI)、server.ts で配線。上位層への逆流なし。"
+    }
+  },
+  "axes": {
+    "domain_landing": {
+      "score": 5,
+      "note": "AdminState (schema_meta) への永続化、DispatcherDeps 注入ゲート、proposal-rate-limit.ts の純粋判定関数分離、すべて既存ドメイン構造に正確に着地。再発明ゼロ。"
+    },
+    "exemplar_adherence": {
+      "score": 4,
+      "note": "DispatcherDeps の optional 関数注入・default fallback パターンは isChatMuted/isCostBlocked と完全一致。ただし既存 kill-switch はメソッド先頭 early-return でグローバルブロックするのに対し、proposalGate は propose() 経由で per-enqueue × per-session に適用され構造が微妙に異なる (per-session 設計上の正当化は可能だが逸脱はある)。"
+    },
+    "completeness": {
+      "score": 5,
+      "note": "グローバル既定・session 個別 override・dispatcher ゲート・固定窓リセット・schema_meta 永続化・GET/PUT/DELETE API・Settings.tsx UI・proposal-rate-limit / admin-state / dispatcher の 3 テストスイート・config-reference.md 更新をすべてカバー。"
+    },
+    "correctness": {
+      "score": 4,
+      "note": "固定窓・スキップ時カウンタ不増加・リセット条件・無制限(0)判定はすべて正しい。微細な懸念: max_count<=0 (unlimited) 中は count が freeze されるため、同一窓内で unlimited→limited に切り替えると古い count から再開し期待より早く limit に達しうる。unlimited 時に state を毎回書く無駄も小さく残る。"
+    }
+  },
+  "findings": [
+    {
+      "severity": "med",
+      "desc": "unlimited (max_count=0) から同一窓内で有限値に戻すと、frozen されたままの count が使われ残余カウントが少なく見える。evaluateProposalRate が unlimited 時は state: base (count 据え置き) を返し ProposalRateLimiter が毎回永続化するため、再有効化後に古い count から再開し期待より早く上限に達しうる。",
+      "file": "src/admin/proposal-rate-limit.ts"
+    },
+    {
+      "severity": "low",
+      "desc": "unlimited (max_count<=0) 時も ProposalRateLimiter.check() は setProposalRateStateFor を毎回呼ぶ。prev が未設定なら {window_start_sec: now, count: 0} が都度書き込まれ無駄な I/O が発生する。allowed=true かつ state===prev (参照同一) のとき書き込みを skip する条件分岐で解消できる。",
+      "file": "src/admin/proposal-rate-limit.ts"
+    },
+    {
+      "severity": "low",
+      "desc": "admin.proposal_rate_state は全 session のカウンタを 1 JSON に保持するが TTL/cleanup がなく、長期稼働で多数 session が生じると schema_meta の 1 行に大きな JSON が蓄積し続ける。",
+      "file": "src/admin/state.ts"
+    },
+    {
+      "severity": "low",
+      "desc": "PUT /v1/admin/proposal-rate/override は body.session_id で session を指定するが、DELETE は URL パラメータ :session_id で指定する。同リソースに対する操作の引数渡し方式が非対称。REST 慣例としては PUT /v1/admin/proposal-rate/override/:session_id が自然。",
+      "file": "src/app.ts"
+    }
+  ],
+  "summary": "既存の AdminState / DispatcherDeps パターンに正確に乗っかった高品質な拡張で、フットガンはすべてクリア、要件カバレッジも完全。主な懸念は unlimited→limited の同一窓内切替時に count が freeze 値から再開する設計上の詰め不足と rate_state JSON の無制限な肥大のみ。",
+  "graded": true,
+  "graderCostUsd": 0.5120811000000001
+}

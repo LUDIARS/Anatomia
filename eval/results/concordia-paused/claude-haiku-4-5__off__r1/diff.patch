@@ -1,0 +1,141 @@
+diff --git a/src/app.ts b/src/app.ts
+index 3ef33de..17395ba 100644
+--- a/src/app.ts
++++ b/src/app.ts
+@@ -536,6 +536,23 @@ export function buildApp(deps: AppDeps): Hono {
+     });
+   });
+ 
++  // セッション一時停止 (paused) 状態の get/put.
++  app.get("/v1/admin/session/:id/paused", (c) => {
++    const id = c.req.param("id");
++    const paused = deps.repo.getPaused(id);
++    return c.json({ paused });
++  });
++
++  app.put("/v1/admin/session/:id/paused", async (c) => {
++    const id = c.req.param("id");
++    const body = await c.req.json().catch(() => null);
++    if (!body || typeof body.paused !== "boolean") {
++      return c.json({ error: "body.paused (boolean) required" }, 400);
++    }
++    deps.repo.setPaused(id, body.paused);
++    return c.json({ paused: deps.repo.getPaused(id) });
++  });
++
+   // 管理 API: 新コード反映用の self-restart.
+   // 子プロセスとして `npm run dev:backend` を detach spawn → 自分は 300ms 後に process.exit(0).
+   // listen socket は exit で OS が回収. 数 100ms の downtime あり (in-flight request は drop).
+diff --git a/src/db/schema.ts b/src/db/schema.ts
+index 776bd1a..1a8eed0 100644
+--- a/src/db/schema.ts
++++ b/src/db/schema.ts
+@@ -761,6 +761,12 @@ const COLUMN_ADDITIONS: Array<{ table: string; column: string; ddl: string }> =
+     column: "delegation_emoji",
+     ddl: `ALTER TABLE discord_session_channels ADD COLUMN delegation_emoji TEXT`,
+   },
++  // Session pause 状態 (提案・通知対象から外す)。 default false (active)。
++  {
++    table: "sessions",
++    column: "paused",
++    ddl: `ALTER TABLE sessions ADD COLUMN paused INTEGER NOT NULL DEFAULT 0`,
++  },
+ ];
+ 
+ function applyColumnAdditions(db: Database.Database): void {
+diff --git a/src/db/sessions-repo.ts b/src/db/sessions-repo.ts
+index c7887e3..300a210 100644
+--- a/src/db/sessions-repo.ts
++++ b/src/db/sessions-repo.ts
+@@ -273,6 +273,21 @@ export class SessionsRepo {
+     return Number(r.changes ?? 0);
+   }
+ 
++  /** セッションの pause 状態を取得. */
++  getPaused(id: string): boolean {
++    const row = this.db
++      .prepare(`SELECT paused FROM sessions WHERE id = ?`)
++      .get(id) as { paused: number } | undefined;
++    return (row?.paused ?? 0) !== 0;
++  }
++
++  /** セッションの pause 状態を設定. */
++  setPaused(id: string, paused: boolean): void {
++    this.db
++      .prepare(`UPDATE sessions SET paused = ? WHERE id = ?`)
++      .run(paused ? 1 : 0, id);
++  }
++
+   /** lost で last_seen_at が cutoff より古いものを abandoned 化 */
+   abandonLost(cutoff: number): number {
+     const r = this.db
+diff --git a/src/rules/proposer.ts b/src/rules/proposer.ts
+index 7a4b8d4..4fc008e 100644
+--- a/src/rules/proposer.ts
++++ b/src/rules/proposer.ts
+@@ -83,7 +83,8 @@ export function startRuleProposer(deps: ProposerDeps): ProposerHandle {
+ 
+       const recentChat = deps.chat.list({ limit: 30 });
+       const recentLogs = deps.rules.recentLogs(20);
+-      const activeSessions = deps.sessions.listSessions({ status: "active" });
++      const activeSessions = deps.sessions.listSessions({ status: "active" })
++        .filter((s) => !s.paused);
+ 
+       const ctx = {
+         now_iso: new Date().toISOString(),
+diff --git a/src/shared/types.ts b/src/shared/types.ts
+index b73f3e5..59e8467 100644
+--- a/src/shared/types.ts
++++ b/src/shared/types.ts
+@@ -27,6 +27,8 @@ export interface SessionRow {
+   metadata: string | null; // JSON
+   /** 永続 WS client の接続数. > 0 なら sweeper の lost 判定から除外. */
+   ws_clients: number;
++  /** セッション一時停止フラグ. 1 = paused, 0 = active. 提案・通知対象から除外. */
++  paused: number;
+ }
+ 
+ export interface SessionEventRow {
+diff --git a/tests/admin-api.test.ts b/tests/admin-api.test.ts
+index 93c2355..396ca34 100644
+--- a/tests/admin-api.test.ts
++++ b/tests/admin-api.test.ts
+@@ -105,6 +105,38 @@ describe("admin API", () => {
+     expect(r.status).toBe(400);
+   });
+ 
++  it("GET /v1/admin/session/:id/paused returns paused state (default false)", async () => {
++    await seedSession(env, "test-session", "DESKTOP-A", "active");
++    const r = await env.app.request("/v1/admin/session/test-session/paused");
++    expect(r.status).toBe(200);
++    const body = (await r.json()) as { paused: boolean };
++    expect(body.paused).toBe(false);
++  });
++
++  it("PUT /v1/admin/session/:id/paused toggles pause state", async () => {
++    await seedSession(env, "test-pause", "DESKTOP-A", "active");
++    const put = await env.app.request("/v1/admin/session/test-pause/paused", {
++      method: "PUT",
++      headers: { "content-type": "application/json" },
++      body: JSON.stringify({ paused: true }),
++    });
++    expect(put.status).toBe(200);
++    expect((await put.json() as { paused: boolean }).paused).toBe(true);
++
++    const get = await env.app.request("/v1/admin/session/test-pause/paused");
++    expect((await get.json() as { paused: boolean }).paused).toBe(true);
++  });
++
++  it("PUT /v1/admin/session/:id/paused rejects non-boolean", async () => {
++    await seedSession(env, "test-session", "DESKTOP-A", "active");
++    const r = await env.app.request("/v1/admin/session/test-session/paused", {
++      method: "PUT",
++      headers: { "content-type": "application/json" },
++      body: JSON.stringify({ paused: "yes" }),
++    });
++    expect(r.status).toBe(400);
++  });
++
+   describe("/v1/admin/restart", () => {
+     beforeAll(() => { process.env.CONCORDIA_RESTART_DRY_RUN = "1"; });
+     afterAll(() => { delete process.env.CONCORDIA_RESTART_DRY_RUN; });

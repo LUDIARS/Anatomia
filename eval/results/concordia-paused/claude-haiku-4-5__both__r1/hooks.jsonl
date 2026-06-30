@@ -1,0 +1,14 @@
+{"hook":"supply","ts":1781598313860,"ms":6680,"fired":true,"project":"concordia-eval","domains":1,"rules":0,"exemplars":5,"specs":3}
+{"hook":"verify","ts":1781598355051,"ms":6760,"fired":false,"file":"E:\\anatomia-eval\\ws\\concordia\\src\\shared\\types.ts","project":"concordia-eval","result":"pass"}
+{"hook":"verify","ts":1781598365318,"ms":6517,"fired":false,"file":"E:\\anatomia-eval\\ws\\concordia\\src\\db\\schema.ts","project":"concordia-eval","result":"pass"}
+{"hook":"verify","ts":1781598384350,"ms":6554,"fired":false,"file":"E:\\anatomia-eval\\ws\\concordia\\src\\db\\sessions-repo.ts","project":"concordia-eval","result":"pass"}
+{"hook":"verify","ts":1781598403382,"ms":7064,"fired":false,"file":"E:\\anatomia-eval\\ws\\concordia\\src\\api\\sessions.ts","project":"concordia-eval","result":"pass"}
+{"hook":"verify","ts":1781598414633,"ms":7270,"fired":false,"file":"E:\\anatomia-eval\\ws\\concordia\\src\\api\\sessions.ts","project":"concordia-eval","result":"pass"}
+{"hook":"verify","ts":1781598439123,"ms":6707,"fired":false,"file":"E:\\anatomia-eval\\ws\\concordia\\src\\dispatcher.ts","project":"concordia-eval","result":"pass"}
+{"hook":"verify","ts":1781598453386,"ms":6671,"fired":false,"file":"E:\\anatomia-eval\\ws\\concordia\\src\\dispatcher.ts","project":"concordia-eval","result":"pass"}
+{"hook":"verify","ts":1781598463957,"ms":7187,"fired":false,"file":"E:\\anatomia-eval\\ws\\concordia\\src\\dispatcher.ts","project":"concordia-eval","result":"pass"}
+{"hook":"verify","ts":1781598473967,"ms":7110,"fired":false,"file":"E:\\anatomia-eval\\ws\\concordia\\src\\dispatcher.ts","project":"concordia-eval","result":"pass"}
+{"hook":"verify","ts":1781598487407,"ms":7043,"fired":false,"file":"E:\\anatomia-eval\\ws\\concordia\\src\\dispatcher.ts","project":"concordia-eval","result":"pass"}
+{"hook":"verify","ts":1781598506299,"ms":8186,"fired":false,"file":"E:\\anatomia-eval\\ws\\concordia\\tests\\sessions-repo.test.ts","project":"concordia-eval","result":"no-verdict"}
+{"hook":"verify","ts":1781598527432,"ms":6845,"fired":false,"file":"E:\\anatomia-eval\\ws\\concordia\\tests\\sessions-api.test.ts","project":"concordia-eval","result":"pass"}
+{"hook":"verify","ts":1781598555258,"ms":8193,"fired":false,"file":"E:\\anatomia-eval\\ws\\concordia\\tests\\dispatcher.test.ts","project":"concordia-eval","result":"no-verdict"}

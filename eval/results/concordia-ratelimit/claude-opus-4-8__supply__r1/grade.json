@@ -1,0 +1,69 @@
+{
+  "footguns": {
+    "bool_serialize": {
+      "tripped": false,
+      "evidence": "新フィールドはすべて schema_meta に JSON 文字列として保存 (setRaw/getRaw)。読み出し時は parseJsonObject + sanitizeRateLimit で Number() + isFinite チェックして clamp。API 層は typeof body.window_sec !== 'number' で 400、非有限値は assertRateLimit が throw して catch→400。型変換経路に漏れなし。"
+    },
+    "index_after_alter": {
+      "tripped": false,
+      "evidence": "新フィールドはすべて既存の schema_meta (key/value テーブル) に追加キーとして保存しており、DB スキーマ変更 (ALTER TABLE / CREATE INDEX) は一切なし。"
+    },
+    "persist_pattern": {
+      "tripped": false,
+      "evidence": "AdminState.setRaw / getRaw (schema_meta への INSERT OR REPLACE) を使用。KEY_REACTION_MAPPINGS / KEY_DAILY_TOKEN_BUDGET 等と完全に同じパターン。自前ストア・グローバル変数・別テーブルの新設なし。"
+    },
+    "window_reset": {
+      "tripped": false,
+      "evidence": "tryDispatch 内で `now - entry.window_start >= limit.window_sec` を毎回評価し、窓が明けたら entry = { window_start: now, count: 0 } にリセット。rejected 時もカウントは増やさない。max_count=0 / window_sec=0 は無効化 (常に許可)。テスト (now.t += 60) でリセット→再開を確認。永久ブロックなし。"
+    },
+    "dispatcher_gate": {
+      "tripped": false,
+      "evidence": "dispatcher 内の全提案経路 (review-summary: line 170, chat-reply: line 232, peer-log-react: line 310, chitchat-suggest via enqueueChitchat: line 351) がすべて enqueueProposal を経由。ライフサイクル (session-departed: line 269, daily-report: line 331) は deps.tasks.enqueue を直呼びし対象外。既存の isChatMuted / isCostBlocked と同じ『deps に注入・コンストラクタで noop フォールバック』の作法に準拠。"
+    },
+    "reinvent": {
+      "tripped": false,
+      "evidence": "ProposalRateLimiter は AdminState (schema_meta) をバックエンドとして使い、dispatcher の deps パターン (Optional dep + fallback) に乗る。isCostBlocked / CostUsageTracker と同じ構造的役割の追加であり、並行する別永続化系統は発明していない。"
+    },
+    "endpoint_convention": {
+      "tripped": false,
+      "evidence": "GET/PUT /v1/admin/proposal-rate-limit は /v1/admin/cost-budget / /v1/admin/workspace-roots と同じ命名・ルーティング・ハンドラ構造。サブリソース /override の upsert (PUT body) / delete (DELETE :param) は AdminState.setReactionEmojiOverride / deleteReactionEmojiOverride と同じ州管理パターン。軽微な非対称 (upsert は body.session_id、delete は path param) はあるが既存の DELETE /v1/admin/reaction-emoji-override/:emoji と同様の作法。"
+    },
+    "layer": {
+      "tripped": false,
+      "evidence": "ProposalRateLimiter はコールバック (resolveLimit / load / save) で注入を受け、AdminState を直接 import しない。server.ts でのみ配線。依存方向に逆流なし。"
+    }
+  },
+  "axes": {
+    "domain_landing": {
+      "score": 5,
+      "note": "設定・カウンタとも AdminState (schema_meta) に正しく集約。ゲートは dispatcher の既存 kill-switch と同じ deps 注入位置。UI は Settings.tsx の既存 sections パターン。ドメイン分散・再発明なし。"
+    },
+    "exemplar_adherence": {
+      "score": 4,
+      "note": "AdminState の get/set/delete/effective パターンは KEY_REACTION_MAPPINGS 群と構造的に一致。dispatcher の依存注入は isChatMuted / isCostBlocked と同形。エンドポイントは /v1/admin/<resource> 規則通り。軽微な減点: isChatMuted は () => boolean の単純関数だが proposalRateLimiter は { tryDispatch } オブジェクトで若干インターフェイスが異なる点 (機能上必然だが exemplar との差)。"
+    },
+    "completeness": {
+      "score": 5,
+      "note": "グローバル既定・session 上書き・dispatcher ゲート (全 4 提案経路)・schema_meta 永続化・read/write API・Settings UI・単体テスト (proposal-rate-limit.test.ts)・統合テスト (admin-api, admin-state, dispatcher) すべて実装済。"
+    },
+    "correctness": {
+      "score": 4,
+      "note": "固定窓リセット・上限到達時の非加算・max_count=0 無効化・型バリデーション・プルーニングとも正しい。軽微な減点: 上限到達 (allowed=false) 時も counters を write-back しており、変更がなくても毎回 DB 書き込みが発生する (prune 副作用目的だが rejected が多いと冗長)。致命的バグではなく動作に影響しない。"
+    }
+  },
+  "findings": [
+    {
+      "severity": "low",
+      "desc": "tryDispatch は allowed=false 時も counters を save() しており、上限到達済セッションへの提案が多発するシナリオでは変更のない DB 書き込みが毎回発生する。prune 以外に目的がないため、前回 save からの経過時間が COUNTER_PRUNE_AGE_SEC より短い場合は save をスキップする最適化の余地がある。動作バグではない。",
+      "file": "src/dispatcher-rate-limit.ts"
+    },
+    {
+      "severity": "low",
+      "desc": "onChatPosted の先頭で isCostBlocked のみチェックし isChatMuted をチェックしていない (既存挙動の継承)。chat-muted 中でも chat-reply が enqueueProposal に到達しレートカウンタを消費する。この差異は既存コードの問題だが、レートリミット導入後に初めて観測可能になる副作用なので言及。",
+      "file": "src/dispatcher.ts"
+    }
+  ],
+  "summary": "全 footgun 未発動、全 4 要件軸で高得点（最低 4/5）—既存 AdminState/dispatcher/schema_meta パターンを忠実に踏襲し、提案 4 経路すべてのゲート・固定窓リセット・永続化・API・UI・テストを完備した高品質な実装。",
+  "graded": true,
+  "graderCostUsd": 0.5189643
+}

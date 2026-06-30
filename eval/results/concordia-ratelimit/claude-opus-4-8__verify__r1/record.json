@@ -1,0 +1,35 @@
+{
+  "runId": "claude-opus-4-8__verify__r1",
+  "arm": "verify",
+  "model": "claude-opus-4-8",
+  "ok": true,
+  "timedOut": false,
+  "wallMs": 799291,
+  "diffLines": 797,
+  "diffEmpty": false,
+  "agent": {
+    "durationMs": 797238,
+    "apiMs": 608578,
+    "numTurns": 43,
+    "costUsd": 4.99879215,
+    "inputTokens": 5728,
+    "outputTokens": 37712,
+    "cacheReadTokens": 4801370,
+    "cacheCreationTokens": 132354,
+    "result": "All done. The change is complete, typechecks, and every test passes (727 backend + web build). Left uncommitted in the working tree as requested.\n\n## What I built\n\nA **per-session proposal rate limit** that gates the dispatcher's proactive proposals, wired entirely into the existing kill-switch / `schema_meta` / dispatcher-gate conventions — no new subsystem.\n\n### How it works\n- **Config**: a global default `{ window_sec, max_count }` (defaults **60s / 5**) plus per-session overrides. `max_count",
+    "isError": false
+  },
+  "anatomiaOverheadMs": 135329,
+  "hookInvocations": 23,
+  "verifyFired": [],
+  "supplyFired": 0,
+  "cache": {
+    "gets": 17,
+    "hits": 5,
+    "misses": 12,
+    "hitRate": 0.29411764705882354,
+    "llmCalls": 0,
+    "inputTokens": 0,
+    "outputTokens": 0
+  }
+}

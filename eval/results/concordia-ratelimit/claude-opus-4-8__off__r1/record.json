@@ -1,0 +1,35 @@
+{
+  "runId": "claude-opus-4-8__off__r1",
+  "arm": "off",
+  "model": "claude-opus-4-8",
+  "ok": true,
+  "timedOut": false,
+  "wallMs": 714757,
+  "diffLines": 946,
+  "diffEmpty": false,
+  "agent": {
+    "durationMs": 711856,
+    "apiMs": 625262,
+    "numTurns": 73,
+    "costUsd": 6.6940469999999985,
+    "inputTokens": 6406,
+    "outputTokens": 38391,
+    "cacheReadTokens": 8201022,
+    "cacheCreationTokens": 137116,
+    "result": "All checks pass. Here's a summary of the implementation.\n\n## セッション別 提案レートリミット — 実装完了\n\n既存の kill-switch / `schema_meta` 永続化 / dispatcher ゲートの作法に寄せて、1 つの自己完結した変更にまとめました。**728 テスト全通過**（新規含む）、backend/test/web の型チェックもクリーンです。\n\n### 変更内容\n\n**1. レート判定ロジック（新規 `src/admin/proposal-rate-limit.ts`）**\n- `evaluateProposalRate()` — 窓・上限・前回カウンタ状態から「許可するか＋次に永続化する state」を返す pure 関数。窓が明けたら count をリセットして再開。`max_count <= 0` は無制限（制限 OFF）。\n- `ProposalRateLimiter` — AdminState を back end に read-modify-write し、dispatcher に渡",
+    "isError": false
+  },
+  "anatomiaOverheadMs": 0,
+  "hookInvocations": 0,
+  "verifyFired": [],
+  "supplyFired": 0,
+  "cache": {
+    "gets": 0,
+    "hits": 0,
+    "misses": 0,
+    "hitRate": 0,
+    "llmCalls": 0,
+    "inputTokens": 0,
+    "outputTokens": 0
+  }
+}

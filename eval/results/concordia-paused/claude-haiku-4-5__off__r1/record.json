@@ -1,0 +1,35 @@
+{
+  "runId": "claude-haiku-4-5__off__r1",
+  "arm": "off",
+  "model": "claude-haiku-4-5",
+  "ok": true,
+  "timedOut": false,
+  "wallMs": 192473,
+  "diffLines": 142,
+  "diffEmpty": false,
+  "agent": {
+    "durationMs": 190517,
+    "apiMs": 131386,
+    "numTurns": 39,
+    "costUsd": 0.46960739999999995,
+    "inputTokens": 8925,
+    "outputTokens": 9143,
+    "cacheReadTokens": 2608294,
+    "cacheCreationTokens": 77069,
+    "result": "完璧です。実装は以下の通りです：\n\n## セッション一時停止機能 (paused) - 実装完了\n\n### 概要\nConcordia に「セッション一時停止」機能を追加しました。`paused` 状態のセッションは提案・通知の対象から除外されます。\n\n### 実装の5つの変更点\n\n#### 1️⃣ Schema (src/db/schema.ts)\n```ts\n// sessions テーブルに paused column を追加\n{\n  table: \"sessions\",\n  column: \"paused\",\n  ddl: `ALTER TABLE sessions ADD COLUMN paused INTEGER NOT NULL DEFAULT 0`,\n}\n```\n\n#### 2️⃣ 型定義 (src/shared/types.ts)\n```ts\nexport interface SessionRow {\n  // ... existing fields ...\n  paused: number;  // 1 = paused, 0 = active\n}\n```\n\n####",
+    "isError": false
+  },
+  "anatomiaOverheadMs": 0,
+  "hookInvocations": 0,
+  "verifyFired": [],
+  "supplyFired": 0,
+  "cache": {
+    "gets": 0,
+    "hits": 0,
+    "misses": 0,
+    "hitRate": 0,
+    "llmCalls": 0,
+    "inputTokens": 0,
+    "outputTokens": 0
+  }
+}

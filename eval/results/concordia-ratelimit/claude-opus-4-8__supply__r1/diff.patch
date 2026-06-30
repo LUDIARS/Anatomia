@@ -1,0 +1,1005 @@
+diff --git a/src/admin/state.ts b/src/admin/state.ts
+index 1690ae0..392bbd9 100644
+--- a/src/admin/state.ts
++++ b/src/admin/state.ts
+@@ -26,6 +26,7 @@
+  */
+ 
+ import type Database from "better-sqlite3";
++import type { ProposalRateLimit, ProposalRateCounters } from "../dispatcher-rate-limit.js";
+ 
+ const KEY_CHAT_MUTED = "admin.chat_muted";
+ const KEY_RULES_ENABLED = "admin.rules_enabled";
+@@ -39,6 +40,9 @@ const KEY_LICTOR_MODE = "admin.lictor_mode";
+ const KEY_LICTOR_DEV_PATH = "admin.lictor_dev_path";
+ const KEY_LICTOR_PROD_EXE = "admin.lictor_prod_exe";
+ const KEY_DAILY_TOKEN_BUDGET = "admin.daily_token_budget";
++const KEY_PROPOSAL_RATE_LIMIT = "admin.proposal_rate_limit";
++const KEY_PROPOSAL_RATE_OVERRIDES = "admin.proposal_rate_overrides";
++const KEY_PROPOSAL_RATE_COUNTERS = "admin.proposal_rate_counters";
+ 
+ /** Lictor 起動モード。 auto = 従来どおり PATH 上の `lictor` を起動。 */
+ export type LictorMode = "auto" | "dev" | "prod";
+@@ -51,6 +55,15 @@ const DEFAULT_PROPOSER_INTERVAL = 3600;
+ const PROPOSER_INTERVAL_MIN = 60;
+ const PROPOSER_INTERVAL_MAX = 86400;
+ 
++/** 提案レートリミット 既定 (グローバル): 60 秒窓 / 5 回. */
++const DEFAULT_PROPOSAL_RATE_WINDOW_SEC = 60;
++const DEFAULT_PROPOSAL_RATE_MAX_COUNT = 5;
++const PROPOSAL_RATE_WINDOW_MIN = 1;
++const PROPOSAL_RATE_WINDOW_MAX = 86400;
++/** max_count 0 = 無効 (常に許可). */
++const PROPOSAL_RATE_COUNT_MIN = 0;
++const PROPOSAL_RATE_COUNT_MAX = 100000;
++
+ /** workspace_root / github_org / reaction_workflow の未設定時フォールバック (config / env 由来)。 */
+ export interface AdminStateDefaults {
+   workspaceRoot?: string;
+@@ -244,6 +257,86 @@ export class AdminState {
+     this.setRaw(KEY_DAILY_TOKEN_BUDGET, String(Math.max(0, Math.floor(value))));
+   }
+ 
++  // ── セッション別 提案レートリミット ──────────────────────────────────
++  // dispatcher が提案 (chitchat / review / chat-reply / peer-react) を 1 session に
++  // enqueue する前のゲート設定. グローバル既定 (window_sec / max_count) + session
++  // 個別上書き. カウンタ状態も schema_meta に永続化し、 ProposalRateLimiter が
++  // load/save で読み書きする (再起動を跨いで窓内カウントを維持)。 max_count 0 で無効。
++
++  /** グローバル既定の窓 + 上限 (未設定なら 60 秒 / 5 回)。 */
++  getProposalRateLimit(): ProposalRateLimit {
++    const raw = this.getRaw(KEY_PROPOSAL_RATE_LIMIT);
++    const fallback: ProposalRateLimit = {
++      window_sec: DEFAULT_PROPOSAL_RATE_WINDOW_SEC,
++      max_count: DEFAULT_PROPOSAL_RATE_MAX_COUNT,
++    };
++    if (raw === null) return fallback;
++    return sanitizeRateLimit(parseJsonObject(raw), fallback);
++  }
++
++  /** グローバル既定を設定 (clamp 済で永続化)。 非有限値は throw。 */
++  setProposalRateLimit(value: ProposalRateLimit): void {
++    this.setRaw(KEY_PROPOSAL_RATE_LIMIT, JSON.stringify(assertRateLimit(value)));
++  }
++
++  /** session→limit の上書き辞書 (空なら {})。 */
++  getProposalRateLimitOverrides(): Record<string, ProposalRateLimit> {
++    const raw = this.getRaw(KEY_PROPOSAL_RATE_OVERRIDES);
++    if (!raw) return {};
++    const obj = parseJsonObject(raw);
++    const out: Record<string, ProposalRateLimit> = {};
++    const fallback = this.getProposalRateLimit();
++    for (const [sid, v] of Object.entries(obj)) {
++      if (sid.trim()) out[sid] = sanitizeRateLimit(v, fallback);
++    }
++    return out;
++  }
++
++  /** 1 session の上書きを upsert (clamp 済)。 非有限値は throw。 */
++  setProposalRateLimitOverride(sessionId: string, value: ProposalRateLimit): void {
++    const sid = sessionId.trim();
++    if (!sid) throw new Error("session_id required");
++    const cur = this.getProposalRateLimitOverrides();
++    cur[sid] = assertRateLimit(value);
++    this.setRaw(KEY_PROPOSAL_RATE_OVERRIDES, JSON.stringify(cur));
++  }
++
++  /** 1 session の上書きを削除 (グローバル既定に戻す)。 */
++  deleteProposalRateLimitOverride(sessionId: string): void {
++    const cur = this.getProposalRateLimitOverrides();
++    if (!Object.prototype.hasOwnProperty.call(cur, sessionId.trim())) return;
++    delete cur[sessionId.trim()];
++    this.setRaw(KEY_PROPOSAL_RATE_OVERRIDES, JSON.stringify(cur));
++  }
++
++  /** 実効 limit: session 上書きがあればそれ、 無ければグローバル既定。 */
++  getEffectiveProposalRateLimit(sessionId: string): ProposalRateLimit {
++    return this.getProposalRateLimitOverrides()[sessionId] ?? this.getProposalRateLimit();
++  }
++
++  /** カウンタ状態を読む (壊れた値は {})。 ProposalRateLimiter.load 用。 */
++  getProposalRateCounters(): ProposalRateCounters {
++    const raw = this.getRaw(KEY_PROPOSAL_RATE_COUNTERS);
++    if (!raw) return {};
++    const obj = parseJsonObject(raw);
++    const out: ProposalRateCounters = {};
++    for (const [sid, v] of Object.entries(obj)) {
++      if (v && typeof v === "object") {
++        const ws = Number((v as Record<string, unknown>).window_start);
++        const c = Number((v as Record<string, unknown>).count);
++        if (Number.isFinite(ws) && Number.isFinite(c)) {
++          out[sid] = { window_start: Math.floor(ws), count: Math.floor(c) };
++        }
++      }
++    }
++    return out;
++  }
++
++  /** カウンタ状態を書く。 ProposalRateLimiter.save 用。 */
++  setProposalRateCounters(counters: ProposalRateCounters): void {
++    this.setRaw(KEY_PROPOSAL_RATE_COUNTERS, JSON.stringify(counters));
++  }
++
+   snapshot(): {
+     chat_muted: boolean;
+     rules_enabled: boolean;
+@@ -256,6 +349,8 @@ export class AdminState {
+     lictor_dev_path: string;
+     lictor_prod_exe: string;
+     daily_token_budget: number;
++    proposal_rate_limit: ProposalRateLimit;
++    proposal_rate_overrides: Record<string, ProposalRateLimit>;
+   } {
+     return {
+       chat_muted: this.getChatMuted(),
+@@ -269,6 +364,8 @@ export class AdminState {
+       lictor_dev_path: this.getLictorDevPath(),
+       lictor_prod_exe: this.getLictorProdExe(),
+       daily_token_budget: this.getDailyTokenBudget(),
++      proposal_rate_limit: this.getProposalRateLimit(),
++      proposal_rate_overrides: this.getProposalRateLimitOverrides(),
+     };
+   }
+ 
+@@ -328,5 +425,48 @@ function cleanRoots(roots: readonly string[]): string[] {
+   return out;
+ }
+ 
++/** schema_meta に入った JSON オブジェクト文字列を素の辞書に復元 (壊れた値は {})。 */
++function parseJsonObject(raw: string): Record<string, unknown> {
++  try {
++    const parsed = JSON.parse(raw) as unknown;
++    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
++      return parsed as Record<string, unknown>;
++    }
++  } catch {
++    // 壊れた値は無視。
++  }
++  return {};
++}
++
++/** 任意入力を clamp 済 ProposalRateLimit に整える (壊れた項目は fallback)。 */
++function sanitizeRateLimit(input: unknown, fallback: ProposalRateLimit): ProposalRateLimit {
++  const obj = (input && typeof input === "object") ? (input as Record<string, unknown>) : {};
++  const ws = Number(obj.window_sec);
++  const mc = Number(obj.max_count);
++  return {
++    window_sec: Number.isFinite(ws)
++      ? clamp(Math.floor(ws), PROPOSAL_RATE_WINDOW_MIN, PROPOSAL_RATE_WINDOW_MAX)
++      : fallback.window_sec,
++    max_count: Number.isFinite(mc)
++      ? clamp(Math.floor(mc), PROPOSAL_RATE_COUNT_MIN, PROPOSAL_RATE_COUNT_MAX)
++      : fallback.max_count,
++  };
++}
++
++/** 書き込み用: 非有限値は throw、 それ以外は clamp して返す。 */
++function assertRateLimit(value: ProposalRateLimit): ProposalRateLimit {
++  if (!Number.isFinite(value?.window_sec) || !Number.isFinite(value?.max_count)) {
++    throw new Error("proposal rate limit window_sec / max_count must be finite numbers");
++  }
++  return {
++    window_sec: clamp(Math.floor(value.window_sec), PROPOSAL_RATE_WINDOW_MIN, PROPOSAL_RATE_WINDOW_MAX),
++    max_count: clamp(Math.floor(value.max_count), PROPOSAL_RATE_COUNT_MIN, PROPOSAL_RATE_COUNT_MAX),
++  };
++}
++
+ export const ADMIN_PROPOSER_INTERVAL_MIN = PROPOSER_INTERVAL_MIN;
+ export const ADMIN_PROPOSER_INTERVAL_MAX = PROPOSER_INTERVAL_MAX;
++export const ADMIN_PROPOSAL_RATE_WINDOW_MIN = PROPOSAL_RATE_WINDOW_MIN;
++export const ADMIN_PROPOSAL_RATE_WINDOW_MAX = PROPOSAL_RATE_WINDOW_MAX;
++export const ADMIN_PROPOSAL_RATE_COUNT_MIN = PROPOSAL_RATE_COUNT_MIN;
++export const ADMIN_PROPOSAL_RATE_COUNT_MAX = PROPOSAL_RATE_COUNT_MAX;
+diff --git a/src/app.ts b/src/app.ts
+index 3ef33de..b5d4c49 100644
+--- a/src/app.ts
++++ b/src/app.ts
+@@ -39,7 +39,14 @@ import type {
+   DiscordConfigRepo,
+ } from "./db/discord-repo.js";
+ import type { AdminState } from "./admin/state.js";
+-import { ADMIN_PROPOSER_INTERVAL_MAX, ADMIN_PROPOSER_INTERVAL_MIN } from "./admin/state.js";
++import {
++  ADMIN_PROPOSER_INTERVAL_MAX,
++  ADMIN_PROPOSER_INTERVAL_MIN,
++  ADMIN_PROPOSAL_RATE_WINDOW_MIN,
++  ADMIN_PROPOSAL_RATE_WINDOW_MAX,
++  ADMIN_PROPOSAL_RATE_COUNT_MIN,
++  ADMIN_PROPOSAL_RATE_COUNT_MAX,
++} from "./admin/state.js";
+ import { adminAuthMiddleware } from "./shared/admin-auth.js";
+ import type { CostBudgetStatus } from "./cost/usage-tracker.js";
+ import { WORKFLOW_ACTIONS, WORKFLOW_ACTION_HELP, isWorkflowAction, defaultReactionEmojiMap } from "./platform/reaction-workflow.js";
+@@ -455,6 +462,54 @@ export function buildApp(deps: AppDeps): Hono {
+     });
+   });
+ 
++  // セッション別 提案レートリミット (窓 + 上限)。 グローバル既定 + session 個別上書き。
++  // 設定もカウンタ状態も schema_meta 永続化。 dispatcher が次の提案発火から live 反映。
++  app.get("/v1/admin/proposal-rate-limit", (c) => {
++    return c.json({
++      default: deps.adminState.getProposalRateLimit(),
++      overrides: deps.adminState.getProposalRateLimitOverrides(),
++      limits: {
++        window_min_sec: ADMIN_PROPOSAL_RATE_WINDOW_MIN,
++        window_max_sec: ADMIN_PROPOSAL_RATE_WINDOW_MAX,
++        count_min: ADMIN_PROPOSAL_RATE_COUNT_MIN,
++        count_max: ADMIN_PROPOSAL_RATE_COUNT_MAX,
++      },
++    });
++  });
++  app.put("/v1/admin/proposal-rate-limit", async (c) => {
++    const body = await c.req.json().catch(() => null);
++    if (!body || typeof body.window_sec !== "number" || typeof body.max_count !== "number") {
++      return c.json({ error: "body.window_sec / body.max_count (number) required" }, 400);
++    }
++    try {
++      deps.adminState.setProposalRateLimit({ window_sec: body.window_sec, max_count: body.max_count });
++    } catch (err) {
++      return c.json({ error: (err as Error).message }, 400);
++    }
++    return c.json({ default: deps.adminState.getProposalRateLimit() });
++  });
++  app.put("/v1/admin/proposal-rate-limit/override", async (c) => {
++    const body = await c.req.json().catch(() => null);
++    const sessionId = typeof body?.session_id === "string" ? body.session_id.trim() : "";
++    if (!sessionId) return c.json({ error: "body.session_id (string) required" }, 400);
++    if (typeof body.window_sec !== "number" || typeof body.max_count !== "number") {
++      return c.json({ error: "body.window_sec / body.max_count (number) required" }, 400);
++    }
++    try {
++      deps.adminState.setProposalRateLimitOverride(sessionId, {
++        window_sec: body.window_sec,
++        max_count: body.max_count,
++      });
++    } catch (err) {
++      return c.json({ error: (err as Error).message }, 400);
++    }
++    return c.json({ overrides: deps.adminState.getProposalRateLimitOverrides() });
++  });
++  app.delete("/v1/admin/proposal-rate-limit/override/:sessionId", (c) => {
++    deps.adminState.deleteProposalRateLimitOverride(decodeURIComponent(c.req.param("sessionId")));
++    return c.json({ overrides: deps.adminState.getProposalRateLimitOverrides() });
++  });
++
+   app.get("/v1/admin/github-org", (c) => {
+     return c.json({ github_org: deps.adminState.getGithubOrg() });
+   });
+diff --git a/src/dispatcher-rate-limit.ts b/src/dispatcher-rate-limit.ts
+new file mode 100644
+index 0000000..82f252b
+--- /dev/null
++++ b/src/dispatcher-rate-limit.ts
+@@ -0,0 +1,105 @@
++/**
++ * セッション別 提案レートリミット — dispatcher の提案 (proposal) 発火ゲート.
++ *
++ * dispatcher が 1 session へ提案 task (chitchat-suggest / review-summary /
++ * chat-reply / peer-log-react) を enqueue する前に通す. 「窓 (秒) 内に N 回まで」
++ * を session ごとに評価し、 窓内で上限に達していれば今回の提案をスキップさせる.
++ * 窓が明けたらカウントをリセットして再開する. 暴走 / 過剰提案の抑止が目的.
++ *
++ * 設定 (窓 + 上限) は AdminState (schema_meta 永続化) が持ち、 グローバル既定 +
++ * session 個別上書きを resolveLimit 経由で解決する. カウンタ状態も schema_meta に
++ * 永続化する (load / save を AdminState に委譲) ので、 再起動を跨いでも窓内カウントが
++ * 引き継がれ、 restart で上限を回避できない.
++ *
++ * 既存の kill-switch (chat-mute / cost-budget) と同じ「dispatcher の deps に
++ * 注入する live 評価ゲート」の作法に寄せている.
++ */
++
++/** 窓 (秒) と上限回数のペア. max_count<=0 または window_sec<=0 で無効 (常に許可). */
++export interface ProposalRateLimit {
++  window_sec: number;
++  max_count: number;
++}
++
++/** session 単位の窓カウンタ状態 (schema_meta に JSON 永続化される). */
++export interface ProposalRateCounter {
++  /** 現在の窓の開始 epoch 秒. */
++  window_start: number;
++  /** 現在の窓で許可済の提案回数. */
++  count: number;
++}
++
++export type ProposalRateCounters = Record<string, ProposalRateCounter>;
++
++export interface RateDecision {
++  allowed: boolean;
++  /** allowed=false のときの理由 (ログ用). */
++  reason?: string;
++}
++
++export interface ProposalRateLimiterDeps {
++  /** 対象 session の実効 limit (global 既定 + session 上書き) を解決する. */
++  resolveLimit: (sessionId: string) => ProposalRateLimit;
++  /** カウンタ状態を schema_meta から読む. */
++  load: () => ProposalRateCounters;
++  /** カウンタ状態を schema_meta に書く. */
++  save: (counters: ProposalRateCounters) => void;
++  /** 現在時刻 (epoch 秒). テスト注入用. 既定はシステム時計. */
++  now?: () => number;
++}
++
++/** 窓の最大長より十分大きい古いエントリは捨てて map を有界に保つ (秒). */
++const COUNTER_PRUNE_AGE_SEC = 86_400;
++
++/**
++ * dispatcher が提案を出す前に通すゲート. tryDispatch が allowed=true を返したら
++ * その session の窓カウントは既に +1 されている (永続化済). false なら未加算.
++ */
++export class ProposalRateLimiter {
++  private readonly now: () => number;
++
++  constructor(private readonly deps: ProposalRateLimiterDeps) {
++    this.now = deps.now ?? (() => Math.floor(Date.now() / 1000));
++  }
++
++  /**
++   * 提案を出してよいか判定する. 許可時はカウンタを +1 して永続化し true を返す.
++   * 窓内で上限に達していれば false (理由付き) を返し、 カウンタは増やさない.
++   */
++  tryDispatch(sessionId: string): RateDecision {
++    const limit = this.deps.resolveLimit(sessionId);
++    // 無効化 (常に許可): 上限 0 以下 / 窓 0 以下.
++    if (!(limit.max_count > 0) || !(limit.window_sec > 0)) return { allowed: true };
++
++    const now = this.now();
++    const counters = this.deps.load();
++    let entry = counters[sessionId];
++    // 未記録 or 窓が明けている → リセット (新しい窓を開始).
++    if (!entry || now - entry.window_start >= limit.window_sec) {
++      entry = { window_start: now, count: 0 };
++    }
++
++    if (entry.count >= limit.max_count) {
++      // 窓内で上限到達 → 今回の提案はスキップ (カウントは据え置き).
++      counters[sessionId] = entry;
++      this.deps.save(prune(counters, now));
++      return {
++        allowed: false,
++        reason: `proposal rate limit reached: ${entry.count}/${limit.max_count} within ${limit.window_sec}s window`,
++      };
++    }
++
++    entry.count += 1;
++    counters[sessionId] = entry;
++    this.deps.save(prune(counters, now));
++    return { allowed: true };
++  }
++}
++
++/** 1 日以上前に開始した窓のエントリを捨てる (どんな実効窓でも確実に失効済). */
++function prune(counters: ProposalRateCounters, now: number): ProposalRateCounters {
++  for (const [sid, entry] of Object.entries(counters)) {
++    if (now - entry.window_start > COUNTER_PRUNE_AGE_SEC) delete counters[sid];
++  }
++  return counters;
++}
+diff --git a/src/dispatcher.ts b/src/dispatcher.ts
+index 87b3742..b93b745 100644
+--- a/src/dispatcher.ts
++++ b/src/dispatcher.ts
+@@ -31,6 +31,7 @@ import {
+ } from "./triggers/seeds.js";
+ import { actionFrequencyMultiplier } from "./shared/quiet-hours.js";
+ import { createChildLogger } from "./shared/logger.js";
++import type { RateDecision } from "./dispatcher-rate-limit.js";
+ 
+ const dispatcherLog = createChildLogger("dispatcher");
+ 
+@@ -91,6 +92,15 @@ export interface DispatcherDeps {
+    * から配線する。 未指定なら常に false (= ブロックしない)。
+    */
+   isCostBlocked?: () => boolean;
++  /**
++   * セッション別 提案レートリミットのゲート. 提案 (chitchat-suggest /
++   * review-summary / chat-reply / peer-log-react) を 1 session へ enqueue する前に
++   * tryDispatch(session_id) を通し、 allowed=false なら今回の提案をスキップする
++   * (窓内で上限到達). ライフサイクル通知 (session-departed / daily-report) は
++   * 取りこぼすと困るため対象外 (quiet-hours の carve-out と同じ方針). 未指定なら
++   * 常に許可 (= 無制限). 本番は ProposalRateLimiter を AdminState から配線する.
++   */
++  proposalRateLimiter?: { tryDispatch: (sessionId: string) => RateDecision };
+ }
+ 
+ export class Dispatcher {
+@@ -102,12 +112,32 @@ export class Dispatcher {
+   private peerCursor = 0;
+   private isChatMuted: () => boolean;
+   private isCostBlocked: () => boolean;
++  private proposalRateLimiter: { tryDispatch: (sessionId: string) => RateDecision };
+ 
+   constructor(private readonly deps: DispatcherDeps) {
+     this.rng = deps.rng ?? Math.random;
+     this.now = deps.now ?? (() => new Date());
+     this.isChatMuted = deps.isChatMuted ?? (() => false);
+     this.isCostBlocked = deps.isCostBlocked ?? (() => false);
++    this.proposalRateLimiter = deps.proposalRateLimiter ?? { tryDispatch: () => ({ allowed: true }) };
++  }
++
++  /**
++   * 提案 task を session へ enqueue する前にレートリミットを確認する. 窓内で上限に
++   * 達していれば今回はスキップ (理由をログ) して false を返す. 許可なら enqueue して
++   * true を返す. proactive な提案 (chitchat / review / chat-reply / peer-react) 専用.
++   */
++  private enqueueProposal(task: Parameters<TasksRepo["enqueue"]>[0]): boolean {
++    const decision = this.proposalRateLimiter.tryDispatch(task.session_id);
++    if (!decision.allowed) {
++      dispatcherLog.info(
++        { session_id: task.session_id, kind: task.kind, reason: decision.reason },
++        "proposal skipped (per-session rate limit)",
++      );
++      return false;
++    }
++    this.deps.tasks.enqueue(task);
++    return true;
+   }
+ 
+   /** session_event insert 後に呼ぶ. 発火条件を全部評価する */
+@@ -137,7 +167,7 @@ export class Dispatcher {
+     const workCount = countWorkEvents(recent);
+     if (workCount > 0 && workCount % WORK_COUNT_REVIEW_PERIOD === 0 && this.rng() < freq) {
+       const total = this.deps.sessions.countEvents(session.id);
+-      this.deps.tasks.enqueue({
++      this.enqueueProposal({
+         session_id: session.id,
+         kind: "review-summary",
+         payload: {
+@@ -193,12 +223,13 @@ export class Dispatcher {
+     const enqueued: string[] = [];
+     const skippedSelf: string[] = [];
+     const skippedProb: string[] = [];
++    const skippedRate: string[] = [];
+     for (const peer of peers) {
+       if (peer.id === message.session_id) { skippedSelf.push(peer.id); continue; }
+       if (this.rng() >= replyProb) { skippedProb.push(peer.id); continue; }
+ 
+       const role = this.refreshRole(peer);
+-      this.deps.tasks.enqueue({
++      const ok = this.enqueueProposal({
+         session_id: peer.id,
+         kind: "chat-reply",
+         payload: {
+@@ -213,7 +244,8 @@ export class Dispatcher {
+             : "短い reply を 1 文、 ロールのトーンで投稿. AI 同士の対話前提なので人間配慮は不要.",
+         },
+       });
+-      enqueued.push(peer.id);
++      if (ok) enqueued.push(peer.id);
++      else skippedRate.push(peer.id);
+     }
+     dispatcherLog.info(
+       {
+@@ -222,6 +254,7 @@ export class Dispatcher {
+         enqueued_peer_ids: enqueued,
+         skipped_self: skippedSelf,
+         skipped_by_probability: skippedProb,
++        skipped_by_rate_limit: skippedRate,
+       },
+       "dispatcher.onChatPosted result",
+     );
+@@ -274,7 +307,7 @@ export class Dispatcher {
+     this.logCooldown.set(key, now);
+ 
+     const role = this.refreshRole(target);
+-    this.deps.tasks.enqueue({
++    this.enqueueProposal({
+       session_id: target.id,
+       kind: "peer-log-react",
+       payload: {
+@@ -315,7 +348,7 @@ export class Dispatcher {
+     seed: string,
+     recent: ReturnType<SessionsRepo["recentEvents"]>,
+   ): void {
+-    this.deps.tasks.enqueue({
++    this.enqueueProposal({
+       session_id: session.id,
+       kind: "chitchat-suggest",
+       payload: {
+diff --git a/src/server.ts b/src/server.ts
+index c04f7fc..78909f4 100644
+--- a/src/server.ts
++++ b/src/server.ts
+@@ -40,6 +40,7 @@ import { ProcessManager } from "./processes/manager.js";
+ import { seedPersonas } from "./personas/seeds.js";
+ import { collectBoyakiToPersona } from "./personas/boyaki.js";
+ import { Dispatcher } from "./dispatcher.js";
++import { ProposalRateLimiter } from "./dispatcher-rate-limit.js";
+ import { CostBudgetRepo } from "./cost/cost-budget-repo.js";
+ import { CostUsageTracker } from "./cost/usage-tracker.js";
+ import { startSweeper } from "./sweeper.js";
+@@ -261,12 +262,20 @@ export async function startBackend(): Promise<BackendHandle> {
+   seedPersonas(personas);
+   seedDelegationTemplates(delegationRepo);
+   seedModelCatalog(modelCatalog);
++  // セッション別 提案レートリミット: 設定 + カウンタ状態を AdminState (schema_meta)
++  // から live 解決する. dispatcher が提案を出す前のゲートに使う.
++  const proposalRateLimiter = new ProposalRateLimiter({
++    resolveLimit: (sid) => adminState.getEffectiveProposalRateLimit(sid),
++    load: () => adminState.getProposalRateCounters(),
++    save: (counters) => adminState.setProposalRateCounters(counters),
++  });
+   const dispatcher = new Dispatcher({
+     sessions: repo,
+     tasks,
+     chat,
+     isChatMuted: () => adminState.getChatMuted(),
+     isCostBlocked,
++    proposalRateLimiter,
+   });
+   const processManager = new ProcessManager({
+     repo: processes,
+diff --git a/tests/admin-api.test.ts b/tests/admin-api.test.ts
+index 93c2355..c4a495c 100644
+--- a/tests/admin-api.test.ts
++++ b/tests/admin-api.test.ts
+@@ -83,6 +83,63 @@ describe("admin API", () => {
+     expect(r.status).toBe(400);
+   });
+ 
++  it("proposal-rate-limit: GET 既定 + PUT global + override upsert/delete", async () => {
++    const get = await env.app.request("/v1/admin/proposal-rate-limit");
++    expect(get.status).toBe(200);
++    const body = (await get.json()) as {
++      default: { window_sec: number; max_count: number };
++      overrides: Record<string, { window_sec: number; max_count: number }>;
++      limits: { window_min_sec: number; count_min: number };
++    };
++    expect(body.default).toEqual({ window_sec: 60, max_count: 5 });
++    expect(body.overrides).toEqual({});
++    expect(typeof body.limits.window_min_sec).toBe("number");
++
++    // グローバル既定の更新 (clamp 込み)。
++    const put = await env.app.request("/v1/admin/proposal-rate-limit", {
++      method: "PUT",
++      headers: { "content-type": "application/json" },
++      body: JSON.stringify({ window_sec: 30, max_count: 3 }),
++    });
++    expect(put.status).toBe(200);
++    expect((await put.json() as { default: unknown }).default).toEqual({ window_sec: 30, max_count: 3 });
++
++    // session 上書きの upsert。
++    const ov = await env.app.request("/v1/admin/proposal-rate-limit/override", {
++      method: "PUT",
++      headers: { "content-type": "application/json" },
++      body: JSON.stringify({ session_id: "s1", window_sec: 10, max_count: 1 }),
++    });
++    expect(ov.status).toBe(200);
++    expect(env.adminState.getEffectiveProposalRateLimit("s1")).toEqual({ window_sec: 10, max_count: 1 });
++
++    // /v1/admin/state にも反映される。
++    const state = await env.app.request("/v1/admin/state");
++    const sj = (await state.json()) as { proposal_rate_limit: unknown; proposal_rate_overrides: unknown };
++    expect(sj.proposal_rate_limit).toEqual({ window_sec: 30, max_count: 3 });
++    expect(sj.proposal_rate_overrides).toEqual({ s1: { window_sec: 10, max_count: 1 } });
++
++    // delete override。
++    const del = await env.app.request("/v1/admin/proposal-rate-limit/override/s1", { method: "DELETE" });
++    expect(del.status).toBe(200);
++    expect(env.adminState.getProposalRateLimitOverrides()).toEqual({});
++  });
++
++  it("proposal-rate-limit: PUT rejects missing fields", async () => {
++    const r = await env.app.request("/v1/admin/proposal-rate-limit", {
++      method: "PUT",
++      headers: { "content-type": "application/json" },
++      body: JSON.stringify({ window_sec: 30 }),
++    });
++    expect(r.status).toBe(400);
++    const ov = await env.app.request("/v1/admin/proposal-rate-limit/override", {
++      method: "PUT",
++      headers: { "content-type": "application/json" },
++      body: JSON.stringify({ window_sec: 10, max_count: 1 }),
++    });
++    expect(ov.status).toBe(400); // session_id 欠如
++  });
++
+   it("GET /v1/admin/spawn-defaults reports the configured default_cwd", async () => {
+     const r = await env.app.request("/v1/admin/spawn-defaults");
+     expect(r.status).toBe(200);
+diff --git a/tests/admin-state.test.ts b/tests/admin-state.test.ts
+index ecaf0ba..56766c4 100644
+--- a/tests/admin-state.test.ts
++++ b/tests/admin-state.test.ts
+@@ -70,6 +70,46 @@ describe("AdminState", () => {
+       lictor_dev_path: "",
+       lictor_prod_exe: "",
+       daily_token_budget: 0,
++      proposal_rate_limit: { window_sec: 60, max_count: 5 },
++      proposal_rate_overrides: {},
++    });
++  });
++
++  describe("proposal rate limit", () => {
++    it("既定は 60 秒 / 5 回", () => {
++      expect(env.state.getProposalRateLimit()).toEqual({ window_sec: 60, max_count: 5 });
++    });
++
++    it("グローバル既定の set-get + clamp + 永続", () => {
++      env.state.setProposalRateLimit({ window_sec: 30, max_count: 3 });
++      expect(env.state.getProposalRateLimit()).toEqual({ window_sec: 30, max_count: 3 });
++      expect(new AdminState(env.db).getProposalRateLimit()).toEqual({ window_sec: 30, max_count: 3 });
++      // clamp: 窓は最小 1 / 最大 86400、 上限は最小 0。
++      env.state.setProposalRateLimit({ window_sec: 0, max_count: -5 });
++      expect(env.state.getProposalRateLimit()).toEqual({ window_sec: 1, max_count: 0 });
++    });
++
++    it("非有限値は throw", () => {
++      expect(() => env.state.setProposalRateLimit({ window_sec: NaN, max_count: 5 })).toThrow();
++      expect(() => env.state.setProposalRateLimit({ window_sec: 60, max_count: Infinity })).toThrow();
++    });
++
++    it("session 個別上書き upsert / delete / effective 解決", () => {
++      env.state.setProposalRateLimit({ window_sec: 60, max_count: 5 });
++      expect(env.state.getEffectiveProposalRateLimit("s1")).toEqual({ window_sec: 60, max_count: 5 });
++      env.state.setProposalRateLimitOverride("s1", { window_sec: 10, max_count: 2 });
++      expect(env.state.getEffectiveProposalRateLimit("s1")).toEqual({ window_sec: 10, max_count: 2 });
++      // 他 session はグローバル既定のまま。
++      expect(env.state.getEffectiveProposalRateLimit("s2")).toEqual({ window_sec: 60, max_count: 5 });
++      // 永続。
++      expect(new AdminState(env.db).getProposalRateLimitOverrides()).toEqual({ s1: { window_sec: 10, max_count: 2 } });
++      env.state.deleteProposalRateLimitOverride("s1");
++      expect(env.state.getEffectiveProposalRateLimit("s1")).toEqual({ window_sec: 60, max_count: 5 });
++    });
++
++    it("カウンタ状態の round-trip + 永続", () => {
++      env.state.setProposalRateCounters({ s1: { window_start: 1000, count: 3 } });
++      expect(new AdminState(env.db).getProposalRateCounters()).toEqual({ s1: { window_start: 1000, count: 3 } });
+     });
+   });
+ 
+diff --git a/tests/dispatcher.test.ts b/tests/dispatcher.test.ts
+index c68e740..1752a1d 100644
+--- a/tests/dispatcher.test.ts
++++ b/tests/dispatcher.test.ts
+@@ -4,6 +4,8 @@ import { SessionsRepo } from "../src/db/sessions-repo.js";
+ import { TasksRepo } from "../src/db/tasks-repo.js";
+ import { ChatRepo } from "../src/db/chat-repo.js";
+ import { Dispatcher } from "../src/dispatcher.js";
++import { AdminState } from "../src/admin/state.js";
++import { ProposalRateLimiter } from "../src/dispatcher-rate-limit.js";
+ 
+ function fresh() {
+   const db = makeTestDb();
+@@ -177,6 +179,58 @@ describe("Dispatcher (smarter triggers)", () => {
+   });
+ });
+ 
++describe("Dispatcher — セッション別 提案レートリミット", () => {
++  let env: ReturnType<typeof fresh>;
++  beforeEach(() => { env = fresh(); });
++
++  /** AdminState 永続化バックエンドの限界器を now 注入で組む。 */
++  function limiter(env: ReturnType<typeof fresh>, now: { t: number }) {
++    const state = new AdminState(env.db);
++    state.setProposalRateLimit({ window_sec: 60, max_count: 1 }); // 窓 60s / 1 回
++    return new ProposalRateLimiter({
++      resolveLimit: (sid) => state.getEffectiveProposalRateLimit(sid),
++      load: () => state.getProposalRateCounters(),
++      save: (c) => state.setProposalRateCounters(c),
++      now: () => now.t,
++    });
++  }
++
++  it("上限到達後の提案 (chat-reply) はスキップされ、 窓明けで再開する", () => {
++    startSession(env.sessions, "a");
++    startSession(env.sessions, "b");
++    const now = { t: 1000 };
++    const d = new Dispatcher({ ...env, rng: () => 0.05, now: DAYTIME, proposalRateLimiter: limiter(env, now) });
++
++    // 1 回目: b に chat-reply が enqueue される (1/1)。
++    d.onChatPosted({ id: 1, channel: "chitchat", session_id: "a", text: "一言目", author_label: "魂", is_actionable: false });
++    expect(env.tasks.pull("b").filter((t) => t.kind === "chat-reply").length).toBe(1);
++
++    // 2 回目 (同窓内): b は上限到達 → スキップ。
++    d.onChatPosted({ id: 2, channel: "chitchat", session_id: "a", text: "二言目", author_label: "魂", is_actionable: false });
++    expect(env.tasks.pull("b").filter((t) => t.kind === "chat-reply").length).toBe(0);
++
++    // 窓明け → 再開。
++    now.t += 60;
++    d.onChatPosted({ id: 3, channel: "chitchat", session_id: "a", text: "三言目", author_label: "魂", is_actionable: false });
++    expect(env.tasks.pull("b").filter((t) => t.kind === "chat-reply").length).toBe(1);
++  });
++
++  it("ライフサイクル通知 (session-departed) はレート制限の対象外", () => {
++    startSession(env.sessions, "lost");
++    startSession(env.sessions, "peer");
++    env.sessions.setStatus("lost", "lost", 100);
++    startSession(env.sessions, "src");
++    const now = { t: 1000 };
++    const d = new Dispatcher({ ...env, rng: () => 0.05, now: DAYTIME, proposalRateLimiter: limiter(env, now) });
++    // proactive 提案 (chat-reply) で peer の窓を先に使い切らせる (報告 channel reply_prob 0.8 > 0.05)。
++    d.onChatPosted({ id: 1, channel: "報告", session_id: "src", text: "x", author_label: "魂", is_actionable: false });
++    expect(env.tasks.pull("peer").filter((t) => t.kind === "chat-reply").length).toBe(1);
++    // それでも離脱通知は届く (lifecycle は対象外)。
++    d.onSessionLost(env.sessions.findSession("lost")!);
++    expect(env.tasks.pull("peer").find((t) => t.kind === "session-departed")).toBeTruthy();
++  });
++});
++
+ describe("Dispatcher 強制ルール — 深夜帯 (23:00–翌05:00) は行動頻度 1/10", () => {
+   let env: ReturnType<typeof fresh>;
+   beforeEach(() => { env = fresh(); });
+diff --git a/tests/proposal-rate-limit.test.ts b/tests/proposal-rate-limit.test.ts
+new file mode 100644
+index 0000000..eb00c07
+--- /dev/null
++++ b/tests/proposal-rate-limit.test.ts
+@@ -0,0 +1,87 @@
++import { describe, it, expect, beforeEach } from "vitest";
++import { makeTestDb } from "./helpers/db.js";
++import { AdminState } from "../src/admin/state.js";
++import {
++  ProposalRateLimiter,
++  type ProposalRateLimit,
++  type ProposalRateCounters,
++} from "../src/dispatcher-rate-limit.js";
++
++/** AdminState 永続化バックエンドで限界器を組む (本番と同じ配線)。 now は注入で進める。 */
++function bootWithAdminState(limit: ProposalRateLimit, now: { t: number }) {
++  const db = makeTestDb();
++  const state = new AdminState(db);
++  state.setProposalRateLimit(limit);
++  const limiter = new ProposalRateLimiter({
++    resolveLimit: (sid) => state.getEffectiveProposalRateLimit(sid),
++    load: () => state.getProposalRateCounters(),
++    save: (c) => state.setProposalRateCounters(c),
++    now: () => now.t,
++  });
++  return { db, state, limiter };
++}
++
++describe("ProposalRateLimiter", () => {
++  let now: { t: number };
++  beforeEach(() => { now = { t: 1000 }; });
++
++  it("窓内で上限に達すると以降の提案をスキップする", () => {
++    const { limiter } = bootWithAdminState({ window_sec: 60, max_count: 2 }, now);
++    expect(limiter.tryDispatch("s1").allowed).toBe(true);  // 1/2
++    expect(limiter.tryDispatch("s1").allowed).toBe(true);  // 2/2
++    const denied = limiter.tryDispatch("s1");               // 3 回目 → skip
++    expect(denied.allowed).toBe(false);
++    expect(denied.reason).toMatch(/rate limit/);
++  });
++
++  it("窓が明けたらカウントをリセットして再開する", () => {
++    const { limiter } = bootWithAdminState({ window_sec: 60, max_count: 2 }, now);
++    expect(limiter.tryDispatch("s1").allowed).toBe(true);
++    expect(limiter.tryDispatch("s1").allowed).toBe(true);
++    expect(limiter.tryDispatch("s1").allowed).toBe(false); // 窓内で上限
++    now.t += 60;                                            // 窓明け
++    expect(limiter.tryDispatch("s1").allowed).toBe(true);  // 再開
++    expect(limiter.tryDispatch("s1").allowed).toBe(true);
++    expect(limiter.tryDispatch("s1").allowed).toBe(false);
++  });
++
++  it("session ごとに独立してカウントする", () => {
++    const { limiter } = bootWithAdminState({ window_sec: 60, max_count: 1 }, now);
++    expect(limiter.tryDispatch("a").allowed).toBe(true);
++    expect(limiter.tryDispatch("a").allowed).toBe(false); // a は上限
++    expect(limiter.tryDispatch("b").allowed).toBe(true);  // b は別カウント
++  });
++
++  it("session 上書きがグローバル既定より優先される", () => {
++    const { state, limiter } = bootWithAdminState({ window_sec: 60, max_count: 5 }, now);
++    state.setProposalRateLimitOverride("strict", { window_sec: 60, max_count: 1 });
++    expect(limiter.tryDispatch("strict").allowed).toBe(true);
++    expect(limiter.tryDispatch("strict").allowed).toBe(false); // 上書き 1 回で上限
++    // グローバル既定の session は 5 回まで通る。
++    for (let i = 0; i < 5; i++) expect(limiter.tryDispatch("loose").allowed).toBe(true);
++    expect(limiter.tryDispatch("loose").allowed).toBe(false);
++  });
++
++  it("max_count 0 は無効化 (常に許可)", () => {
++    const { limiter } = bootWithAdminState({ window_sec: 60, max_count: 0 }, now);
++    for (let i = 0; i < 100; i++) expect(limiter.tryDispatch("s1").allowed).toBe(true);
++  });
++
++  it("カウンタ状態が永続化され、 再起動 (新インスタンス) を跨いで窓内カウントを維持する", () => {
++    const { db, limiter } = bootWithAdminState({ window_sec: 60, max_count: 2 }, now);
++    expect(limiter.tryDispatch("s1").allowed).toBe(true);
++    expect(limiter.tryDispatch("s1").allowed).toBe(true);
++    // 再起動相当: 同 DB から AdminState + limiter を組み直す。
++    const state2 = new AdminState(db);
++    const counters: ProposalRateCounters = state2.getProposalRateCounters();
++    expect(counters.s1.count).toBe(2);
++    const limiter2 = new ProposalRateLimiter({
++      resolveLimit: (sid) => state2.getEffectiveProposalRateLimit(sid),
++      load: () => state2.getProposalRateCounters(),
++      save: (c) => state2.setProposalRateCounters(c),
++      now: () => now.t,
++    });
++    // restart 直後でも窓内なので上限到達済 → skip (restart で回避できない)。
++    expect(limiter2.tryDispatch("s1").allowed).toBe(false);
++  });
++});
+diff --git a/web/src/pages/Settings.tsx b/web/src/pages/Settings.tsx
+index fc3d0e1..e1b9957 100644
+--- a/web/src/pages/Settings.tsx
++++ b/web/src/pages/Settings.tsx
+@@ -7,6 +7,7 @@ import {
+   ReactionWorkflowSection,
+   WorkspaceSection,
+   CostBudgetSection,
++  ProposalRateLimitSection,
+   LictorSection,
+ } from "./settings/sections.js";
+ 
+@@ -63,6 +64,12 @@ const SECTIONS: SettingsSection[] = [
+     hint: "日次トークン上限 + 超過で命令ブロック",
+     render: () => <section className="border border-border rounded p-4"><CostBudgetSection /></section>,
+   },
++  {
++    id: "proposal-rate",
++    label: "提案レート制限",
++    hint: "session 別 提案レートリミット (窓 / 上限)",
++    render: () => <section className="border border-border rounded p-4"><ProposalRateLimitSection /></section>,
++  },
+   {
+     id: "lictor",
+     label: "Lictor",
+diff --git a/web/src/pages/settings/sections.tsx b/web/src/pages/settings/sections.tsx
+index 3415847..16fe50f 100644
+--- a/web/src/pages/settings/sections.tsx
++++ b/web/src/pages/settings/sections.tsx
+@@ -616,6 +616,159 @@ export function CostBudgetSection() {
+   );
+ }
+ 
++// ─── セッション別 提案レートリミット (窓 + 上限、 グローバル既定 + session 上書き) ──
++
++interface RateLimit { window_sec: number; max_count: number }
++interface ProposalRateState {
++  default: RateLimit;
++  overrides: Record<string, RateLimit>;
++  limits: { window_min_sec: number; window_max_sec: number; count_min: number; count_max: number };
++}
++
++export function ProposalRateLimitSection() {
++  const [state, setState] = useState<ProposalRateState | null>(null);
++  const [winDraft, setWinDraft] = useState("");
++  const [cntDraft, setCntDraft] = useState("");
++  const [ovSession, setOvSession] = useState("");
++  const [ovWin, setOvWin] = useState("");
++  const [ovCnt, setOvCnt] = useState("");
++  const [busy, setBusy] = useState<string | null>(null);
++  const [error, setError] = useState<string | null>(null);
++
++  useEffect(() => { void refresh(); }, []);
++
++  async function refresh() {
++    try {
++      const s = (await fetch("/v1/admin/proposal-rate-limit").then((r) => r.json())) as ProposalRateState;
++      setState(s);
++      setWinDraft(String(s.default.window_sec));
++      setCntDraft(String(s.default.max_count));
++      setError(null);
++    } catch (err) { setError((err as Error).message); }
++  }
++
++  async function applyDefault() {
++    const window_sec = Number(winDraft);
++    const max_count = Number(cntDraft);
++    if (!Number.isFinite(window_sec) || !Number.isFinite(max_count)) { setError("数値を入力"); return; }
++    setBusy("default"); setError(null);
++    try { await putJson("/v1/admin/proposal-rate-limit", { window_sec, max_count }); await refresh(); }
++    catch (err) { setError((err as Error).message); } finally { setBusy(null); }
++  }
++
++  async function addOverride() {
++    const session_id = ovSession.trim();
++    const window_sec = Number(ovWin);
++    const max_count = Number(ovCnt);
++    if (!session_id || !Number.isFinite(window_sec) || !Number.isFinite(max_count)) {
++      setError("session_id と窓 / 上限 (数値) を入力"); return;
++    }
++    setBusy("ov-add"); setError(null);
++    try {
++      await putJson("/v1/admin/proposal-rate-limit/override", { session_id, window_sec, max_count });
++      setOvSession(""); setOvWin(""); setOvCnt("");
++      await refresh();
++    } catch (err) { setError((err as Error).message); } finally { setBusy(null); }
++  }
++
++  async function removeOverride(sessionId: string) {
++    setBusy(`ov-rm:${sessionId}`); setError(null);
++    try {
++      const r = await fetch(`/v1/admin/proposal-rate-limit/override/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
++      if (!r.ok) throw new Error(`HTTP ${r.status}`);
++      await refresh();
++    } catch (err) { setError((err as Error).message); } finally { setBusy(null); }
++  }
++
++  const overrides = state ? Object.entries(state.overrides) : [];
++
++  return (
++    <section className="space-y-3">
++      <div>
++        <h2 className="font-semibold text-sm">提案レートリミット (セッション別)</h2>
++        <p className="text-subtle text-xs mt-0.5">
++          dispatcher が 1 session へ提案 (chitchat / 軽レビュー / chat-reply / peer-react) を出す前のゲート。
++          「窓 (秒) 内に最大 N 回」を超えたら今回の提案をスキップ (窓明けで再開)。 暴走・過剰提案の抑止用。
++          上限 0 = 無効 (制限なし)。 設定・カウンタ状態は schema_meta 永続化、 即時反映。
++        </p>
++      </div>
++
++      <div className="bg-muted/40 border border-border rounded p-3 space-y-2">
++        <div className="text-sm font-medium">グローバル既定</div>
++        <div className="text-xs text-subtle">
++          現在: {state ? `${state.default.window_sec}s 窓 / ${state.default.max_count} 回` : "..."}
++          {state && ` (窓 [${state.limits.window_min_sec}, ${state.limits.window_max_sec}] / 回数 [${state.limits.count_min}, ${state.limits.count_max}])`}
++        </div>
++        <div className="flex items-center gap-2 flex-wrap">
++          <label className="text-xs text-subtle">窓 (秒)</label>
++          <input
++            type="number" min={state?.limits.window_min_sec ?? 1} max={state?.limits.window_max_sec ?? 86400}
++            value={winDraft} onChange={(e) => setWinDraft(e.target.value)} disabled={busy === "default"}
++            className="bg-muted border border-border rounded px-2 py-1 text-sm font-mono w-24"
++          />
++          <label className="text-xs text-subtle">上限 (回)</label>
++          <input
++            type="number" min={state?.limits.count_min ?? 0} max={state?.limits.count_max ?? 100000}
++            value={cntDraft} onChange={(e) => setCntDraft(e.target.value)} disabled={busy === "default"}
++            className="bg-muted border border-border rounded px-2 py-1 text-sm font-mono w-24"
++          />
++          <button
++            disabled={busy === "default" || (winDraft === String(state?.default.window_sec ?? "") && cntDraft === String(state?.default.max_count ?? ""))}
++            onClick={() => void applyDefault()}
++            className="shrink-0 px-3 py-1 bg-accent/15 border border-accent text-accent rounded text-xs disabled:opacity-40"
++          >apply</button>
++        </div>
++      </div>
++
++      <div className="bg-muted/40 border border-border rounded p-3 space-y-3">
++        <div>
++          <div className="text-sm font-medium">session 個別上書き</div>
++          <div className="text-xs text-subtle mt-0.5">特定 session だけ別の窓 / 上限にする。 無ければグローバル既定が適用される。</div>
++        </div>
++        <div className="flex items-center gap-2 flex-wrap">
++          <input
++            type="text" value={ovSession} onChange={(e) => setOvSession(e.target.value)}
++            placeholder="session_id" disabled={busy === "ov-add"}
++            className="bg-muted border border-border rounded px-2 py-1 text-sm font-mono flex-1 min-w-[160px]"
++          />
++          <input
++            type="number" value={ovWin} onChange={(e) => setOvWin(e.target.value)}
++            placeholder="窓秒" disabled={busy === "ov-add"}
++            className="bg-muted border border-border rounded px-2 py-1 text-sm font-mono w-20"
++          />
++          <input
++            type="number" value={ovCnt} onChange={(e) => setOvCnt(e.target.value)}
++            placeholder="上限" disabled={busy === "ov-add"}
++            className="bg-muted border border-border rounded px-2 py-1 text-sm font-mono w-20"
++          />
++          <button
++            disabled={busy === "ov-add" || !ovSession.trim()}
++            onClick={() => void addOverride()}
++            className="px-3 py-1 bg-accent/15 border border-accent text-accent rounded text-xs disabled:opacity-40"
++          >追加 / 上書き</button>
++        </div>
++        <ul className="space-y-1">
++          {overrides.length === 0 && <li className="text-xs text-subtle">(上書きなし)</li>}
++          {overrides.map(([sid, lim]) => (
++            <li key={sid} className="flex items-center gap-2 text-sm bg-surface border border-border rounded px-2 py-1">
++              <span className="font-mono text-xs truncate">{sid}</span>
++              <span className="text-subtle">→</span>
++              <span className="font-mono text-xs">{lim.window_sec}s / {lim.max_count} 回</span>
++              <button
++                disabled={busy === `ov-rm:${sid}`}
++                onClick={() => void removeOverride(sid)}
++                className="ml-auto text-subtle hover:text-danger text-xs"
++              >削除</button>
++            </li>
++          ))}
++        </ul>
++      </div>
++
++      {error && <div className="text-danger text-xs">{error}</div>}
++    </section>
++  );
++}
++
+ // ─── Lictor 起動設定 (mode + dev/prod パス) ──────────────────────────────
+ 
+ export function LictorSection() {
