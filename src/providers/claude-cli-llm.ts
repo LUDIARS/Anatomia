@@ -24,6 +24,7 @@ import { spawn } from "node:child_process";
 import type { LLMClient } from "../domains/card.js";
 import type { LlmUsage } from "../cache/transcript.js";
 import { CARD_DISTILLER_SYSTEM_PROMPT } from "./anthropic-llm.js";
+import { reportConcordiaCostOneShot } from "./concordia-cost.js";
 
 const DEFAULT_MODEL = "claude-opus-4-8";
 const DEFAULT_BIN = "claude";
@@ -46,9 +47,28 @@ export function createClaudeCliLlm(config: ClaudeCliLlmConfig = {}): LLMClient {
   const bin = config.bin ?? DEFAULT_BIN;
 
   return async (prompt: string): Promise<string> => {
+    const startedAt = Date.now();
     const { stdout } = await runClaude(bin, model, prompt);
     const env = parseEnvelope(stdout);
     if (config.onUsage) config.onUsage(env.usage);
+    void reportConcordiaCostOneShot({
+      service: "anatomia",
+      provider: "claude",
+      command: `${bin} -p --output-format json`,
+      model,
+      cwd: process.cwd(),
+      prompt,
+      status: "ok",
+      exit_code: 0,
+      duration_ms: Date.now() - startedAt,
+      input_tokens: env.usage.inputTokens,
+      output_tokens: env.usage.outputTokens,
+      total_tokens: env.usage.inputTokens + env.usage.outputTokens,
+      metadata: {
+        cacheReadTokens: env.usage.cacheReadTokens,
+        cacheCreationTokens: env.usage.cacheCreationTokens,
+      },
+    });
     return env.result;
   };
 }
