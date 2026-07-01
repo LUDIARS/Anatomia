@@ -918,10 +918,13 @@
 
   async function reanalyzeFromList(id, btn) {
     var orig = btn.textContent;
-    btn.textContent = 'Analyzing…'; btn.disabled = true;
+    btn.textContent = 'Queued...'; btn.disabled = true;
     try {
       var res = await fetch('/api/projects/' + encodeURIComponent(id) + '/analyze', { method: 'POST' });
       if (!res.ok) { var b = await res.json(); throw new Error(b.error); }
+      var job = await res.json();
+      var done = await QueueDock.waitFor(job.jobId);
+      if (done && done.state === 'failed') throw new Error(done.error || 'analysis failed');
       fetchCounts(id);
     } catch (e) { alert('Analyze failed: ' + e.message); }
     finally { btn.textContent = orig; btn.disabled = false; }
@@ -1145,11 +1148,14 @@
   // Re-analyze from dashboard header
   document.getElementById('dash-reanalyze').onclick = async function () {
     var btn = document.getElementById('dash-reanalyze');
-    btn.disabled = true; btn.textContent = 'Analyzing…';
+    btn.disabled = true; btn.textContent = 'Queued...';
     var id = state.projectId;
     try {
       var res = await fetch('/api/projects/' + encodeURIComponent(id) + '/analyze', { method: 'POST' });
       if (!res.ok) { var b = await res.json(); throw new Error(b.error); }
+      var job = await res.json();
+      var done = await QueueDock.waitFor(job.jobId);
+      if (done && done.state === 'failed') throw new Error(done.error || 'analysis failed');
       state.rawVisData = null;
       state.graphLoaded = false;
       state.branchDiff = null;
@@ -2527,7 +2533,19 @@
     var jobs = [];
     try {
       var r = await fetch('/api/prepare-jobs');
-      if (r.ok) { var d = await r.json(); jobs = d.jobs || []; }
+      if (r.ok) { var d = await r.json(); jobs = jobs.concat(d.jobs || []); }
+    } catch (e) { /* leave jobs empty; retry on next tick */ }
+    try {
+      var ar = await fetch('/api/analyze-jobs');
+      if (ar.ok) {
+        var ad = await ar.json();
+        jobs = jobs.concat((ad.jobs || []).map(function (j) {
+          if (j.result && typeof j.result.files === 'number' && typeof j.result.views === 'undefined') {
+            j.result.views = j.result.files + ' files / ' + (j.result.functions || 0) + ' funcs';
+          }
+          return j;
+        }));
+      }
     } catch (e) { /* leave jobs empty; retry on next tick */ }
     lastJobs = jobs;
     var active = jobs.filter(function (j) { return j.state === 'queued' || j.state === 'running'; }).length;

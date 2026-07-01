@@ -250,6 +250,20 @@ describe("GET /domain-view-logic.js", () => {
 let tempDir: string;
 let managerApp: Hono;
 
+async function waitForAnalyzeJob(jobId: string, timeoutMs = 30000): Promise<{ state: string; result: { files: number; functions: number } | null }> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const res = await managerApp.fetch(new Request("http://localhost/api/analyze-jobs"));
+    const body = await res.json() as {
+      jobs: Array<{ id: string; state: string; result: { files: number; functions: number } | null }>;
+    };
+    const job = body.jobs.find((j) => j.id === jobId);
+    if (job && (job.state === "done" || job.state === "failed")) return job;
+    if (Date.now() > deadline) throw new Error(`analysis job ${jobId} did not finish: ${JSON.stringify(job)}`);
+    await new Promise((r) => setTimeout(r, 25));
+  }
+}
+
 beforeAll(async () => {
   tempDir = await mkdtemp(join(tmpdir(), "anatomia-web-test-"));
   // Write a minimal .cpp fixture so analyze() has something to parse.
@@ -379,14 +393,18 @@ describe("GET /api/projects/:id/vis-data (manager mode)", () => {
 });
 
 describe("POST /api/projects/:id/analyze (manager mode)", () => {
-  it("re-analyzes the project and returns counts", async () => {
+  it("queues re-analysis and exposes the completed job counts", async () => {
     const res = await managerApp.fetch(
       new Request("http://localhost/api/projects/fixture/analyze", { method: "POST" }),
     );
-    expect(res.status).toBe(200);
-    const body = await res.json() as { project: string; files: number };
-    expect(body.project).toBe("fixture");
-    expect(typeof body.files).toBe("number");
+    expect(res.status).toBe(202);
+    const body = await res.json() as { jobId: string; projectId: string; state: string };
+    expect(body.projectId).toBe("fixture");
+    expect(body.state).toBe("queued");
+
+    const job = await waitForAnalyzeJob(body.jobId);
+    expect(job.state, JSON.stringify(job)).toBe("done");
+    expect(typeof job.result?.files).toBe("number");
   });
 
   it("returns 404 for unknown project", async () => {
