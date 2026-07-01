@@ -15,6 +15,7 @@
 
 import type { Hono } from "hono";
 import { ProjectManager } from "../../../project/manager.js";
+import { AnalysisQueue } from "../../../project/analysis-queue.js";
 import type { WebContextSource } from "../context.js";
 import type { AnalysisContext } from "../../../core.js";
 
@@ -35,9 +36,28 @@ export function mountProjectRoutes(
   manager: ProjectManager | null,
   onAfterAnalyze?: (ctx: AnalysisContext) => void,
 ): void {
+  const analyzeQueue = manager
+    ? new AnalysisQueue(async (projectId, setPhase) => {
+        setPhase("invalidating cache");
+        manager.cache.invalidate(projectId);
+        setPhase("analyzing");
+        const ctx = await manager.analyzeProject(projectId);
+        setPhase("prewarming");
+        if (onAfterAnalyze) try { onAfterAnalyze(ctx); } catch { /* pre-warm is optional */ }
+        return { files: ctx.files.length, functions: ctx.functions.length };
+      })
+    : null;
+
   // GET /api/projects — list + selected
   app.get("/api/projects", (c) => {
     return c.json({ projects: source.projects(), selected: source.selected() });
+  });
+
+  app.get("/api/analyze-jobs", (c) => {
+    if (!analyzeQueue) {
+      return c.json({ error: "project management requires manager mode" }, 501);
+    }
+    return c.json({ jobs: analyzeQueue.jobs(), active: analyzeQueue.active });
   });
 
   // POST /api/projects — register + analyze { name, rootPath }
@@ -80,19 +100,15 @@ export function mountProjectRoutes(
 
   // POST /api/projects/:id/analyze — force (re)analyze (invalidates cache first)
   app.post("/api/projects/:id/analyze", async (c) => {
-    if (!manager) {
+    if (!manager || !analyzeQueue) {
       return c.json({ error: "project management requires manager mode" }, 501);
     }
     const id = c.req.param("id");
     try {
-      manager.cache.invalidate(id);
-      const ctx = await manager.analyzeProject(id);
-      if (onAfterAnalyze) try { onAfterAnalyze(ctx); } catch { /* pre-warm is optional */ }
-      return c.json({
-        project: id,
-        files: ctx.files.length,
-        functions: ctx.functions.length,
-      });
+      const projectId = manager.resolveId(id);
+      if (!manager.get(projectId)) return c.json({ error: `no such project "${id}"` }, 404);
+      const job = analyzeQueue.enqueue(projectId);
+      return c.json({ jobId: job.id, projectId: job.projectId, state: job.state }, 202);
     } catch (err) {
       return c.json(
         { error: err instanceof Error ? err.message : String(err) },
