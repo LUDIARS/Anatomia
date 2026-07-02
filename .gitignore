@@ -5,6 +5,7 @@ logs/
 
 # eval / scratch artifacts (not part of source)
 .eval-cache/
+.tmp/
 ks-graph.html
 
 # ローカル依存ライブラリ (git submodule update --init でセットアップ)
