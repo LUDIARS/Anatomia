@@ -42,3 +42,26 @@ export function foldUnitGraph(
   agg: DomainUnitAggregate,
   opts: { fold: boolean },
 ): FoldedUnitGraph;
+
+/** Screen row for the Domain View panel (screens belonging to a domain). */
+export interface ScreenRow {
+  name: string;
+  kind: string;
+  stack: string;
+  route: string | null;
+  file: string;
+}
+export function screensRowsFor(
+  screens:
+    | Array<{
+        name: string;
+        kind: string;
+        stack: string;
+        route?: string | null;
+        file: string;
+        domains?: string[];
+      }>
+    | null
+    | undefined,
+  domainName: string,
+): ScreenRow[];
