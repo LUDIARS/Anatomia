@@ -42,3 +42,23 @@ export function foldUnitGraph(
   agg: DomainUnitAggregate,
   opts: { fold: boolean },
 ): FoldedUnitGraph;
+
+export interface ScreenInput {
+  name: string;
+  kind: string;
+  stack: string;
+  route?: string | null;
+  file: string;
+  domains?: string[];
+}
+export interface ScreenRow {
+  name: string;
+  kind: string;
+  stack: string;
+  route: string | null;
+  file: string;
+}
+export function screensRowsFor(
+  screens: ScreenInput[] | null | undefined,
+  domainName: string,
+): ScreenRow[];

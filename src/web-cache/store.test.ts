@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { writeWebCache, readWebManifest, readWebView } from "./store.js";
 import type { WebCacheBundle, SceneModulesPayload, SearchCorpus } from "./types.js";
 
-const scene: SceneModulesPayload = { hasScenes: false, scenes: [], domains: [] };
+const scene: SceneModulesPayload = { hasScenes: false, scenes: [] };
 const corpus: SearchCorpus = { entries: [{ kind: "domain", ref: "d", title: "d" }] };
 
 const bundle: WebCacheBundle = {
