@@ -10,7 +10,7 @@
        renderAccess/focusDomain call (which only fire on interaction/load). -->
   <script type="module" src="/domain-view-logic.js"></script>
   <!-- Pure cache-view logic; publishes window.WebViewsLogic for the inline
-       scripts below (Scene·Domain·Module / Search / manifest summary). -->
+       scripts below (Scenes / Search / manifest summary). -->
   <script type="module" src="/web-views-logic.js"></script>
   <!-- Pure deep-link logic; publishes window.DeeplinkLogic so the boot code can
        consume Thaleia's `?project=&focus=` links (parse + entity matching). -->
@@ -345,7 +345,7 @@
                     text-transform: none; letter-spacing: 0; }
     .gate-card p { font-size: 0.82rem; color: #8b949e; line-height: 1.5; margin-bottom: 16px; }
 
-    /* ── Scene·Domain·Module panel ──────────────────────────── */
+    /* ── Scenes panel ───────────────────────────────────────── */
     #panel-scene-modules { padding: 16px 20px; }
     #sm-scene-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 14px; }
     .sm-chip {
@@ -355,20 +355,24 @@
     }
     .sm-chip:hover { background: #30363d; }
     .sm-chip.active { background: #0d2f4a; border-color: #58a6ff; color: #58a6ff; }
-    .sm-domain {
+    .sm-scene {
       background: #161b22; border: 1px solid #30363d; border-radius: 8px;
       margin-bottom: 10px; overflow: hidden;
     }
-    .sm-domain-head {
+    .sm-scene-head {
       display: flex; align-items: center; gap: 10px; padding: 10px 14px; cursor: pointer;
     }
-    .sm-domain-head:hover { background: #1c2330; }
-    .sm-domain-name { font-weight: 600; font-size: 0.88rem; }
-    .sm-domain-scenes { margin-left: auto; display: flex; gap: 5px; flex-wrap: wrap; }
+    .sm-scene-head:hover { background: #1c2330; }
+    .sm-scene-name { font-weight: 600; font-size: 0.88rem; }
+    .sm-scene-id { font-family: monospace; font-size: 0.68rem; color: #6e7681; }
+    .sm-scene-domains { margin-left: auto; display: flex; gap: 5px; flex-wrap: wrap; }
     .sm-scene-tag { font-size: 0.66rem; padding: 1px 7px; border-radius: 8px;
                     background: #21262d; color: #8b949e; }
-    .sm-modules { display: none; padding: 4px 14px 12px; }
-    .sm-domain.open .sm-modules { display: block; }
+    .sm-scene-detail { display: none; padding: 4px 14px 12px; }
+    .sm-scene.open .sm-scene-detail { display: block; }
+    .sm-domain-slice { border-top: 1px solid #21262d; padding: 9px 0; }
+    .sm-domain-slice-head { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
+    .sm-domain-name { font-weight: 600; font-size: 0.8rem; }
     .sm-mod {
       border-top: 1px solid #21262d; padding: 8px 0;
     }
@@ -535,7 +539,7 @@
       <div id="dash-tabs">
         <button class="tab-btn active" data-tab="graph">Graph</button>
         <button class="tab-btn" data-tab="domain-view">Domain View</button>
-        <button class="tab-btn" data-tab="scene-modules">Scene·Domain·Module</button>
+        <button class="tab-btn" data-tab="scene-modules">Scenes</button>
         <button class="tab-btn" data-tab="search">Search</button>
         <button class="tab-btn" data-tab="hotspots">Hotspots</button>
         <button class="tab-btn" data-tab="domains">Domains</button>
@@ -672,7 +676,7 @@
           </div>
         </div>
 
-        <!-- ── Scene·Domain·Module ── -->
+        <!-- ── Scenes ── -->
         <div class="tab-panel" id="panel-scene-modules">
           <div style="padding:16px 20px">
             <div id="sm-scene-bar"></div>
@@ -1867,7 +1871,7 @@
     });
   }
 
-  // ── Scene·Domain·Module tab ─────────────────────────────────────────────────
+  // ── Scenes tab ──────────────────────────────────────────────────────────────
 
   async function loadSceneModules(id) {
     var panel = panelTemplate('scene-modules');
@@ -1882,14 +1886,14 @@
       return;
     }
     if (!r.ok) {
-      if (r.status === 409) { renderNotPrepared(panel, id, 'Scene·Domain·Module'); return; }
+      if (r.status === 409) { renderNotPrepared(panel, id, 'Scenes'); return; }
       body.innerHTML = '<div class="error-msg">' + esc(r.body.error || 'error') + '</div>';
       return;
     }
-    state.sceneModules = r.data || { hasScenes: false, scenes: [], domains: [] };
+    state.sceneModules = r.data || { hasScenes: false, scenes: [] };
     state.sceneFilter = null;
     renderSceneBar();
-    renderSceneDomains();
+    renderScenes();
   }
 
   function renderSceneBar() {
@@ -1897,7 +1901,7 @@
     var payload = state.sceneModules || {};
     if (!payload.hasScenes || !(payload.scenes || []).length) { bar.innerHTML = ''; return; }
     var chips = ['<span class="sm-chip' + (state.sceneFilter ? '' : ' active') +
-      '" data-scene="">全シーン</span>'];
+      '" data-scene="">All scenes</span>'];
     (payload.scenes || []).forEach(function (s) {
       var label = s.label || s.id;
       chips.push('<span class="sm-chip' + (state.sceneFilter === s.id ? ' active' : '') +
@@ -1909,63 +1913,70 @@
         var sid = c.getAttribute('data-scene') || null;
         state.sceneFilter = sid;
         renderSceneBar();
-        renderSceneDomains();
+        renderScenes();
       };
     });
   }
 
-  function renderSceneDomains() {
+  function renderScenes() {
     var body = document.getElementById('sm-body');
     var payload = state.sceneModules || {};
-    var allDomains = payload.domains || [];
-    // Filter by selected scene (pure logic decides which domains activate).
-    var visible = allDomains;
-    if (state.sceneFilter) {
-      var names = WebViewsLogic.domainsForScene(payload, state.sceneFilter);
-      var set = {};
-      names.forEach(function (n) { set[n] = 1; });
-      visible = allDomains.filter(function (d) { return set[d.domain]; });
-    }
+    var visible = WebViewsLogic.scenesForFilter(payload, state.sceneFilter);
     if (!visible.length) {
-      body.innerHTML = '<div class="empty-msg">該当するドメインがありません。</div>';
+      body.innerHTML = '<div class="empty-msg">シーンがありません。Adjust で定義するか、実行トレースを取り込むと表示されます。</div>';
       return;
     }
-    body.innerHTML = visible.map(function (d, di) {
-      var badge = d.conforms
-        ? '<span class="badge badge-green">conforms</span>'
-        : '<span class="badge badge-red">' + d.violationCount + ' violations</span>';
-      var sceneTags = (d.scenes || []).map(function (sid) {
-        return '<span class="sm-scene-tag">' + esc(sid) + '</span>';
+    body.innerHTML = visible.map(function (s, si) {
+      var label = s.label || s.id || '(scene)';
+      var domainTags = (s.domains || []).map(function (domain) {
+        return '<span class="sm-scene-tag">' + esc(domain) + '</span>';
       }).join('');
-      var mods = (d.modules || []).map(function (m) {
-        var coh = m.cohesion == null ? '凝集 n/a' : '凝集 ' + Math.round(m.cohesion * 100) + '%';
-        var accesses = (m.accesses || []).map(function (a) {
-          var doms = (a.targetDomains && a.targetDomains.length)
-            ? ' <span class="sm-acc-doms">[' + a.targetDomains.map(esc).join(', ') + ']</span>' : '';
-          return '<div class="sm-acc-row">' + esc(WebViewsLogic.formatAccess(a)) + doms + '</div>';
-        }).join('');
-        var accBlock = accesses ? '<div class="sm-acc">' + accesses + '</div>' : '';
-        return '<div class="sm-mod">' +
-          '<div class="sm-mod-name">' + esc(m.label) + '</div>' +
-          '<div class="sm-mod-stats">' +
-            '<span><strong>' + m.functionCount + '</strong> fn</span>' +
-            '<span><strong>' + m.domainFunctionCount + '</strong> domain-fn</span>' +
-            '<span>' + coh + '</span>' +
-            '<span><strong>' + m.violationCount + '</strong> viol</span>' +
-          '</div>' + accBlock +
-        '</div>';
-      }).join('');
-      return '<div class="sm-domain" data-di="' + di + '">' +
-        '<div class="sm-domain-head">' +
-          '<span class="sm-domain-name">' + esc(d.domain) + '</span> ' + badge +
-          '<span class="sm-domain-scenes">' + sceneTags + '</span>' +
+      if (!domainTags) domainTags = '<span class="sm-scene-tag">domain未割当</span>';
+      var slices = (s.domainSlices || []).map(renderSceneDomainSlice).join('');
+      return '<div class="sm-scene open" data-si="' + si + '">' +
+        '<div class="sm-scene-head">' +
+          '<span class="sm-scene-name">' + esc(label) + '</span>' +
+          '<span class="sm-scene-id">' + esc(s.id || '') + '</span>' +
+          '<span class="sm-scene-domains">' + domainTags + '</span>' +
         '</div>' +
-        '<div class="sm-modules">' + (mods || '<div class="dv-muted">モジュールなし</div>') + '</div>' +
+        '<div class="sm-scene-detail">' +
+          (slices || '<div class="dv-muted">関連ドメイン/モジュールはまだありません。</div>') +
+        '</div>' +
       '</div>';
     }).join('');
-    body.querySelectorAll('.sm-domain-head').forEach(function (h) {
+    body.querySelectorAll('.sm-scene-head').forEach(function (h) {
       h.onclick = function () { h.parentNode.classList.toggle('open'); };
     });
+  }
+
+  function renderSceneDomainSlice(d) {
+    var badge = d.conforms
+      ? '<span class="badge badge-green">conforms</span>'
+      : '<span class="badge badge-red">' + d.violationCount + ' violations</span>';
+    var mods = (d.modules || []).map(function (m) {
+      var coh = m.cohesion == null ? '凝集 n/a' : '凝集 ' + Math.round(m.cohesion * 100) + '%';
+      var accesses = (m.accesses || []).map(function (a) {
+        var doms = (a.targetDomains && a.targetDomains.length)
+          ? ' <span class="sm-acc-doms">[' + a.targetDomains.map(esc).join(', ') + ']</span>' : '';
+        return '<div class="sm-acc-row">' + esc(WebViewsLogic.formatAccess(a)) + doms + '</div>';
+      }).join('');
+      var accBlock = accesses ? '<div class="sm-acc">' + accesses + '</div>' : '';
+      return '<div class="sm-mod">' +
+        '<div class="sm-mod-name">' + esc(m.label) + '</div>' +
+        '<div class="sm-mod-stats">' +
+          '<span><strong>' + m.functionCount + '</strong> fn</span>' +
+          '<span><strong>' + m.domainFunctionCount + '</strong> scene-domain-fn</span>' +
+          '<span>' + coh + '</span>' +
+          '<span><strong>' + m.violationCount + '</strong> viol</span>' +
+        '</div>' + accBlock +
+      '</div>';
+    }).join('');
+    return '<div class="sm-domain-slice">' +
+      '<div class="sm-domain-slice-head">' +
+        '<span class="sm-domain-name">' + esc(d.domain) + '</span> ' + badge +
+      '</div>' +
+      (mods || '<div class="dv-muted">モジュールなし</div>') +
+    '</div>';
   }
 
   // ── Search tab ──────────────────────────────────────────────────────────────
@@ -2128,7 +2139,7 @@
       '<div class="adj-form-row">' +
         '<input type="text" id="adj-scene-id" placeholder="scene id" />' +
         '<input type="text" id="adj-scene-label" placeholder="label (任意)" />' +
-        '<input type="text" id="adj-scene-domains" placeholder="domains (カンマ区切り)" />' +
+        '<input type="text" id="adj-scene-domains" placeholder="domains (任意 / カンマ区切り)" />' +
         '<button class="btn btn-primary btn-sm" id="adj-add-scene">シーン追加</button>' +
       '</div>' +
       '<h3>粒度の自動再調整</h3>' +
@@ -2263,7 +2274,7 @@
   // Thaleia (突合サービス) links into this panel as
   //   /?project=<anatomiaProjectId>&focus=<domain-or-screen>
   // (Thaleia src/links/deeplink.ts → anatomiaFocusUrl). We select the project and
-  // land on the named domain (Domain View) or scene/screen (Scene·Domain·Module).
+  // land on the named domain (Domain View) or scene/screen (Scenes).
   // Anything that does not resolve is surfaced (console.warn + a banner) rather
   // than silently swallowed (規約: 無言フォールバック禁止); the dashboard still lands.
 
@@ -2299,14 +2310,14 @@
     await loadDomainView(id);
     var dv = DeeplinkLogic.findDomainMatch(state.domainViews, focus);
     if (dv) { selectDomain(dv); scrollDvCardIntoView(dv.domain); return; }
-    // 2) Scene / screen (Scene·Domain·Module tab).
+    // 2) Scene / screen (Scenes tab).
     activateTab('scene-modules', false);
     await loadSceneModules(id);
     var sceneId = DeeplinkLogic.findSceneMatch(state.sceneModules, focus);
     if (sceneId != null) {
       state.sceneFilter = sceneId;
       renderSceneBar();
-      renderSceneDomains();
+      renderScenes();
       return;
     }
     // 3) Neither — surface it, keep the dashboard landing.

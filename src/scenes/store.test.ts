@@ -33,8 +33,8 @@ describe("scenes store", () => {
 });
 
 describe("mergeSceneModel", () => {
-  it("merges manual + trace scenes, manual winning on id collision", () => {
-    const trace: SceneRef[] = [
+  it("merges manual + discovered scenes, manual winning on id collision", () => {
+    const discovered: SceneRef[] = [
       { id: "phase-1", domains: ["combat"] },
       { id: "shared", domains: ["trace-only"] },
     ];
@@ -42,7 +42,7 @@ describe("mergeSceneModel", () => {
       { id: "shared", label: "curated", domains: ["combat", "ui"] },
       { id: "menu", domains: ["ui"] },
     ];
-    const model = mergeSceneModel(manual, trace);
+    const model = mergeSceneModel(manual, discovered);
     expect(model.scenes().map((s) => s.id).sort()).toEqual(["menu", "phase-1", "shared"]);
     // manual wins
     expect(model.sceneById("shared")?.label).toBe("curated");

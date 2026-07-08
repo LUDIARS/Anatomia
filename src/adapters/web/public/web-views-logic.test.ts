@@ -1,13 +1,13 @@
 /**
  * Pure cache-view panel logic (src/adapters/web/public/web-views-logic.js).
- * These small shaping functions back the Scene·Domain·Module, Search and
+ * These small shaping functions back the Scenes, Search and
  * manifest-summary panels; extracted from index.html so they are testable
  * without a browser.
  */
 import { describe, it, expect } from "vitest";
 import {
   formatAccess,
-  domainsForScene,
+  scenesForFilter,
   manifestSummary,
   searchResultLabel,
 } from "./web-views-logic.js";
@@ -40,39 +40,28 @@ describe("formatAccess", () => {
   });
 });
 
-describe("domainsForScene", () => {
+describe("scenesForFilter", () => {
   const payload = {
-    domains: [
-      { domain: "combat", scenes: ["battle", "boss"] },
-      { domain: "ui", scenes: ["battle"] },
-      { domain: "meta", scenes: [] },
-      { domain: "audio" },
+    scenes: [
+      { id: "battle", label: "Battle" },
+      { id: "boss", label: "Boss" },
+      { id: "cross-screen-flow" },
     ],
   };
-  it("returns all domains when sceneId is null/empty", () => {
-    expect(domainsForScene(payload, null)).toEqual([
-      "combat",
-      "ui",
-      "meta",
-      "audio",
-    ]);
-    expect(domainsForScene(payload, "")).toEqual([
-      "combat",
-      "ui",
-      "meta",
-      "audio",
-    ]);
+  it("returns all scenes when sceneId is null/empty", () => {
+    expect(scenesForFilter(payload, null)).toEqual(payload.scenes);
+    expect(scenesForFilter(payload, "")).toEqual(payload.scenes);
   });
-  it("filters to domains whose scenes contain the sceneId", () => {
-    expect(domainsForScene(payload, "battle")).toEqual(["combat", "ui"]);
-    expect(domainsForScene(payload, "boss")).toEqual(["combat"]);
+  it("filters to the selected scene id", () => {
+    expect(scenesForFilter(payload, "battle")).toEqual([{ id: "battle", label: "Battle" }]);
+    expect(scenesForFilter(payload, "boss")).toEqual([{ id: "boss", label: "Boss" }]);
   });
-  it("returns [] when no domain activates the scene", () => {
-    expect(domainsForScene(payload, "nope")).toEqual([]);
+  it("returns [] when no scene matches", () => {
+    expect(scenesForFilter(payload, "nope")).toEqual([]);
   });
   it("tolerates a missing/empty payload", () => {
-    expect(domainsForScene(null, "battle")).toEqual([]);
-    expect(domainsForScene({}, null)).toEqual([]);
+    expect(scenesForFilter(null, "battle")).toEqual([]);
+    expect(scenesForFilter({}, null)).toEqual([]);
   });
 });
 

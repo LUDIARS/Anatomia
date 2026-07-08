@@ -1,5 +1,5 @@
 /**
- * src/web-cache/scene-modules.test.ts — scene → domain → module assembly.
+ * src/web-cache/scene-modules.test.ts — scene-centred scene → domain → module assembly.
  */
 
 import { describe, it, expect } from "vitest";
@@ -74,8 +74,11 @@ describe("buildSceneModules", () => {
     const out = await buildSceneModules(ctx, evaluation, index, scenes);
 
     expect(out.hasScenes).toBe(true);
-    const combat = out.domains.find((d) => d.domain === "combat")!;
-    expect(combat.scenes).toEqual(["s1"]);
+    expect(out.scenes.map((s) => s.id)).toEqual(["s1"]);
+    const scene = out.scenes[0]!;
+    expect(scene.domains).toEqual(["combat"]);
+
+    const combat = scene.domainSlices.find((d) => d.domain === "combat")!;
     expect(combat.violationCount).toBe(1);
 
     const combatMod = combat.modules.find((m) => m.moduleId === "/repo/combat")!;
@@ -85,10 +88,6 @@ describe("buildSceneModules", () => {
     expect(combatMod.accesses.map((acc) => acc.targetModuleId)).toEqual(["/repo/ui"]);
     expect(combatMod.accesses[0]!.count).toBe(1);
 
-    const ui = out.domains.find((d) => d.domain === "ui")!;
-    expect(ui.scenes).toEqual([]);
-    const uiMod = ui.modules.find((m) => m.moduleId === "/repo/ui")!;
-    expect(uiMod.violationCount).toBe(0);
-    expect(uiMod.accesses).toEqual([]);
+    expect(scene.domainSlices.some((d) => d.domain === "ui")).toBe(false);
   });
 });

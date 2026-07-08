@@ -9,14 +9,14 @@ export interface ModuleAccess {
 }
 export function formatAccess(access: ModuleAccess | null | undefined): string;
 
-export interface SceneModuleDomain {
-  domain: string;
-  scenes?: string[];
+export interface SceneRow {
+  id?: string;
+  label?: string;
 }
-export function domainsForScene(
-  payload: { domains?: SceneModuleDomain[] } | null | undefined,
+export function scenesForFilter<T extends SceneRow>(
+  payload: { scenes?: T[] } | null | undefined,
   sceneId: string | null | undefined,
-): string[];
+): T[];
 
 export interface ManifestSummary {
   prepared: boolean;

@@ -102,32 +102,32 @@ export interface SceneModuleNode {
   accesses: ModuleAccess[];
 }
 
-/** A domain row (the view is domain-centred) with its modules. */
-export interface SceneDomainNode {
+/** A domain slice inside a scene, with the modules that implement that slice. */
+export interface SceneDomainSlice {
   domain: string;
   conforms: boolean;
   violationCount: number;
-  /** Scene ids (局面) that activate this domain. */
-  scenes: string[];
   modules: SceneModuleNode[];
 }
 
-/** A scene-state node (局面): id + the domains it activates. */
+/** A scene node: a runtime phase, UI screen, or cross-screen workflow/module. */
 export interface SceneNode {
   id: string;
   label?: string;
+  /** Domain names active in this scene. Empty is valid for a scene not yet mapped. */
   domains: string[];
+  /** Domain/module details for the scene's active domains. */
+  domainSlices: SceneDomainSlice[];
 }
 
 /**
- * The scene-state → domain → module view: only this hierarchy, domain-centred,
- * every module pre-decorated with functionCount / accesses / violations.
+ * The Scenes view: scene → domain slice → module. Domains are supporting detail;
+ * the display contract is scene-centred.
  */
 export interface SceneModulesPayload {
-  /** True when a real trace fed the scene layer; false → scenes is empty. */
+  /** True when manual or discovered scenes exist; false → scenes is empty. */
   hasScenes: boolean;
   scenes: SceneNode[];
-  domains: SceneDomainNode[];
 }
 
 // ── search corpus ───────────────────────────────────────────────────────────

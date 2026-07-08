@@ -1,14 +1,17 @@
 /**
- * src/scenes/store.ts — Manually-curated scene (局面) definitions.
+ * src/scenes/store.ts — Manually-curated scene definitions.
  *
  * Most projects have no recorded trace, so the scene layer would be empty. This
  * store lets the adjustment view define scenes by hand: a scene = an id, a label,
- * and the domains it activates. Persisted as spec/data/<project>.scenes.json so
- * it is a committed, reviewable artifact alongside the taxonomy.
+ * and the domains it activates. A scene can be a runtime phase, a UI screen, or a
+ * workflow/module that spans multiple screens; this store deliberately does not
+ * split those into different entity kinds. Persisted as
+ * spec/data/<project>.scenes.json so it is a committed, reviewable artifact
+ * alongside the taxonomy.
  *
- * A SceneModel for the panel merges these manual scenes with any trace-derived
- * ones (manual wins on id collision), so a curated scene and a recorded 局面 can
- * coexist.
+ * A SceneModel for the panel merges these manual scenes with discovered scenes
+ * (static screens + trace-derived runtime phases). Manual wins on id collision,
+ * so curated scenes can refine or replace automatic discoveries.
  *
  * SRP: filesystem read/write + merge of scene definitions. No graph, no HTTP.
  */
@@ -53,10 +56,10 @@ export async function saveScenes(
   await writeFile(scenesPath(repoPath, project), JSON.stringify(f, null, 2) + "\n", "utf8");
 }
 
-/** Merge manual + trace-derived scenes (manual wins on id) into a SceneModel. */
-export function mergeSceneModel(manual: SceneRef[], traceScenes: SceneRef[]): SceneModel {
+/** Merge manual + discovered scenes (manual wins on id) into a SceneModel. */
+export function mergeSceneModel(manual: SceneRef[], discoveredScenes: SceneRef[]): SceneModel {
   const byId = new Map<string, SceneRef>();
-  for (const s of traceScenes) byId.set(s.id, s);
+  for (const s of discoveredScenes) byId.set(s.id, s);
   for (const s of manual) byId.set(s.id, s); // manual overrides
   return createSceneModel([...byId.values()]);
 }

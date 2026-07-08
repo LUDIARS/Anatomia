@@ -1,14 +1,13 @@
 /**
- * src/domains/retune/screens.ts — Fold the detected screen composition into the
- * domain taxonomy (the retune side of the screens/ layer).
+ * src/domains/retune/screens.ts — Retune compatibility for detected screens.
  *
  * The screens/ layer detects WHAT screens exist + how they compose/navigate.
- * Re-tune turns that into ontology: a deterministic `screen-composition` domain
- * (one module per stack×kind, owning the screen files by path) so the screens
- * surface in the Domain View and feed supply/verify exactly like any other
- * generated domain. It also persists the full screen graph as a committed
- * artifact and renders a compact summary that grounds the step-1 LLM prompt so
- * the rest of the taxonomy is screen-aware.
+ * The primary UI projection is now scenes/from-screens.ts: screens become
+ * SceneRef rows in the Scenes view. Retune still keeps a deterministic
+ * `screen-composition` domain projection for supply/verify compatibility (one
+ * module per stack×kind, owning the screen files by path). It also persists the
+ * full screen graph as a committed artifact and renders a compact summary that
+ * grounds the step-1 LLM prompt so the rest of the taxonomy is screen-aware.
  *
  * Dependency direction is one-way: retune → screens (screens never imports
  * retune). SRP: screen→taxonomy mapping + artifact persistence + prompt summary.

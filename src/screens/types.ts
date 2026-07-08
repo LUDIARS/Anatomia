@@ -7,9 +7,10 @@
  * which screens it navigates to — as a static, deterministic overlay on the call
  * graph, the same way patterns/ detects access patterns.
  *
- * This is the structural ("画面構成") counterpart to scenes/ (the DYNAMIC
- * scene-state / phase layer). Screens are static composition; scenes are runtime
- * phases that activate domains. They are orthogonal (see role-vision 3 層).
+ * This is the structural ("画面構成") discovery counterpart to scenes/. Screens
+ * are static composition, while trace-derived scenes are runtime phases, but the
+ * user-facing layer projects both to SceneRef so the panel treats screens,
+ * runtime phases, and cross-screen workflows/modules as scenes.
  *
  * SRP: type definitions only. Detection lives in detect.ts.
  */

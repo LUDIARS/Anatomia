@@ -1,13 +1,14 @@
 /**
- * src/integral/scene.ts — Scene model: the dynamic/runtime partition layer.
+ * src/integral/scene.ts — Scene model: runtime/screen/workflow partition layer.
  *
- * A SCENE is the third layer integral search climbs to (構造グラフ → ドメイン →
- * シーンステート). Where a domain is a *semantic* partition of the function set,
- * a scene is a *runtime/temporal* one: a 局面 that activates a set of domains
- * during a window of execution. The two are ORTHOGONAL — a scene references the
- * domains active in it, but scene state is NOT part of a domain (DESIGN,
- * boundary line). Some scenes coincide with a single domain; that coincidence is
- * surfaced, not collapsed.
+ * A SCENE is the user-facing runtime/workflow layer Anatomia climbs to after
+ * the structural graph and domains. A scene may be a runtime phase discovered
+ * from trace data, a UI screen, or a workflow/module that spans multiple screens.
+ * Anatomia treats all of those as scenes. Where a domain is a *semantic*
+ * partition of the function set, a scene is an activation/context partition that
+ * references the domains active in it. Scene state is NOT part of a domain
+ * (DESIGN boundary line). Some scenes coincide with a single domain; that
+ * coincidence is surfaced, not collapsed.
  *
  * Scenes are derived from the dynamic layer's phase signatures (each carries the
  * sorted set of active domains, see dynamic/phase/signature.ts), so this module
