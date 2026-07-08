@@ -132,10 +132,10 @@ describe("prepared web cache: gate → prepare → serve", () => {
       expect(typeof body.preparedAt, view).toBe("string");
       expect(body.data, view).toBeDefined();
     }
-    // scene-modules shape: domain-centred, hasScenes flag present.
+    // scene-modules shape: scene-centred, hasScenes flag present.
     const sm = (await (await get("/web/scene-modules")).json()).data;
     expect(typeof sm.hasScenes).toBe("boolean");
-    expect(Array.isArray(sm.domains)).toBe(true);
+    expect(Array.isArray(sm.scenes)).toBe(true);
   });
 
   it("rejects an unknown view", async () => {

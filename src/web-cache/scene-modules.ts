@@ -1,10 +1,12 @@
 /**
- * src/web-cache/scene-modules.ts — The scene-state → domain → module view.
+ * src/web-cache/scene-modules.ts — Build the Scenes web-cache view.
  *
- * A lean, domain-centred hierarchy that shows ONLY 局面(scene) → domain → module
- * — no graph. Every module is pre-decorated with the three facts the user asked
- * for: how many functions it holds, where it accesses (module→module edges), and
- * how many of its functions are in a domain violation.
+ * A lean, scene-centred hierarchy that shows scene → domain slice → module — no
+ * graph. A scene may be a runtime phase, a UI screen, or a workflow/module that
+ * spans multiple screens; all of them are rendered as scenes. Every module is
+ * pre-decorated with the three facts the panel needs: how many functions it
+ * holds, where it accesses (module→module edges), and how many of its functions
+ * are in a domain violation.
  *
  * Modules are the SAME structural units the existing Domain View uses
  * (directory-granularity ModuleEvaluation), so cohesion is available and the two
@@ -23,7 +25,7 @@ import { computeModuleAccesses } from "./module-access.js";
 import type { SceneModel } from "../integral/scene.js";
 import type {
   SceneModulesPayload,
-  SceneDomainNode,
+  SceneDomainSlice,
   SceneModuleNode,
 } from "./types.js";
 
@@ -70,7 +72,7 @@ export async function buildSceneModules(
   // Per-domain module refs (id/label/cohesion/domainAnchors/moduleAnchors).
   const modulesByDomain = buildDomainModules(domains, evaluation);
 
-  const domainNodes: SceneDomainNode[] = domains
+  const domainSlices: SceneDomainSlice[] = domains
     .filter((d) => d.implementors.length > 0)
     .map((d) => {
       // #violations of this domain that touch each module.
@@ -98,15 +100,21 @@ export async function buildSceneModules(
         domain: d.domain,
         conforms: d.conforms,
         violationCount: d.violations.length,
-        scenes: scenes.scenesForDomain(d.domain).map((s) => s.id),
         modules,
       };
     });
 
+  const domainSliceByName = new Map(domainSlices.map((d) => [d.domain, d]));
   const sceneList = scenes.scenes();
   return {
     hasScenes: sceneList.length > 0,
-    scenes: sceneList.map((s) => ({ id: s.id, label: s.label, domains: s.domains })),
-    domains: domainNodes,
+    scenes: sceneList.map((s) => ({
+      id: s.id,
+      label: s.label,
+      domains: s.domains,
+      domainSlices: s.domains
+        .map((domain) => domainSliceByName.get(domain))
+        .filter((domain): domain is SceneDomainSlice => domain !== undefined),
+    })),
   };
 }

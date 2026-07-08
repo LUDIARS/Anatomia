@@ -32,6 +32,8 @@ import { WEB_VIEWS } from "../../../web-cache/types.js";
 import type { WebViewName, SearchCorpus } from "../../../web-cache/types.js";
 import { searchCorpus } from "../../../web-cache/search.js";
 import { loadScenes, mergeSceneModel } from "../../../scenes/store.js";
+import { scenesFromScreenGraph } from "../../../scenes/from-screens.js";
+import { detectScreens } from "../../../screens/index.js";
 import { sceneModelFromTraceFile } from "../../../dynamic/record/ingest.js";
 import { sceneModelFromTrace, type SceneModel, type SceneRef } from "../../../integral/scene.js";
 import type { TraceSource } from "../../../dynamic/viz/trace-source.js";
@@ -53,21 +55,25 @@ export interface WebCacheRouteDeps {
 
 const VIEW_SET = new Set<WebViewName>(WEB_VIEWS);
 
-/** Resolve the scene model for a prepare run: manual scenes ∪ trace scenes. */
+/** Resolve the scene model for a prepare run: manual scenes override discovered scenes. */
 async function resolveSceneModel(
   deps: WebCacheRouteDeps,
   repoPath: string,
   project: string,
   ctx: AnalysisContext,
 ): Promise<SceneModel> {
-  const manual = await loadScenes(repoPath, project);
+  const [manual, screenGraph] = await Promise.all([
+    loadScenes(repoPath, project),
+    detectScreens(ctx),
+  ]);
+  const screenScenes = scenesFromScreenGraph(screenGraph);
   let traceScenes: SceneRef[] = [];
   if (deps.traceJsonl) {
     traceScenes = sceneModelFromTraceFile(deps.traceJsonl, ctx.domains ?? []).scenes();
   } else if (deps.traceSource) {
     traceScenes = sceneModelFromTrace(deps.traceSource).scenes();
   }
-  return mergeSceneModel(manual, traceScenes);
+  return mergeSceneModel(manual, [...screenScenes, ...traceScenes]);
 }
 
 export function mountWebCacheRoutes(app: Hono, deps: WebCacheRouteDeps): void {
