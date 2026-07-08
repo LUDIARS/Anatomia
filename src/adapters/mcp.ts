@@ -29,6 +29,7 @@ import {
 } from "../core.js";
 import { resolveLanding } from "../supply/landing.js";
 import { ProjectManager } from "../project/manager.js";
+import { slug } from "../project/registry.js";
 import { resolveProviders } from "../providers/index.js";
 import type { CardCache, DomainCard } from "../domains/card.js";
 import { resolveCacheStore } from "../cache/resolve.js";
@@ -317,13 +318,13 @@ export function createServer(
 /**
  * Entry point for production use.
  *
- * With no persisted registry: register cwd as the default project so existing
+ * With no persisted registry: register cwd as the selected project so existing
  * single-project usage keeps working, but with project tools available.
  */
 export async function main(repoPath = process.cwd()): Promise<void> {
   const mgr = await ProjectManager.load();
   if (mgr.list().length === 0) {
-    await mgr.addProject({ name: "default", rootPath: repoPath });
+    await mgr.addProject({ name: projectNameFromPath(repoPath), rootPath: repoPath });
   }
 
   // Cache measurement: ANATOMIA_CACHE_LOG opts in. The same transcript receives
@@ -354,4 +355,9 @@ export async function main(repoPath = process.cwd()): Promise<void> {
   const srv = createServer(mgr, providers, cacheObs);
   const transport = new StdioServerTransport();
   await srv.connect(transport);
+}
+
+function projectNameFromPath(repoPath: string): string {
+  const tail = (repoPath || "").replace(/[\\/]+$/, "").split(/[\\/]/).filter(Boolean).pop();
+  return slug(tail || "") || "project";
 }

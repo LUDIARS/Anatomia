@@ -132,10 +132,10 @@ describe("prepared web cache: gate → prepare → serve", () => {
       expect(typeof body.preparedAt, view).toBe("string");
       expect(body.data, view).toBeDefined();
     }
-    // scene-modules shape: domain-centred, hasScenes flag present.
+    // scene-modules shape: scene-centred, hasScenes flag present.
     const sm = (await (await get("/web/scene-modules")).json()).data;
     expect(typeof sm.hasScenes).toBe("boolean");
-    expect(Array.isArray(sm.domains)).toBe(true);
+    expect(Array.isArray(sm.scenes)).toBe(true);
   });
 
   it("rejects an unknown view", async () => {
@@ -199,6 +199,32 @@ describe("adjustment: domain / module / scene CRUD", () => {
     const del = await post("/adjust/scene", { action: "delete", id: "boss" });
     expect(del.status).toBe(200);
     expect((await del.json()).scenes.some((s: { id: string }) => s.id === "boss")).toBe(false);
+  });
+
+  it("applies a domain organization draft to the taxonomy", async () => {
+    const res = await post("/adjust/domain-organization", {
+      serviceName: "Fixture",
+      serviceDescription: "Users capture work notes.",
+      specs: [{ title: "Worklog Capture", text: "# Worklog Capture\n- Save a note in src/worklog." }],
+      uxAnswers: [
+        { questionId: "service:actor", answer: "Maintainers" },
+        { questionId: "service:success", answer: "The note is visible." },
+        { questionId: "worklog-capture:domain-boundary", answer: "Save and list work notes." },
+        { questionId: "worklog-capture:domain-success", answer: "The saved note can be found." },
+      ],
+      edits: {
+        domains: [{ match: "worklog-capture", pathHints: ["(^|/)src/worklog(/|$)"], nameHints: ["(Worklog|Capture)"] }],
+      },
+      apply: true,
+      confirmApply: true,
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.apply.taxonomy.domains.some((x: { name: string }) => x.name === "worklog-capture")).toBe(true);
+
+    const tax = JSON.parse(await readFile(join(root, "spec", "data", "Fixture.taxonomy.json"), "utf8"));
+    const domain = tax.domains.find((x: { name: string }) => x.name === "worklog-capture");
+    expect(domain.modules[0].names).toEqual(["(Worklog|Capture)"]);
   });
 
   it("rejects an invalid domain action (400)", async () => {

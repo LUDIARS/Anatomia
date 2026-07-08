@@ -10,7 +10,7 @@
 
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { extname } from "node:path";
+import { basename, extname, relative } from "node:path";
 import type { Tree } from "web-tree-sitter";
 import { collectFilesByExt, readGitignoreDirs, EXCLUDE_DIRS } from "./fs/walk.js";
 import { parse } from "./dag/parser.js";
@@ -46,6 +46,7 @@ import type { Landing, LandingTask, DomainDetector, LayerRules, SiblingLookup } 
 import type { DetectionResult } from "./domains/detect.js";
 import type { DiffInput } from "./supply/gates/types.js";
 import type { Lang } from "./types.js";
+import { vgCrash, vgWrite } from "./obs/vestigium.js";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -235,12 +236,24 @@ export async function analyze(
   repoPath: string,
   options: AnalyzeOptions = {},
 ): Promise<AnalysisContext> {
+  const started = Date.now();
+  const repoName = basename(repoPath);
+  vgWrite("info", "anatomia analyze start", {
+    repo: repoName,
+    quiet: options.quiet ?? false,
+    prior_files: options.priorFiles?.size ?? 0,
+  });
   const rawFilePaths = await collectSourceFiles(repoPath);
   // For TypeScript files, skip *.d.ts and files under node_modules/dist.
   const filePaths = rawFilePaths.filter((fp) => {
     const ext = extname(fp).toLowerCase();
     if (ext === ".ts" || ext === ".tsx") return !shouldSkipTsPath(fp);
     return true;
+  });
+  vgWrite("info", "anatomia analyze files discovered", {
+    repo: repoName,
+    raw_files: rawFilePaths.length,
+    files: filePaths.length,
   });
 
   const files: FileNode[] = [];
@@ -257,6 +270,11 @@ export async function analyze(
 
   const warn = (filePath: string, reason: string): void => {
     skipped.push({ filePath, reason });
+    vgWrite("warn", "anatomia analyze skipped file", {
+      repo: repoName,
+      file: fileLabel(repoPath, filePath),
+      reason: truncateForLog(reason),
+    });
     if (!options.quiet) {
       console.warn(`[anatomia/analyze] skipping ${filePath}: ${reason}`);
     }
@@ -264,7 +282,17 @@ export async function analyze(
 
   // Phase 1 — parse + extract + hash. Each file's tree is freed as soon as its
   // functions (with detached bodyAst) and type decls are extracted.
-  for (const filePath of filePaths) {
+  for (let index = 0; index < filePaths.length; index++) {
+    const filePath = filePaths[index]!;
+    if (index > 0 && index % 100 === 0) {
+      vgWrite("debug", "anatomia analyze parse progress", {
+        repo: repoName,
+        index,
+        files: filePaths.length,
+        parsed: files.length,
+        skipped: skipped.length,
+      });
+    }
     let src: string;
     try {
       src = await readFile(filePath, "utf8");
@@ -311,6 +339,12 @@ export async function analyze(
       // result. Stop the scan now; the warm server's next restart gets a fresh
       // module. (Per-file freeing above is what keeps us from reaching this.)
       if (isWasmAbort(err)) {
+        vgCrash("wasm-abort", err, {
+          repo: repoName,
+          file: fileLabel(repoPath, filePath),
+          parsed: files.length,
+          skipped: skipped.length,
+        });
         if (!options.quiet) {
           console.warn(
             "[anatomia/analyze] tree-sitter WASM aborted (heap exhausted); " +
@@ -345,12 +379,15 @@ export async function analyze(
     const key = graphCacheKey(files);
     const hit = await graphCache.get(key);
     if (hit) {
+      vgWrite("debug", "anatomia graph cache hit", { repo: repoName, files: files.length });
       codeGraph = hit;
     } else {
+      vgWrite("debug", "anatomia graph cache miss", { repo: repoName, files: files.length });
       codeGraph = buildGraph(files, extractEdgeInfo(files));
       await graphCache.set(key, codeGraph);
     }
   } else {
+    vgWrite("debug", "anatomia graph build", { repo: repoName, files: files.length });
     codeGraph = buildGraph(files, extractEdgeInfo(files));
   }
   const graph = new InMemoryCodeGraph(codeGraph);
@@ -369,18 +406,26 @@ export async function analyze(
       const key = detectionCacheKey(files, ontology);
       const hit = await detectionCache.get(key);
       if (hit) {
+        vgWrite("debug", "anatomia domain detection cache hit", { repo: repoName, files: files.length });
         domains = hit;
       } else {
+        vgWrite("debug", "anatomia domain detection cache miss", { repo: repoName, files: files.length });
         domains = await detectDomains(ontology, graph, allFunctions);
         await detectionCache.set(key, domains);
       }
     } else {
+      vgWrite("debug", "anatomia domain detection start", { repo: repoName, files: files.length });
       domains = await detectDomains(ontology, graph, allFunctions);
     }
     // Surface the ontology's preset rules so supply can list them and verify
     // can evaluate them (detection only reports violations on existing code).
     rules = compileDomainRules(ontology);
   } catch (err) {
+    vgWrite("error", "anatomia domain detection failed", {
+      repo: repoName,
+      files: files.length,
+      error: truncateForLog(String(err)),
+    });
     if (!options.quiet) {
       console.warn(`[anatomia/analyze] domain detection failed: ${String(err)}`);
     }
@@ -398,6 +443,11 @@ export async function analyze(
     const specRoots = [repoPath, ...(options.specDirs ?? [])];
     const collected = await Promise.all(specRoots.map((d) => collectSpecFiles(d)));
     const specPaths = [...new Set(collected.flat())];
+    vgWrite("debug", "anatomia spec files discovered", {
+      repo: repoName,
+      spec_roots: specRoots.length,
+      spec_files: specPaths.length,
+    });
     if (specPaths.length > 0) {
       specClauses = await parseSpecFiles(specPaths);
       const sourcePaths = files.map((f) => f.path);
@@ -408,10 +458,24 @@ export async function analyze(
       links = [...explicit, ...structural];
     }
   } catch (err) {
+    vgWrite("error", "anatomia spec linking failed", {
+      repo: repoName,
+      error: truncateForLog(String(err)),
+    });
     if (!options.quiet) {
       console.warn(`[anatomia/analyze] spec linking failed: ${String(err)}`);
     }
   }
+
+  vgWrite("info", "anatomia analyze done", {
+    repo: repoName,
+    files: files.length,
+    functions: allFunctions.length,
+    skipped: skipped.length,
+    domains: domains.length,
+    links: links.length,
+    duration_ms: Date.now() - started,
+  });
 
   return {
     repoPath,
@@ -671,6 +735,15 @@ function sourceFromDiffInput(input: string): string {
 
 function looksLikeUnifiedDiff(input: string): boolean {
   return /^diff --git /m.test(input) || /^@@ .* @@/m.test(input);
+}
+
+function fileLabel(repoPath: string, filePath: string): string {
+  const rel = relative(repoPath, filePath);
+  return rel && !rel.startsWith("..") ? rel : basename(filePath);
+}
+
+function truncateForLog(value: string, max = 500): string {
+  return value.length <= max ? value : `${value.slice(0, max)}...(truncated)`;
 }
 
 // ---------------------------------------------------------------------------

@@ -98,12 +98,12 @@ export class ProjectRegistry {
     return ok;
   }
 
-  /** The currently selected/default project id (or null). */
+  /** The currently selected project id (or null). */
   get selected(): string | null {
     return this.selectedId;
   }
 
-  /** Select a project as default. Throws if the id is unknown. */
+  /** Select a project. Throws if the id is unknown. */
   select(id: string): void {
     if (!this.byId.has(id)) {
       throw new Error(`ProjectRegistry.select: unknown project "${id}"`);

@@ -67,5 +67,30 @@ export async function loadRegistry(homeDir?: string): Promise<ProjectRegistry> {
     return new ProjectRegistry();
   }
   if (!snap || !Array.isArray(snap.projects)) return new ProjectRegistry();
+  snap = migrateSnapshot(snap);
   return ProjectRegistry.fromSnapshot(snap);
+}
+
+function migrateSnapshot(snap: RegistrySnapshot): RegistrySnapshot {
+  const hasAnatomia = snap.projects.some((p) => p.id === "anatomia");
+  if (hasAnatomia) return snap;
+
+  let migrated = false;
+  const projects = snap.projects.map((p) => {
+    if (p.id !== "default" || p.name !== "default") return p;
+    if (pathTail(p.rootPath).toLowerCase() !== "anatomia") return p;
+    migrated = true;
+    return { ...p, id: "anatomia", name: "anatomia" };
+  });
+  if (!migrated) return snap;
+
+  return {
+    ...snap,
+    selected: snap.selected === "default" ? "anatomia" : snap.selected,
+    projects,
+  };
+}
+
+function pathTail(path: string): string {
+  return (path || "").replace(/[\\/]+$/, "").split(/[\\/]/).filter(Boolean).pop() || "";
 }

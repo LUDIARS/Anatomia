@@ -65,6 +65,14 @@ import { join } from "node:path";
 import type { IntegralQuery, IntegralReport } from "../integral/types.js";
 import type { AnalysisContext } from "../core.js";
 import type { AnchorId, Verdict } from "../types.js";
+import {
+  initVestigium,
+  installCrashLogging,
+  vgCrash,
+  vgShutdown,
+  vgWrite,
+  withVgSpan,
+} from "../obs/vestigium.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -945,12 +953,43 @@ export async function main(): Promise<void> {
   // The `web` subcommand starts an HTTP server and keeps the process alive.
   // We handle it here before runCli() so we never call process.exit().
   if (args.subcommand === "web") {
-    const mgr = await ProjectManager.load({ homeDir: args.homeDir });
-    await startServer({ ctx: mgr, port: args.port ?? 4200 });
+    initVestigium();
+    installCrashLogging();
+    vgWrite("info", "anatomia cli web start", { port: args.port ?? 4200, home_dir: args.homeDir ?? null });
+    try {
+      const mgr = await ProjectManager.load({ homeDir: args.homeDir });
+      await startServer({ ctx: mgr, port: args.port ?? 4200 });
+    } catch (err) {
+      vgCrash("cli.web", err);
+      await vgShutdown();
+      throw err;
+    }
     // startServer starts the Hono listener; the event loop keeps the process alive.
     return;
   }
 
-  const { exitCode, output } = await runCli(args);
+  initVestigium({ captureConsole: false });
+  installCrashLogging();
+  const obsCtx = cliObsContext(args);
+  vgWrite("info", "anatomia cli start", obsCtx);
+  let result: { exitCode: number; output: string };
+  try {
+    result = await withVgSpan(`cli.${args.subcommand}`, obsCtx, () => runCli(args));
+  } catch (err) {
+    await vgShutdown();
+    throw err;
+  }
+  const { exitCode, output } = result;
+  vgWrite(exitCode === 0 ? "info" : "warn", "anatomia cli exit", { ...obsCtx, exit_code: exitCode });
+  await vgShutdown();
   await writeThenExit(process.stdout, output + "\n", exitCode);
+}
+
+function cliObsContext(args: CliArgs): Record<string, unknown> {
+  return {
+    subcommand: args.subcommand,
+    project: args.project ?? null,
+    project_action: args.projectAction ?? null,
+    repo: args.repoPath,
+  };
 }

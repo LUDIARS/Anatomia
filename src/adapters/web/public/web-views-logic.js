@@ -1,11 +1,11 @@
 /**
  * web-views-logic.js — pure data-shaping for the cache-backed Web views.
  *
- * The cache-backed panels (Scene·Domain·Module, Search, the manifest summary
- * strip) need small amounts of pure logic — formatting an access row, deciding
- * which domains a scene activates, summarising a manifest, labelling a search
- * result. Keeping these here (no DOM, no fetch) lets vitest regression-test them
- * and lets the browser reuse the exact same code.
+ * The cache-backed panels (Scenes, Search, the manifest summary strip) need
+ * small amounts of pure logic — formatting an access row, filtering scene rows,
+ * summarising a manifest, labelling a search result. Keeping these here (no DOM,
+ * no fetch) lets vitest regression-test them and lets the browser reuse the
+ * exact same code.
  *
  * Loaded in the browser as an ES module (`/web-views-logic.js`), which also
  * publishes the API on `window.WebViewsLogic` for index.html's classic inline
@@ -56,20 +56,17 @@ export function formatAccess(access) {
 }
 
 /**
- * The domains a scene activates. A domain belongs to a scene when its `scenes`
- * array contains the scene id. A null/empty sceneId means "no filter" → every
- * domain in the payload.
+ * The scenes to render for a selected scene id. A null/empty sceneId means "no
+ * filter" → every scene in payload order.
  *
- * @param {{domains?: Array<{domain:string, scenes?:string[]}>}} payload
+ * @param {{scenes?: Array<{id?:string}>}} payload
  * @param {string|null|undefined} sceneId
- * @returns {string[]} domain names (in payload order)
+ * @returns {Array<{id?:string}>} scene rows (in payload order)
  */
-export function domainsForScene(payload, sceneId) {
-  const domains = (payload && payload.domains) || [];
-  if (!sceneId) return domains.map((d) => d.domain);
-  return domains
-    .filter((d) => Array.isArray(d.scenes) && d.scenes.indexOf(sceneId) !== -1)
-    .map((d) => d.domain);
+export function scenesForFilter(payload, sceneId) {
+  const scenes = (payload && payload.scenes) || [];
+  if (!sceneId) return scenes;
+  return scenes.filter((s) => s && s.id === sceneId);
 }
 
 /**
@@ -86,20 +83,22 @@ function localTime(iso) {
 /**
  * Summarise a `/web/manifest` response for the dashboard summary strip.
  *
- *   { prepared:false }                               → { prepared:false, stale:false, label:"未生成" }
- *   { prepared:true, preparedAt:"…", stale:true }    → { prepared:true,  stale:true,  label:"<local datetime>" }
+ *   { prepared:false }                               → { prepared:false, stale:false, ready:false, label:"未生成" }
+ *   { prepared:true, preparedAt:"…", stale:true }    → { prepared:true,  stale:true,  ready:false, label:"<local datetime>" }
  *
  * @param {{prepared?:boolean, preparedAt?:string, stale?:boolean}|null|undefined} manifest
- * @returns {{prepared:boolean, stale:boolean, label:string}}
+ * @returns {{prepared:boolean, stale:boolean, ready:boolean, label:string}}
  */
 export function manifestSummary(manifest) {
   const m = manifest || {};
   if (!m.prepared) {
-    return { prepared: false, stale: false, label: "未生成" };
+    return { prepared: false, stale: false, ready: false, label: "未生成" };
   }
+  const stale = !!m.stale;
   return {
     prepared: true,
-    stale: !!m.stale,
+    stale,
+    ready: !stale,
     label: localTime(m.preparedAt) || "生成済",
   };
 }
@@ -125,7 +124,7 @@ export function searchResultLabel(result) {
 if (typeof window !== "undefined") {
   window.WebViewsLogic = {
     formatAccess,
-    domainsForScene,
+    scenesForFilter,
     manifestSummary,
     searchResultLabel,
   };

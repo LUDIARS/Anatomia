@@ -108,15 +108,15 @@ export async function runRetuneOnContext(
   const s6 = await step6Merge(input.llm, taxonomy, nodes, opts.minNodesPerModule ?? MIN_NODES_PER_MODULE);
   steps.push(s6.log);
 
-  // ── Step 8: fold the auto-learned screen composition in as a domain ───────
-  // Deterministic (no LLM) and added after the LLM steps so split/merge never
-  // reshape it. Owns its screen files by path → surfaces in the Domain View and
-  // feeds supply/verify like any generated domain.
+  // ── Step 8: retune compatibility projection for screen composition ─────────
+  // The web panel projects screens to Scenes view. Retune also keeps a
+  // deterministic `screen-composition` domain after the LLM steps so legacy
+  // supply/verify flows can still reason about screen files as module owners.
   if (screenPlan) {
     taxonomy.domains.push(screenPlan);
     steps.push({
       step: 8,
-      title: "画面構成を自動検出しドメイン化",
+      title: "画面構成を自動検出し互換ドメインへ投影",
       llm: false,
       summary: `${screenGraph.summary.total} screens, ${screenPlan.modules.length} screen modules, ${screenGraph.summary.edges} edges`,
     });
