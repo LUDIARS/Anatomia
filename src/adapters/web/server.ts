@@ -22,6 +22,7 @@
  *   GET /api/projects/:id/summary     counts
  *   GET /api/projects/:id/hotspots    top-N by coupling/complexity
  *   GET /api/projects/:id/spec-links  code↔spec links
+ *   POST /api/projects/:id/spec-links/ratify  ratify + persist a link (manager mode)
  *   GET /api/projects/:id/domains     domain detection results
  *   GET /api/projects/:id/vis-data    vis-network data (shared with export.ts)
  *   GET /api/projects/:id/branch-diff branch-diff function delta (?base=<ref>)
@@ -58,6 +59,7 @@ import { initVestigium, installCrashLogging, vgShutdown, vgWrite } from "../../o
 import { webContextSourceFrom } from "./context.js";
 import { mountProjectRoutes } from "./routes/projects.js";
 import { mountAnalysisRoutes } from "./routes/analysis.js";
+import { mountSpecLinkRoutes } from "./routes/spec-links.js";
 import { mountCacheRoute } from "./routes/cache.js";
 import { mountCostRoute } from "./routes/cost.js";
 import { mountHarnessRoutes } from "./routes/harness.js";
@@ -195,6 +197,9 @@ export function createApp(
 
   // ── Per-project analysis routes ──────────────────────────────────────────
   mountAnalysisRoutes(app, source);
+
+  // ── Spec-link mutation routes (ratify → committed spec/data artifact) ─────
+  mountSpecLinkRoutes(app, { manager });
 
   // ── Branch-diff analysis route (diff-only view over the full analysis) ────
   mountBranchRoutes(app, source);

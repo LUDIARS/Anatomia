@@ -78,10 +78,12 @@ describe("analyze specLinkCache reuse", () => {
     expect(first.links!.length).toBeGreaterThan(0);
 
     const second = await analyze(root, { quiet: true, specLinkCache });
-    // Hit → linkers not re-run, the very same arrays are shared by reference.
+    // Hit → linkers not re-run; clauses are the very same array by reference.
+    // (links get re-merged with the persisted ratified set per analyze, so
+    // they are equal in content but not by reference.)
     expect(vi.mocked(findExplicitLinks)).toHaveBeenCalledTimes(1);
     expect(vi.mocked(findStructuralLinks)).toHaveBeenCalledTimes(1);
-    expect(second.links).toBe(first.links);
+    expect(second.links).toEqual(first.links);
     expect(second.specClauses).toBe(first.specClauses);
   });
 

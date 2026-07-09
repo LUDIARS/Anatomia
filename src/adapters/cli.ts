@@ -21,6 +21,9 @@
  *   cache-stats   -- aggregate the A-3 LLM-cache transcript into a hit-rate report
  *                      --log <path>  JSONL transcript (default $ANATOMIA_CACHE_LOG)
  *                      --json        machine-readable report
+ *   links         -- code↔spec link hardening loop:
+ *                      links list [--project <id>]              list current links
+ *                      links ratify <from> <to> [--project <id>] ratify + persist a link
  *
  * `verify` / `context` / `where` / `export-graph` accept `--project <id>` to
  * target a registered project (the registered rootPath overrides --repo).
@@ -49,6 +52,7 @@ import {
   type SymbolLookupOptions,
 } from "../graph/index.js";
 import { buildReview, formatReview, loadBaseline, saveBaseline, applyBaseline } from "../review/index.js";
+import { ratifyLink, SpecLinkRatifyError } from "../spec/ratify.js";
 import { reviewSpec, formatSpecReview } from "../spec-review/index.js";
 import { detectScreens } from "../screens/index.js";
 import type { ScreenGraph } from "../screens/index.js";
@@ -95,6 +99,7 @@ import {
 export type ProjectAction = "add" | "list" | "remove" | "analyze";
 export type DomainsAction = "draft" | "list" | "reconstruct" | "suggest";
 export type TraceAction = "plan" | "ingest";
+export type LinksAction = "list" | "ratify";
 
 export interface CliArgs {
   subcommand:
@@ -113,7 +118,8 @@ export interface CliArgs {
     | "integral"
     | "domains"
     | "trace"
-    | "screens";
+    | "screens"
+    | "links";
   repoPath: string;
   /** For cache-stats: path to the JSONL transcript (defaults to ANATOMIA_CACHE_LOG). */
   logPath?: string;
@@ -172,6 +178,12 @@ export interface CliArgs {
   baselinePath?: string;
   /** For review: write the current report as a new baseline file (no output). */
   writeBaseline?: string;
+  /** For links: action (list | ratify). */
+  linksAction?: LinksAction;
+  /** For links ratify: code anchor / file path (`from` side). */
+  linkFrom?: string;
+  /** For links ratify: spec clause id (`to` side). */
+  linkTo?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -198,10 +210,11 @@ export function parseArgs(argv: string[]): CliArgs {
     subcommand !== "integral" &&
     subcommand !== "domains" &&
     subcommand !== "trace" &&
-    subcommand !== "screens"
+    subcommand !== "screens" &&
+    subcommand !== "links"
   ) {
     throw new Error(
-      `Unknown subcommand "${subcommand ?? ""}". Expected: verify | context | where | find | callers | callees | review | spec-review | project | export-graph | web | cache-stats | integral | domains | trace | screens`,
+      `Unknown subcommand "${subcommand ?? ""}". Expected: verify | context | where | find | callers | callees | review | spec-review | project | export-graph | web | cache-stats | integral | domains | trace | screens | links`,
     );
   }
 
@@ -220,6 +233,10 @@ export function parseArgs(argv: string[]): CliArgs {
 
   if (subcommand === "trace") {
     return parseTraceArgs(args);
+  }
+
+  if (subcommand === "links") {
+    return parseLinksArgs(args);
   }
 
   // The `web` subcommand has its own flag set.
@@ -441,6 +458,33 @@ function parseTraceArgs(args: string[]): CliArgs {
   return { subcommand: "trace", repoPath, project, traceAction: action, traceOut, traceFile, entry, scope, json };
 }
 
+function parseLinksArgs(args: string[]): CliArgs {
+  const action = args.shift();
+  if (action !== "list" && action !== "ratify") {
+    throw new Error(`Unknown links action "${action ?? ""}". Expected: list | ratify`);
+  }
+  let repoPath = process.cwd();
+  let project: string | undefined;
+  let json = false;
+  const positionals: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === "--repo" || a === "-r") repoPath = args[++i] ?? repoPath;
+    else if (a === "--project" || a === "-p") project = args[++i];
+    else if (a === "--json" || a === "-j") json = true;
+    else positionals.push(a);
+  }
+  return {
+    subcommand: "links",
+    repoPath,
+    project,
+    json,
+    linksAction: action,
+    linkFrom: positionals[0],
+    linkTo: positionals[1],
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Human summary for verify
 // ---------------------------------------------------------------------------
@@ -484,6 +528,10 @@ export async function runCli(
 
   if (args.subcommand === "trace") {
     return runTrace(args);
+  }
+
+  if (args.subcommand === "links") {
+    return runLinks(args);
   }
 
   if (args.subcommand === "spec-review") {
@@ -915,6 +963,67 @@ function summarizeReconcile(r: ReturnType<typeof reconcileDrafts>): {
   preserved: string[];
 } {
   return { added: r.added, updated: r.updated, preserved: r.preserved };
+}
+
+// ---------------------------------------------------------------------------
+// links subcommand — code↔spec link listing + ratification (hardening loop)
+// ---------------------------------------------------------------------------
+
+async function runLinks(args: CliArgs): Promise<{ exitCode: number; output: string }> {
+  // Resolve repo root + context: --project via the registry, else --repo / cwd.
+  let repoRoot = args.repoPath;
+  let ctx: AnalysisContext;
+  if (args.project) {
+    const mgr = await ProjectManager.load();
+    const projectId = mgr.resolveId(args.project);
+    repoRoot = mgr.get(projectId)!.rootPath;
+    ctx = await mgr.getContext(projectId);
+  } else {
+    ctx = await analyze(args.repoPath, { quiet: true });
+  }
+  const links = ctx.links ?? [];
+
+  if (args.linksAction === "list") {
+    if (args.json) return { exitCode: 0, output: JSON.stringify({ links }, null, 2) };
+    if (links.length === 0) return { exitCode: 0, output: "(no spec links)" };
+    const clauseById = new Map((ctx.specClauses ?? []).map((cl) => [cl.id, cl]));
+    const lines = links.map((l) => {
+      const heading = clauseById.get(l.to)?.heading ?? "";
+      const flags = `${l.evidence} conf=${l.confidence.toFixed(2)}${l.ratified ? " ratified" : ""}`;
+      return `${l.from} -> ${l.to}${heading ? ` (${heading})` : ""}  [${flags}]`;
+    });
+    return { exitCode: 0, output: lines.join("\n") };
+  }
+
+  // ratify <from> <to>
+  if (!args.linkFrom || !args.linkTo) {
+    return {
+      exitCode: 1,
+      output: "usage: anatomia links ratify <from-anchor> <to-clause-id> [--project <id>]",
+    };
+  }
+  try {
+    const result = await ratifyLink({
+      repoRoot,
+      from: args.linkFrom,
+      to: args.linkTo,
+      links,
+      specClauses: ctx.specClauses ?? [],
+    });
+    if (args.json) return { exitCode: 0, output: JSON.stringify(result, null, 2) };
+    return {
+      exitCode: 0,
+      output:
+        `ratified ${args.linkFrom} -> ${args.linkTo}` +
+        `${result.wasProposed ? "" : " (new explicit link — not previously proposed)"}\n` +
+        `saved to ${result.path}`,
+    };
+  } catch (err) {
+    if (err instanceof SpecLinkRatifyError) {
+      return { exitCode: 1, output: `anatomia links ratify: ${err.message}` };
+    }
+    throw err;
+  }
 }
 
 // ---------------------------------------------------------------------------
