@@ -18,7 +18,7 @@ export function formatDomainReview(r: DomainReviewReport): string {
   out.push(
     `  domains=${s.domains} functions=${s.functions} assigned=${s.assigned} ` +
       `coverage=${pct(s.coverage)} unassigned=${s.unassigned} overlap=${s.overlap} ` +
-      `isolated=${s.isolated} specIntegrity=${s.specIntegrity}`,
+      `isolated=${s.isolated} specIntegrity=${s.specIntegrity} boundaryDrift=${s.boundaryDrift}`,
   );
 
   if (r.domains.length) {
@@ -48,6 +48,15 @@ export function formatDomainReview(r: DomainReviewReport): string {
     out.push(`\n# Domain overlap (claimed by multiple domains)${capped}`);
     for (const o of r.overlap) {
       out.push(`  ${o.name} (${o.file}:${o.line})  domains: ${o.domains.join(", ")}`);
+    }
+  }
+
+  if (r.boundaryDrift.length) {
+    const capped = r.boundaryDrift.length < s.boundaryDrift ? ` — first ${r.boundaryDrift.length}/${s.boundaryDrift}` : "";
+    out.push(`\n# Boundary drift (assignment vs calls-neighbourhood majority)${capped}`);
+    for (const d of r.boundaryDrift) {
+      const votes = d.votes.map((v) => `${v.domain}:${v.count}`).join(" ");
+      out.push(`  ${loc(d)}  assigned=${d.domain} suggested=${d.suggested}  votes: ${votes}`);
     }
   }
 
