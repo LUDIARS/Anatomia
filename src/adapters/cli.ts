@@ -583,9 +583,12 @@ export async function runCli(
     const html = await exportGraphHtml(ctx, { title: undefined });
     await writeFile(outputPath, html, "utf8");
     const nodeCount = ctx.functions.length;
+    const unresolvedCount = ctx.graph.raw.unresolved?.length ?? 0;
     return {
       exitCode: 0,
-      output: `exported graph to ${outputPath} (${ctx.files.length} files, ${nodeCount} functions)`,
+      output:
+        `exported graph to ${outputPath} (${ctx.files.length} files, ` +
+        `${nodeCount} functions, ${unresolvedCount} unresolved calls)`,
     };
   }
 

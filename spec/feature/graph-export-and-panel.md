@@ -8,8 +8,9 @@
 ## グラフ HTML エクスポート
 
 `export-graph -o <file>`（CLI、`exportGraphHtml`）。解析 ctx から vis-network データを組み、
-依存無しで開けるインタラクティブ HTML を 1 ファイル出力する。出力例文言：
-`exported graph to <file> (<N> files, <M> functions)`。
+依存無しで開けるインタラクティブ HTML を 1 ファイル出力する。HTML 内 DATA には落とした
+呼び出し辺の記録（`unresolved`、→ [feature/static-analysis.md](./static-analysis.md)）も含む。出力例文言：
+`exported graph to <file> (<N> files, <M> functions, <K> unresolved calls)`。
 
 ## 管理パネル（web サーバ）
 
