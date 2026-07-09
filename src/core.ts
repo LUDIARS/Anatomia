@@ -43,6 +43,8 @@ import type { Providers } from "./providers/index.js";
 import { parseSpecFiles } from "./spec/parse.js";
 import { findExplicitLinks } from "./spec/explicit.js";
 import { findStructuralLinks } from "./spec/structural.js";
+import { findSemanticLinks } from "./spec/semantic.js";
+import { cachedEmbeddingClient } from "./spec/embed-cache.js";
 import { specLinkCacheKey } from "./spec/cache.js";
 import type { SpecLinkResult } from "./spec/cache.js";
 import { loadRatifiedLinks } from "./spec/persist.js";
@@ -82,6 +84,13 @@ export interface AnalysisContext {
   rules?: Rule[];
   /** Files that could not be read or parsed (skipped, with reason). */
   skipped?: { filePath: string; reason: string }[];
+  /**
+   * True when the semantic linker was active in this analysis (an embedder
+   * capability was injected and spec files existed). False/absent means links
+   * carry only explicit/structural (+ ratified) evidence — the embedder-less
+   * skip is a capability absence, and this flag is what makes it observable.
+   */
+  semanticLinked?: boolean;
 }
 
 export interface BundleRequest {
@@ -139,6 +148,15 @@ export interface AnalyzeOptions {
    * both linkers. Omit → always relink.
    */
   specLinkCache?: CacheStore<SpecLinkResult>;
+  /**
+   * Optional capability providers. When present, Phase 5 additionally runs
+   * the semantic (embedding-similarity) linker with `providers.embed`,
+   * per-text cached under `providers.embedModelId` (spec/embed-cache.ts).
+   * Absent → semantic linking is skipped: a missing embedder is an absent
+   * CAPABILITY (like the hash-embedder tier), not a config deficiency, so no
+   * error — but the skip is observable via AnalysisContext.semanticLinked.
+   */
+  providers?: Providers;
   /**
    * Cache transcript + session for observability. When present, the per-file
    * reuse loop records one `get` event (ns "perfile", hit = reused) per file, so
@@ -465,9 +483,11 @@ export async function analyze(
   // (Trees were freed per-file in phase 1; the detached bodyAst mirrors retained
   // on the returned context are plain JS and pin no native memory.)
 
-  // Phase 5 — spec linking (G4). Parse markdown, then explicit + structural links.
+  // Phase 5 — spec linking (G4). Parse markdown, then explicit + structural
+  // (+ semantic when an embedder capability is present) links.
   let specClauses: SpecClause[] = [];
   let links: Link[] = [];
+  let semanticLinked = false;
   try {
     // Scan the code root plus any extra spec dirs (e.g. a sibling spec/ when the
     // code root is <repo>/src). De-dupe so an overlapping dir is not parsed twice.
@@ -481,24 +501,38 @@ export async function analyze(
     });
     if (specPaths.length > 0) {
       const sourcePaths = files.map((f) => f.path);
+      // Semantic linking is capability-gated: it runs only when an embedder
+      // was injected. The embedder is wrapped in the per-text content-key
+      // cache so re-analysis embeds only changed texts (deterministic either
+      // way). The skip without a provider is recorded on the context.
+      const embedProviders = options.providers;
+      const embedClient = embedProviders
+        ? cachedEmbeddingClient(embedProviders.embed, sharedEmbeddingCache(), embedProviders.embedModelId)
+        : undefined;
+      semanticLinked = embedClient !== undefined;
       const runLinkers = async (): Promise<SpecLinkResult> => {
         const clauses = await parseSpecFiles(specPaths);
-        const [explicit, structural] = await Promise.all([
+        const [explicit, structural, semantic] = await Promise.all([
           findExplicitLinks(clauses, sourcePaths),
           findStructuralLinks(clauses, sourcePaths),
+          embedClient
+            ? findSemanticLinks(clauses, sourcePaths, embedClient)
+            : Promise.resolve([] as Link[]),
         ]);
-        return { specClauses: clauses, links: [...explicit, ...structural] };
+        return { specClauses: clauses, links: [...explicit, ...structural, ...semantic] };
       };
       // Reuse the linked result when spec contents + source contents are
       // unchanged (the code-only / config-only edit cases). No cache
-      // configured → always relink (the hermetic default).
+      // configured → always relink (the hermetic default). The embedder id is
+      // folded into the key: results with/without semantic evidence (or from
+      // a different embedding model) never cross-serve.
       const specLinkCache = options.specLinkCache;
       let result: SpecLinkResult;
       if (specLinkCache) {
         const specContents = await Promise.all(
           specPaths.map(async (p) => ({ path: p, content: await readFile(p, "utf8") })),
         );
-        const key = specLinkCacheKey(specContents, files);
+        const key = specLinkCacheKey(specContents, files, embedProviders?.embedModelId);
         const hit = await specLinkCache.get(key);
         if (hit) {
           vgWrite("debug", "anatomia spec link cache hit", { repo: repoName, spec_files: specPaths.length });
@@ -552,6 +586,7 @@ export async function analyze(
     domains,
     rules,
     skipped,
+    semanticLinked,
   };
 }
 
