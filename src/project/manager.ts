@@ -23,6 +23,7 @@ import { resolveTranscript, type CacheTranscript } from "../cache/transcript.js"
 import type { DetectionResult } from "../domains/detect.js";
 import type { CodeGraph } from "../graph/build.js";
 import type { SpecLinkResult } from "../spec/cache.js";
+import { recordAnalysis } from "../spec/stability.js";
 import { vgWrite, withVgSpan } from "../obs/vestigium.js";
 
 export interface ProjectManagerOptions {
@@ -207,6 +208,18 @@ export class ProjectManager {
       name: project.name,
     }, () => analyze(project.rootPath, opts));
     await this.cache.put(projectId, fingerprint, ctx);
+    // Fold this analysis into the link-stability streaks (.anatomia/, local
+    // state) so long-lived heuristic links surface as promotion candidates.
+    // Same-fingerprint re-analyses are a no-op inside recordAnalysis. A state
+    // write failure must not fail the analysis itself — log and continue.
+    try {
+      await recordAnalysis(project.rootPath, ctx.links ?? [], fingerprint);
+    } catch (err) {
+      vgWrite("warn", "link stability record failed", {
+        project: projectId,
+        error: String(err),
+      });
+    }
     vgWrite("info", "project analysis cached", {
       project: projectId,
       files: ctx.files.length,

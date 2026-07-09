@@ -23,6 +23,7 @@
  *   GET /api/projects/:id/hotspots    top-N by coupling/complexity
  *   GET /api/projects/:id/spec-links  code↔spec links
  *   POST /api/projects/:id/spec-links/ratify  ratify + persist a link (manager mode)
+ *   GET /api/projects/:id/spec-links/candidates  stability-based promotion candidates
  *   GET /api/projects/:id/domains     domain detection results
  *   GET /api/projects/:id/vis-data    vis-network data (shared with export.ts)
  *   GET /api/projects/:id/branch-diff branch-diff function delta (?base=<ref>)
