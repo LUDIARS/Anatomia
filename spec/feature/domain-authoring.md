@@ -86,10 +86,27 @@ reconcile→disk roundtrip) で固定。
 > 再走すると高品質出力が得られた。フォローアップ候補: prompt version bump / 品質ガード
 > (空 description 比率が高い結果はキャッシュしない) / 明示的な cache 無効化フラグ。
 
-### (2) Web `/flow` ファイル選択・URL/パス取得 — **未実装**
+### (2) Web `/flow` ファイル選択・URL/パス取得 — **実装済** (#456)
 
-`src/adapters/web/routes/` に `/flow` ルートは存在しない。task #364 はこの機能が在る前提
-だが現状は別途実装が必要 → 別タスクに分離すべき。
+`src/adapters/web/routes/flow.ts` に以下の HTTP ルートを実装。`anatomia web` (manager
+mode) で利用可能。
+
+```
+POST /api/projects/:id/flow/draft   -- 登録プロジェクトで draft 合成 (specClauses + filePaths)
+GET  /api/projects/:id/flow/drafts  -- 現在の editable domains を一覧
+POST /api/flow/draft                -- repoPath または specPath から直接 draft 合成
+GET  /api/flow/drafts               -- 任意 dir のドメインを一覧 (?dir=<path>)
+```
+
+**入力モード**:
+- `repoPath`: 任意リポを `analyze()` してフル解析 → specClauses + filePaths
+- `specPath`: 単一 spec Markdown ファイルのパスを読んでパース → specClauses (filePaths=[])
+- `project`: 登録済みプロジェクト ID → `manager.getContext()` で解析済み結果を取得
+
+**オプション**: `noLlm` (決定的 seed)、`only` (ドメイン名フィルタ)、`force` (ロック上書き)、
+`dir` (出力先 dir)。draft 後に project.ontologyDir を自動配線。
+
+実走確認手順は runbook (3) を参照。URL フェッチ経路 (specUrl) は未実装。
 
 ### (3) Discord フォーラム添付の実 DL — **未実装**
 
