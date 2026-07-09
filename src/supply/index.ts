@@ -24,6 +24,12 @@ export type {
   SiblingLookup,
   Landing,
 } from "./landing.js";
+export {
+  contextDomainDetector,
+  contextLayerRules,
+  contextSiblingLookup,
+  landingInjections,
+} from "./detectors.js";
 
 // T28 — bundle
 export {
@@ -32,6 +38,13 @@ export {
   orderBundleSegments,
 } from "./bundle.js";
 export type { BundleInputs, AddressedBundle, BundleSegment } from "./bundle.js";
+export {
+  RELEVANCE_VERSION,
+  rankSpecClauses,
+  rankExemplars,
+  tokenizeRelevanceText,
+} from "./relevance.js";
+export type { RelevanceOptions } from "./relevance.js";
 
 // T29 — verify + gates
 export { verify, buildDefaultGates } from "./verify.js";

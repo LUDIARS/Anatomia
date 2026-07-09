@@ -68,13 +68,13 @@ describe("manager-backed web app", () => {
 });
 
 describe("single-context web app (legacy)", () => {
-  it("GET /api/projects returns a one-entry default list", async () => {
+  it("GET /api/projects returns a one-entry repo-named list", async () => {
     const { graph, file, functions } = await buildFromSource("void leg() { }\n");
     const ctx: AnalysisContext = { repoPath: "/legacy", graph, files: [file], functions };
     const app = createApp(ctx);
     const res = await app.fetch(new Request("http://localhost/api/projects"));
     const body = await res.json() as { projects: Array<{ id: string }>; selected: string };
     expect(body.projects.length).toBe(1);
-    expect(body.selected).toBe("default");
+    expect(body.selected).toBe("legacy");
   });
 });

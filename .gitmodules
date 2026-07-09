@@ -1,3 +1,7 @@
 [submodule "lib/vestigium"]
 	path = lib/vestigium
 	url = https://github.com/LUDIARS/Vestigium.git
+
+[submodule "lib/aiformat"]
+	path = lib/aiformat
+	url = https://github.com/LUDIARS/AIFormat.git

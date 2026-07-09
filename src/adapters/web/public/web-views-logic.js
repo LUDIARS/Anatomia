@@ -83,20 +83,22 @@ function localTime(iso) {
 /**
  * Summarise a `/web/manifest` response for the dashboard summary strip.
  *
- *   { prepared:false }                               → { prepared:false, stale:false, label:"未生成" }
- *   { prepared:true, preparedAt:"…", stale:true }    → { prepared:true,  stale:true,  label:"<local datetime>" }
+ *   { prepared:false }                               → { prepared:false, stale:false, ready:false, label:"未生成" }
+ *   { prepared:true, preparedAt:"…", stale:true }    → { prepared:true,  stale:true,  ready:false, label:"<local datetime>" }
  *
  * @param {{prepared?:boolean, preparedAt?:string, stale?:boolean}|null|undefined} manifest
- * @returns {{prepared:boolean, stale:boolean, label:string}}
+ * @returns {{prepared:boolean, stale:boolean, ready:boolean, label:string}}
  */
 export function manifestSummary(manifest) {
   const m = manifest || {};
   if (!m.prepared) {
-    return { prepared: false, stale: false, label: "未生成" };
+    return { prepared: false, stale: false, ready: false, label: "未生成" };
   }
+  const stale = !!m.stale;
   return {
     prepared: true,
-    stale: !!m.stale,
+    stale,
+    ready: !stale,
     label: localTime(m.preparedAt) || "生成済",
   };
 }

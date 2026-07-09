@@ -8,5 +8,7 @@ logs/
 ks-graph.html
 
 # ローカル依存ライブラリ (git submodule update --init でセットアップ)
-/lib/
+/lib/*
+!/lib/vestigium
+!/lib/aiformat
 eval/ws/

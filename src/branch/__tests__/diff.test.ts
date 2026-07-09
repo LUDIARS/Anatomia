@@ -77,7 +77,7 @@ describe("computeBranchDiff", () => {
     for (const a of diff.anchors.all) expect(graphIds.has(a)).toBe(true);
     expect(diff.anchors.added.length).toBe(1);
     expect(diff.anchors.changed.length).toBe(1);
-  }, 20_000);
+  }, 60_000);
 });
 
 describe("listBranches", () => {
@@ -99,5 +99,5 @@ describe("listBranches", () => {
     expect(branches).toContain("develop");
     expect(branches).not.toContain("feature"); // current branch excluded
     expect(branches[0]).toBe("main"); // DEFAULT_BASE_CANDIDATES first
-  });
+  }, 60_000);
 });

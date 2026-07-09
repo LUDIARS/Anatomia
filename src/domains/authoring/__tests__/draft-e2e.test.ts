@@ -68,6 +68,7 @@ describe("domain draft synthesis e2e", () => {
     // a real run depends on), not an empty shell.
     expect(seenPrompt).toBe(assembleDraftPrompt(INPUTS));
     expect(seenPrompt).toContain("Combat / Damage");
+    expect(seenPrompt).toContain("Damage is dealt on hit.");
     expect(seenPrompt).toContain("/repo/src/combat");
 
     expect(drafts.map((d) => d.name)).toEqual(["combat", "movement"]); // sorted
@@ -82,6 +83,26 @@ describe("domain draft synthesis e2e", () => {
     await synthesizeDomainDrafts(INPUTS, llm, cache);
     await synthesizeDomainDrafts(INPUTS, llm, cache);
     expect(calls).toBe(1); // second call served from cache
+  });
+
+  it("includes spec text in the cache key, not only headings", async () => {
+    let calls = 0;
+    const llm: LLMClient = async () => { calls++; return LLM_REPLY; };
+    const cache = memoryCache();
+
+    await synthesizeDomainDrafts(INPUTS, llm, cache);
+    await synthesizeDomainDrafts(
+      {
+        ...INPUTS,
+        specClauses: INPUTS.specClauses.map((c) =>
+          c.id === "c1" ? { ...c, text: "Damage is now armor mitigated." } : c,
+        ),
+      },
+      llm,
+      cache,
+    );
+
+    expect(calls).toBe(2);
   });
 
   it("synthesised mechanics survive reconcile + disk roundtrip", async () => {

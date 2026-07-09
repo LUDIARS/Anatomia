@@ -76,7 +76,11 @@ ANTHROPIC_API_KEY=sk-ant-... node /abs/path/to/Anatomia/bin/anatomia-mcp.mjs
 | `anatomia.context` | Assemble a deterministic ContextBundle for a task (rules + spec + exemplars + existing domains). |
 | `anatomia.verify` | Run the 5-gate verify on a diff (rule conformance, **duplication**, spec linkage, coupling delta, convention drift). |
 | `anatomia.where` | Resolve landing point(s) for a task. |
+| `anatomia.find` | Find function symbols and call fan counts without reading source files. |
+| `anatomia.callers` | List callers of a function symbol or anchor. |
+| `anatomia.callees` | List callees of a function symbol or anchor. |
 | `anatomia.impact` | BFS impact radius from an anchor. |
+| `anatomia.domains.suggest` | Suggest coarse domains from spec clauses (LLM-backed, or deterministic with `noLlm`). |
 | `anatomia.projects.{list,add,analyze}` | Manage / analyze registered projects (multi-repo). |
 
 ## 5. Multi-project

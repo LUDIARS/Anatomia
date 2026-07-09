@@ -70,11 +70,13 @@ describe("manifestSummary", () => {
     expect(manifestSummary({ prepared: false })).toEqual({
       prepared: false,
       stale: false,
+      ready: false,
       label: "未生成",
     });
     expect(manifestSummary(null)).toEqual({
       prepared: false,
       stale: false,
+      ready: false,
       label: "未生成",
     });
   });
@@ -86,12 +88,13 @@ describe("manifestSummary", () => {
     });
     expect(s.prepared).toBe(true);
     expect(s.stale).toBe(true);
+    expect(s.ready).toBe(false);
     expect(s.label).not.toBe("未生成");
     expect(s.label.length).toBeGreaterThan(0);
   });
   it("defaults stale to false and tolerates a missing preparedAt", () => {
     const s = manifestSummary({ prepared: true });
-    expect(s).toEqual({ prepared: true, stale: false, label: "生成済" });
+    expect(s).toEqual({ prepared: true, stale: false, ready: true, label: "生成済" });
   });
 });
 

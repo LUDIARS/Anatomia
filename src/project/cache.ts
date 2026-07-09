@@ -34,6 +34,7 @@ import { cacheRoot } from "./store.js";
 import type { AnalysisContext } from "../core.js";
 import type { FileNode } from "../types.js";
 import { createNullTranscript, type CacheTranscript } from "../cache/transcript.js";
+import { assessDomainHealth, type DomainHealthSummary, type DomainWarning } from "../domains/warnings.js";
 
 // The pre-analysis fingerprint (content-addressed) lives in fingerprint.ts;
 // re-exported here so existing importers keep resolving it from "./cache.js".
@@ -51,6 +52,8 @@ export interface SummaryCounts {
   edges: number;
   domains: number;
   links: number;
+  warnings?: DomainWarning[];
+  domainHealth?: DomainHealthSummary;
 }
 
 /** Persisted, serializable cache snapshot for a project. */
@@ -112,6 +115,7 @@ export async function summarize(ctx: AnalysisContext): Promise<SummaryCounts> {
   for (const n of nodes) {
     edges += (await ctx.graph.edgesFrom(n.id)).length;
   }
+  const domainHealth = await assessDomainHealth(ctx);
   return {
     files: ctx.files.length,
     functions: ctx.functions.length,
@@ -119,6 +123,8 @@ export async function summarize(ctx: AnalysisContext): Promise<SummaryCounts> {
     edges,
     domains: (ctx.domains ?? []).length,
     links: (ctx.links ?? []).length,
+    warnings: domainHealth.warnings,
+    domainHealth,
   };
 }
 

@@ -17,9 +17,15 @@
 import { install, type Vestigium } from "@ludiars/vestigium";
 
 let vg: Vestigium | null = null;
+let crashHandlersInstalled = false;
+let crashExitScheduled = false;
 
-/** warm サーバ起動時に 1 回呼ぶ。 test / CLI 短命 / ANATOMIA_VESTIGIUM=0 では何もしない。 */
-export function initVestigium(): void {
+export interface InitVestigiumOptions {
+  captureConsole?: boolean;
+}
+
+/** Start Vg once. Tests and ANATOMIA_VESTIGIUM=0 keep it disabled; CLI calls vgShutdown() before exit. */
+export function initVestigium(options: InitVestigiumOptions = {}): void {
   if (vg) return;
   if (
     process.env.ANATOMIA_VESTIGIUM === "0" ||
@@ -28,10 +34,11 @@ export function initVestigium(): void {
   ) {
     return;
   }
+  const captureConsole = options.captureConsole ?? true;
   try {
     vg = install({
       serviceCode: "anatomia",
-      captureConsole: true,
+      captureConsole,
       retentionDays: Number(process.env.VESTIGIUM_RETENTION_DAYS ?? "14") || 14,
     });
   } catch (e) {
@@ -40,7 +47,7 @@ export function initVestigium(): void {
   }
 }
 
-export type VgLevel = "trace" | "debug" | "info" | "warn" | "error";
+export type VgLevel = "trace" | "debug" | "info" | "warn" | "error" | "fatal";
 
 /** Vg JSONL へ 1 行 emit。 init 前/無効/失敗時は no-op (never throw)。 ctx に機微情報を入れないこと。 */
 export function vgWrite(level: VgLevel, msg: string, ctx?: Record<string, unknown>): void {
@@ -49,6 +56,61 @@ export function vgWrite(level: VgLevel, msg: string, ctx?: Record<string, unknow
   } catch {
     /* never throw from logging */
   }
+}
+
+export function vgCrash(kind: string, reason: unknown, ctx?: Record<string, unknown>): void {
+  const details = reasonDetails(reason);
+  vgWrite("fatal", `[anatomia-crash] ${kind}: ${details.message}`, {
+    kind,
+    ...ctx,
+    ...details,
+  });
+}
+
+export async function withVgSpan<T>(
+  name: string,
+  ctx: Record<string, unknown> | undefined,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const started = Date.now();
+  vgWrite("debug", `${name} start`, ctx);
+  try {
+    const result = await fn();
+    vgWrite("debug", `${name} done`, { ...ctx, duration_ms: Date.now() - started });
+    return result;
+  } catch (err) {
+    vgCrash(name, err, { ...ctx, duration_ms: Date.now() - started });
+    throw err;
+  }
+}
+
+export function installCrashLogging(): void {
+  if (crashHandlersInstalled) return;
+  crashHandlersInstalled = true;
+  if (process.env.NODE_ENV === "test" || process.env.VITEST === "true") return;
+
+  process.on("uncaughtException", (err) => {
+    vgCrash("uncaughtException", err);
+    console.error("[anatomia-crash] uncaughtException", err);
+    scheduleCrashExit(1);
+  });
+  process.on("unhandledRejection", (reason) => {
+    vgCrash("unhandledRejection", reason);
+    console.error("[anatomia-crash] unhandledRejection", reason);
+    scheduleCrashExit(1);
+  });
+  process.on("warning", (warning) => {
+    vgWrite("warn", "process warning", {
+      name: warning.name,
+      message: warning.message,
+      stack: warning.stack,
+    });
+  });
+  process.on("exit", (code) => {
+    if (code !== 0) {
+      vgWrite("fatal", `[anatomia-crash] process exit code ${code}`, { kind: "exit", code });
+    }
+  });
 }
 
 export function vgEnabled(): boolean {
@@ -62,4 +124,31 @@ export async function vgShutdown(): Promise<void> {
     /* swallow */
   }
   vg = null;
+}
+
+function scheduleCrashExit(code: number): void {
+  if (crashExitScheduled) return;
+  crashExitScheduled = true;
+  process.exitCode = code;
+  void vgShutdown().finally(() => process.exit(code));
+  const timer = setTimeout(() => process.exit(code), 1000);
+  timer.unref?.();
+}
+
+function reasonDetails(reason: unknown): Record<string, unknown> & { message: string } {
+  if (reason instanceof Error) {
+    return {
+      name: reason.name,
+      message: reason.message,
+      stack: reason.stack,
+    };
+  }
+  if (typeof reason === "string") {
+    return { message: reason };
+  }
+  try {
+    return { message: JSON.stringify(reason) ?? String(reason) };
+  } catch {
+    return { message: String(reason) };
+  }
 }

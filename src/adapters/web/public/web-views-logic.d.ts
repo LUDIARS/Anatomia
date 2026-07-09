@@ -21,6 +21,7 @@ export function scenesForFilter<T extends SceneRow>(
 export interface ManifestSummary {
   prepared: boolean;
   stale: boolean;
+  ready: boolean;
   label: string;
 }
 export function manifestSummary(

@@ -16,3 +16,5 @@ export type { CodeGraphQuery, EdgeFilter, FanCounts, TraversalOptions } from "./
 
 export { InMemoryCodeGraph } from "./in-memory.js";
 export { KuzuCodeGraph } from "./kuzu.js";
+export { buildSymbolIndex, findSymbol, callersOf, calleesOf } from "./symbol-lookup.js";
+export type { SymbolHit, SymbolLookupOptions } from "./symbol-lookup.js";

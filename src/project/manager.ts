@@ -22,6 +22,7 @@ import { instrumentStore } from "../cache/instrumented.js";
 import { resolveTranscript, type CacheTranscript } from "../cache/transcript.js";
 import type { DetectionResult } from "../domains/detect.js";
 import type { CodeGraph } from "../graph/build.js";
+import { vgWrite, withVgSpan } from "../obs/vestigium.js";
 
 export interface ProjectManagerOptions {
   /** Anatomia home dir (projects.json + cache/). Default: ANATOMIA_HOME or <cwd>/.anatomia. */
@@ -68,6 +69,10 @@ export class ProjectManager {
       ns: "graph", transcript: this.transcript, session: this.session,
     }).store;
     this.cache = new AnalysisCache(this.homeDir, { transcript: this.transcript, session: this.session });
+    vgWrite("debug", "project manager init", {
+      projects: this.registry.list().length,
+      home_dir: this.homeDir ?? null,
+    });
   }
 
   /** Build a manager with the registry loaded from disk (projects.json). */
@@ -78,7 +83,9 @@ export class ProjectManager {
 
   /** Persist the registry to disk. */
   async save(): Promise<string> {
-    return saveRegistry(this.registry, this.homeDir);
+    const path = await saveRegistry(this.registry, this.homeDir);
+    vgWrite("debug", "project registry saved", { projects: this.registry.list().length });
+    return path;
   }
 
   // ── registry passthrough ───────────────────────────────────────────────
@@ -87,6 +94,7 @@ export class ProjectManager {
   async addProject(input: ProjectInput): Promise<Project> {
     const p = this.registry.add(input);
     await this.save();
+    vgWrite("info", "project added", { project: p.id, name: p.name });
     return p;
   }
 
@@ -96,6 +104,7 @@ export class ProjectManager {
     if (ok) {
       this.cache.invalidate(id);
       await this.save();
+      vgWrite("info", "project removed", { project: id });
     }
     return ok;
   }
@@ -108,14 +117,15 @@ export class ProjectManager {
     return this.registry.get(id);
   }
 
-  /** Currently selected/default project id (or null). */
+  /** Currently selected project id (or null). */
   get selected(): string | null {
     return this.registry.selected;
   }
 
-  /** Select the default project. */
+  /** Select the active project. */
   select(id: string): void {
     this.registry.select(id);
+    vgWrite("info", "project selected", { project: id });
   }
 
   /**
@@ -142,6 +152,7 @@ export class ProjectManager {
   async analyzeProject(id?: string): Promise<AnalysisContext> {
     const projectId = this.resolveId(id);
     const project = this.registry.get(projectId)!;
+    vgWrite("info", "project analyze requested", { project: projectId, name: project.name });
     const fingerprint = await computeFingerprint(project.rootPath, {
       configDirs: configDirsOf(project),
     });
@@ -155,7 +166,11 @@ export class ProjectManager {
     fingerprint: string,
   ): Promise<AnalysisContext> {
     const cached = this.cache.getIfFresh(projectId, fingerprint);
-    if (cached) return cached;
+    if (cached) {
+      vgWrite("info", "project analysis cache hit", { project: projectId });
+      return cached;
+    }
+    vgWrite("info", "project analysis cache miss", { project: projectId });
 
     const opts: AnalyzeOptions = {
       ...this.analyzeOptions,
@@ -174,8 +189,16 @@ export class ProjectManager {
       transcript: this.transcript,
       session: this.session,
     };
-    const ctx = await analyze(project.rootPath, opts);
+    const ctx = await withVgSpan("project.analyze", {
+      project: projectId,
+      name: project.name,
+    }, () => analyze(project.rootPath, opts));
     await this.cache.put(projectId, fingerprint, ctx);
+    vgWrite("info", "project analysis cached", {
+      project: projectId,
+      files: ctx.files.length,
+      functions: ctx.functions.length,
+    });
     return ctx;
   }
 
@@ -202,9 +225,13 @@ export class ProjectManager {
 
     if (opts.stale) {
       const snap = await this.cache.readSnapshot(projectId);
-      if (snap?.summary) {
+      if (snap?.summary?.domainHealth) {
+        vgWrite("debug", "project summary stale snapshot hit", { project: projectId });
         this.revalidateInBackground(projectId, project);
         return snap.summary;
+      }
+      if (snap?.summary) {
+        vgWrite("debug", "project summary stale snapshot missing domain health", { project: projectId });
       }
       // No snapshot yet → fall through to the blocking path (first analyze).
     }
@@ -214,13 +241,21 @@ export class ProjectManager {
     });
 
     const cached = this.cache.getIfFresh(projectId, fingerprint);
-    if (cached) return summarize(cached);
-
-    const snap = await this.cache.readSnapshot(projectId);
-    if (snap && snap.fingerprint === fingerprint && snap.summary) {
-      return snap.summary;
+    if (cached) {
+      vgWrite("debug", "project summary memory cache hit", { project: projectId });
+      return summarize(cached);
     }
 
+    const snap = await this.cache.readSnapshot(projectId);
+    if (snap && snap.fingerprint === fingerprint && snap.summary?.domainHealth) {
+      vgWrite("debug", "project summary disk snapshot hit", { project: projectId });
+      return snap.summary;
+    }
+    if (snap && snap.fingerprint === fingerprint && snap.summary) {
+      vgWrite("debug", "project summary disk snapshot missing domain health", { project: projectId });
+    }
+
+    vgWrite("debug", "project summary cache miss", { project: projectId });
     return summarize(await this.analyzeWith(projectId, project, fingerprint));
   }
 
@@ -236,6 +271,7 @@ export class ProjectManager {
     this.revalidating.add(projectId);
     void (async () => {
       try {
+        vgWrite("debug", "project summary revalidate start", { project: projectId });
         const fingerprint = await computeFingerprint(project.rootPath, {
           configDirs: configDirsOf(project),
         });
@@ -243,7 +279,12 @@ export class ProjectManager {
         const snap = await this.cache.readSnapshot(projectId);
         if (snap && snap.fingerprint === fingerprint) return; // disk already fresh
         await this.analyzeWith(projectId, project, fingerprint);
-      } catch {
+        vgWrite("debug", "project summary revalidate done", { project: projectId });
+      } catch (err) {
+        vgWrite("warn", "project summary revalidate failed", {
+          project: projectId,
+          error: String(err),
+        });
         // Best-effort: the next summary() call retries; surface nothing.
       } finally {
         this.revalidating.delete(projectId);
@@ -296,11 +337,19 @@ export class ProjectManager {
     });
 
     const cached = await this.cache.readArtifact<T>(projectId, name, fingerprint);
-    if (cached !== null) return cached;
+    if (cached !== null) {
+      vgWrite("debug", "project artifact cache hit", { project: projectId, artifact: name });
+      return cached;
+    }
 
+    vgWrite("debug", "project artifact cache miss", { project: projectId, artifact: name });
     const ctx = await this.analyzeWith(projectId, project, fingerprint);
-    const data = await build(ctx);
+    const data = await withVgSpan("project.artifact.build", {
+      project: projectId,
+      artifact: name,
+    }, () => build(ctx));
     await this.cache.writeArtifact(projectId, name, fingerprint, data);
+    vgWrite("debug", "project artifact cached", { project: projectId, artifact: name });
     return data;
   }
 }

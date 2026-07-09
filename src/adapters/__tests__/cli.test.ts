@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { parseArgs, runCli, diffTargetPaths } from "../cli.js";
@@ -36,6 +36,17 @@ describe("parseArgs", () => {
     expect(args.json).toBe(true);
   });
 
+  it("parses symbol lookup subcommands", () => {
+    const args = parseArgs(["find", "hello", "--repo", "/r", "--mode", "substring", "--limit", "3", "--json"]);
+    expect(args.subcommand).toBe("find");
+    expect(args.symbol).toBe("hello");
+    expect(args.mode).toBe("substring");
+    expect(args.limit).toBe(3);
+    expect(args.json).toBe(true);
+    expect(parseArgs(["callers", "hello", "--repo", "/r"]).symbol).toBe("hello");
+    expect(parseArgs(["callees", "hello", "--repo", "/r"]).symbol).toBe("hello");
+  });
+
   it("parses short flags -r -d -t -j", () => {
     const args = parseArgs(["verify", "-r", "/x", "-d", "-", "-j"]);
     expect(args.repoPath).toBe("/x");
@@ -45,6 +56,21 @@ describe("parseArgs", () => {
 
   it("throws on unknown subcommand", () => {
     expect(() => parseArgs(["unknown", "--repo", "/r"])).toThrow();
+  });
+
+  it("parses domains suggest", () => {
+    const args = parseArgs(["domains", "suggest", "--repo", "/r", "--no-llm", "--json"]);
+    expect(args.subcommand).toBe("domains");
+    expect(args.domainsAction).toBe("suggest");
+    expect(args.noLlm).toBe(true);
+    expect(args.json).toBe(true);
+  });
+
+  it("parses spec-review", () => {
+    const args = parseArgs(["spec-review", "--repo", "/r", "--json"]);
+    expect(args.subcommand).toBe("spec-review");
+    expect(args.repoPath).toBe("/r");
+    expect(args.json).toBe(true);
   });
 
   it("defaults repoPath to cwd when --repo is absent", () => {
@@ -96,6 +122,12 @@ const SIMPLE_CPP = "void hello() { }\nvoid world() { hello(); }\n";
 beforeAll(async () => {
   tmpDir = await mkdtemp(join(tmpdir(), "anatomia-cli-test-"));
   await writeFile(join(tmpDir, "main.cpp"), SIMPLE_CPP, "utf8");
+  await mkdir(join(tmpDir, "spec"), { recursive: true });
+  await writeFile(
+    join(tmpDir, "spec", "Mini.md"),
+    "# Combat\n\nDamage is dealt on hit.\n\n# Movement\n\nActors move at speed.\n",
+    "utf8",
+  );
 });
 
 afterAll(async () => {
@@ -191,5 +223,61 @@ describe("runCli where", () => {
     const parsed = JSON.parse(output);
     expect(parsed).toHaveProperty("landings");
     expect(Array.isArray(parsed.landings)).toBe(true);
+  });
+});
+
+describe("runCli symbol lookup", () => {
+  it("finds symbols as JSON", async () => {
+    const { exitCode, output } = await runCli({
+      subcommand: "find",
+      repoPath: tmpDir,
+      symbol: "hello",
+      json: true,
+    });
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(output);
+    expect(parsed.hits[0].name).toBe("hello");
+  });
+
+  it("lists callers in human output", async () => {
+    const { output } = await runCli({
+      subcommand: "callers",
+      repoPath: tmpDir,
+      symbol: "hello",
+      json: false,
+    });
+    expect(output).toContain("world");
+    expect(output).toContain("fanIn=");
+  });
+});
+
+describe("runCli domains suggest", () => {
+  it("returns read-only domain suggestions without writing editable defs", async () => {
+    const args: CliArgs = {
+      subcommand: "domains",
+      repoPath: tmpDir,
+      domainsAction: "suggest",
+      noLlm: true,
+      json: true,
+    };
+    const { exitCode, output } = await runCli(args);
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(output);
+    expect(parsed.drafts.map((d: { name: string }) => d.name).sort()).toEqual(["Combat", "Movement"]);
+  });
+});
+
+describe("runCli spec-review", () => {
+  it("runs the AIFormat-backed spec review without source analysis", async () => {
+    const args: CliArgs = {
+      subcommand: "spec-review",
+      repoPath: tmpDir,
+      json: true,
+    };
+    const { exitCode, output } = await runCli(args);
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(output);
+    expect(parsed.criteria.name).toBe("AIFormat");
+    expect(parsed.findings.map((f: { kind: string }) => f.kind)).toContain("STRAY_FILE");
   });
 });

@@ -63,3 +63,6 @@ export {
   merkleHash,
 } from "./card.js";
 export type { LLMClient, DomainCard, CardCache } from "./card.js";
+
+// Domain organization (human-authored taxonomy + implementation hints)
+export * from "./organize/index.js";
