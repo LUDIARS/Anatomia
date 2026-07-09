@@ -50,6 +50,7 @@ export * from "./dag/index.js";
 export * from "./graph/index.js";
 export * from "./domains/index.js";
 export * from "./spec/index.js";
+export * from "./spec-review/index.js";
 export * from "./supply/index.js";
 export * from "./adapters/index.js";
 export * from "./dynamic/index.js";

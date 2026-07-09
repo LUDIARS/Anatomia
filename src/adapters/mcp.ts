@@ -5,6 +5,9 @@
  *   anatomia.context          -- assemble a ContextBundle for a task
  *   anatomia.verify           -- run the 5-gate verify pipeline on a diff
  *   anatomia.where            -- resolve landing point(s) for a task
+ *   anatomia.find             -- find function symbols without reading source
+ *   anatomia.callers          -- list callers of a function symbol/anchor
+ *   anatomia.callees          -- list callees of a function symbol/anchor
  *   anatomia.impact           -- BFS impact radius from an anchor
  *   anatomia.projects.list    -- list registered projects (+ selected id)
  *   anatomia.projects.add     -- register a project (name + rootPath)
@@ -28,6 +31,15 @@ import {
   getImpactRadius,
 } from "../core.js";
 import { resolveLanding } from "../supply/landing.js";
+import { landingInjections } from "../supply/detectors.js";
+import {
+  buildSymbolIndex,
+  callersOf,
+  calleesOf,
+  findSymbol,
+  type SymbolHit,
+  type SymbolLookupOptions,
+} from "../graph/index.js";
 import { ProjectManager } from "../project/manager.js";
 import { slug } from "../project/registry.js";
 import { resolveProviders } from "../providers/index.js";
@@ -36,6 +48,11 @@ import { resolveCacheStore } from "../cache/resolve.js";
 import { instrumentStore } from "../cache/instrumented.js";
 import { resolveTranscript } from "../cache/transcript.js";
 import type { CacheTranscript } from "../cache/transcript.js";
+import {
+  synthesizeDomainDrafts,
+  seedDraftsFromStructure,
+  type DomainDraft,
+} from "../domains/authoring/index.js";
 import type { AnalysisContext, Landing } from "../core.js";
 import type { ContextBundle, Verdict, AnchorId } from "../types.js";
 import type { Project } from "../project/types.js";
@@ -73,7 +90,28 @@ export interface ToolHandlers {
   "anatomia.context"(args: { task: string; project?: string }): Promise<ContextBundle>;
   "anatomia.verify"(args: { diff: string; project?: string }): Promise<Verdict>;
   "anatomia.where"(args: { task: string; project?: string }): Promise<{ landings: Landing[] }>;
+  "anatomia.find"(args: {
+    name: string;
+    project?: string;
+    mode?: SymbolLookupOptions["mode"];
+    limit?: number;
+  }): Promise<{ hits: SymbolHit[] }>;
+  "anatomia.callers"(args: {
+    symbol: string;
+    project?: string;
+    limit?: number;
+  }): Promise<{ hits: SymbolHit[] }>;
+  "anatomia.callees"(args: {
+    symbol: string;
+    project?: string;
+    limit?: number;
+  }): Promise<{ hits: SymbolHit[] }>;
   "anatomia.impact"(args: { anchor: string; project?: string }): Promise<{ anchors: string[] }>;
+  "anatomia.domains.suggest"(args: {
+    project?: string;
+    noLlm?: boolean;
+    only?: string[];
+  }): Promise<{ drafts: DomainDraft[] }>;
   "anatomia.projects.list"(): Promise<{ projects: Project[]; selected: string | null }>;
   "anatomia.projects.add"(args: {
     name: string;
@@ -135,23 +173,66 @@ export function createHandlers(
       return buildVerdict(ctx, diff, undefined, verifyOpts);
     },
 
-    async "anatomia.where"({ task }) {
-      const stubDetector = async () => ["general"];
-      const stubLayerRules = { layerFor: () => null };
-      const stubSiblings = async () => [];
+    async "anatomia.where"({ task, project }) {
+      const ctx = await source.resolve(project);
+      const injections = landingInjections(ctx);
       const landings = await resolveLanding(
         { description: task },
-        stubDetector,
-        stubLayerRules,
-        stubSiblings,
+        injections.detector,
+        injections.layerRules,
+        injections.siblings,
       );
       return { landings };
+    },
+
+    async "anatomia.find"({ name, project, mode, limit }) {
+      const ctx = await source.resolve(project);
+      const hits = await findSymbol(buildSymbolIndex(ctx.functions), ctx.graph, name, {
+        mode,
+        limit,
+      });
+      return { hits };
+    },
+
+    async "anatomia.callers"({ symbol, project, limit }) {
+      const ctx = await source.resolve(project);
+      const hits = await callersOf(ctx, ctx.graph, symbol, limit);
+      return { hits };
+    },
+
+    async "anatomia.callees"({ symbol, project, limit }) {
+      const ctx = await source.resolve(project);
+      const hits = await calleesOf(ctx, ctx.graph, symbol, limit);
+      return { hits };
     },
 
     async "anatomia.impact"({ anchor, project }) {
       const ctx = await source.resolve(project);
       const anchors = await getImpactRadius(ctx, anchor as AnchorId);
       return { anchors };
+    },
+
+    async "anatomia.domains.suggest"({ project, noLlm, only }) {
+      const ctx = await source.resolve(project);
+      const inputs = {
+        specClauses: ctx.specClauses ?? [],
+        filePaths: ctx.files.map((f) => f.path),
+      };
+      let drafts: DomainDraft[];
+      if (noLlm) {
+        drafts = seedDraftsFromStructure(inputs);
+      } else {
+        if (!providers) {
+          throw new Error("anatomia.domains.suggest requires LLM providers unless noLlm=true.");
+        }
+        const cache = resolveCacheStore<DomainDraft[]>();
+        drafts = await synthesizeDomainDrafts(inputs, providers.llm, cache, providers.llmModelId);
+      }
+      if (only?.length) {
+        const wanted = new Set(only);
+        drafts = drafts.filter((d) => wanted.has(d.name));
+      }
+      return { drafts };
     },
 
     async "anatomia.projects.list"() {
@@ -248,6 +329,49 @@ export class AnatomiaServer {
     );
 
     this.server.tool(
+      "anatomia.find",
+      "Find function symbols and call fan counts without reading source files.",
+      {
+        name: z.string().describe("Function name to find"),
+        project: z.string().optional().describe("Project id (defaults to selected)"),
+        mode: z.enum(["exact", "prefix", "substring"]).optional().describe("Match mode; exact falls back to substring on zero hits"),
+        limit: z.number().int().positive().optional().describe("Maximum hits to return"),
+      },
+      async ({ name, project, mode, limit }) => {
+        const result = await h["anatomia.find"]({ name, project, mode, limit });
+        return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
+      },
+    );
+
+    this.server.tool(
+      "anatomia.callers",
+      "List callers of a function symbol or anchor without reading source files.",
+      {
+        symbol: z.string().describe("Function name or 16-hex anchor id"),
+        project: z.string().optional().describe("Project id (defaults to selected)"),
+        limit: z.number().int().positive().optional().describe("Maximum hits to return"),
+      },
+      async ({ symbol, project, limit }) => {
+        const result = await h["anatomia.callers"]({ symbol, project, limit });
+        return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
+      },
+    );
+
+    this.server.tool(
+      "anatomia.callees",
+      "List callees of a function symbol or anchor without reading source files.",
+      {
+        symbol: z.string().describe("Function name or 16-hex anchor id"),
+        project: z.string().optional().describe("Project id (defaults to selected)"),
+        limit: z.number().int().positive().optional().describe("Maximum hits to return"),
+      },
+      async ({ symbol, project, limit }) => {
+        const result = await h["anatomia.callees"]({ symbol, project, limit });
+        return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
+      },
+    );
+
+    this.server.tool(
       "anatomia.impact",
       "Return BFS-reachable anchors from a given code anchor (impact radius).",
       {
@@ -256,6 +380,20 @@ export class AnatomiaServer {
       },
       async ({ anchor, project }) => {
         const result = await h["anatomia.impact"]({ anchor, project });
+        return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
+      },
+    );
+
+    this.server.tool(
+      "anatomia.domains.suggest",
+      "Suggest coarse domains by analyzing the project's spec with an LLM.",
+      {
+        project: z.string().optional().describe("Project id (defaults to selected)"),
+        noLlm: z.boolean().optional().describe("Use deterministic spec-heading seeds instead of the LLM"),
+        only: z.array(z.string()).optional().describe("Optional domain-name allowlist"),
+      },
+      async ({ project, noLlm, only }) => {
+        const result = await h["anatomia.domains.suggest"]({ project, noLlm, only });
         return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
       },
     );

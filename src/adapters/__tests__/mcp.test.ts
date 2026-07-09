@@ -27,7 +27,54 @@ beforeAll(async () => {
     graph,
     files: [file],
     functions,
+    domains: [
+      {
+        domain: "jump-domain",
+        implementors: [functions.find((f) => f.name === "foo")!.id!],
+        violations: [],
+        conforms: true,
+      },
+      {
+        domain: "movement",
+        implementors: [functions.find((f) => f.name === "bar")!.id!],
+        violations: [],
+        conforms: true,
+      },
+    ],
+    specClauses: [
+      {
+        id: "combat-1",
+        sourceFile: "spec/Game.md",
+        heading: "Combat / Damage",
+        text: "Damage is dealt on hit.",
+        embedding: null,
+      },
+      {
+        id: "movement-1",
+        sourceFile: "spec/Game.md",
+        heading: "Movement / Speed",
+        text: "Actors move at speed.",
+        embedding: null,
+      },
+    ],
   };
+});
+
+describe("anatomia.find/callers/callees", () => {
+  it("finds symbols", async () => {
+    const handlers = createHandlers(ctx);
+    const result = await handlers["anatomia.find"]({ name: "foo" });
+    expect(result.hits[0]!.name).toBe("foo");
+  });
+
+  it("lists callers and callees", async () => {
+    const handlers = createHandlers(ctx);
+    const callers = await handlers["anatomia.callers"]({ symbol: "foo" });
+    expect(callers.hits.map((h) => h.name)).toEqual(["bar", "baz"]);
+
+    const callees = await handlers["anatomia.callees"]({ symbol: "baz" });
+    expect(callees.hits.map((h) => h.name).sort()).toEqual(["bar", "foo"]);
+  });
 });
 
 describe("anatomia.context", () => {
@@ -116,5 +163,19 @@ describe("anatomia.impact", () => {
     const handlers = createHandlers(ctx);
     const result = await handlers["anatomia.impact"]({ anchor: "0000000000000000" });
     expect(result.anchors).toEqual([]);
+  });
+});
+
+describe("anatomia.domains.suggest", () => {
+  it("returns spec-seeded domain drafts", async () => {
+    const handlers = createHandlers(ctx);
+    const result = await handlers["anatomia.domains.suggest"]({ noLlm: true });
+    expect(result.drafts.map((d) => d.name).sort()).toEqual(["Combat", "Movement"]);
+  });
+
+  it("filters suggestions by name", async () => {
+    const handlers = createHandlers(ctx);
+    const result = await handlers["anatomia.domains.suggest"]({ noLlm: true, only: ["Combat"] });
+    expect(result.drafts.map((d) => d.name)).toEqual(["Combat"]);
   });
 });

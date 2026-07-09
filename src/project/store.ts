@@ -7,12 +7,15 @@
  * Location resolution (first wins):
  *   1. explicit `homeDir` argument
  *   2. env ANATOMIA_HOME
- *   3. <cwd>/.anatomia
+ *   3. <cwd>/.anatomia, only when projects.json already exists there
+ *   4. <os.homedir()>/.anatomia
  * The registry file is `<home>/projects.json`; the cache lives under
  * `<home>/cache/<projectId>/` (see cache.ts). The home dir is created lazily.
  */
 
+import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { ProjectRegistry } from "./registry.js";
 import type { RegistrySnapshot } from "./types.js";
@@ -22,7 +25,9 @@ export function resolveHome(homeDir?: string): string {
   if (homeDir && homeDir.trim().length > 0) return homeDir;
   const env = process.env.ANATOMIA_HOME;
   if (env && env.trim().length > 0) return env;
-  return join(process.cwd(), ".anatomia");
+  const cwdHome = join(process.cwd(), ".anatomia");
+  if (existsSync(join(cwdHome, "projects.json"))) return cwdHome;
+  return join(homedir(), ".anatomia");
 }
 
 /** Absolute path to the registry JSON for a given home. */

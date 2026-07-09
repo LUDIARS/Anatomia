@@ -88,4 +88,28 @@ describe("buildVerdict over diff-augmented graph", () => {
     expect(rc.pass).toBe(true);
     expect(rc.suggestion ?? "").not.toContain("no-data-to-render");
   });
+
+  it("evaluates path-based rules for every file in a multi-file diff", async () => {
+    const diff = [
+      "diff --git a/src/render/r.cpp b/src/render/r.cpp",
+      "--- a/src/render/r.cpp",
+      "+++ b/src/render/r.cpp",
+      "@@ -1,1 +1,2 @@",
+      " void draw_sprite() { return; }",
+      "+void draw_more() { draw_sprite(); }",
+      "diff --git a/src/data/d.cpp b/src/data/d.cpp",
+      "--- a/src/data/d.cpp",
+      "+++ b/src/data/d.cpp",
+      "@@ -1,1 +1,4 @@",
+      " int dummy() { return 0; }",
+      "+void touch_render_multi() {",
+      "+  draw_sprite();",
+      "+}",
+    ].join("\n");
+
+    const verdict = await buildVerdict(ctx, diff);
+    const rc = verdict.gates.find((g) => g.gate === "rule_conformance")!;
+    expect(rc.suggestion ?? "").toContain("no-data-to-render");
+    expect(rc.suggestion ?? "").toContain("touch_render_multi");
+  });
 });

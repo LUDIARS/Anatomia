@@ -10,7 +10,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { analyze, buildContextBundle } from "../core.js";
 import { createMemoryStore } from "../cache/store.js";
-import type { ContextBundle } from "../types.js";
+import type { AnalysisContext } from "../core.js";
+import type { ContextBundle, SpecClause } from "../types.js";
 
 let root: string;
 beforeEach(async () => {
@@ -58,5 +59,27 @@ describe("buildContextBundle cache", () => {
     await buildContextBundle(ctx, { task: "x" }, cache); // prime
     const hit = await buildContextBundle(ctx, { task: "x" }, cache);
     expect(JSON.stringify(hit)).toBe(JSON.stringify(uncached));
+  });
+
+  it("keeps relevant spec clauses when applying the byte cap", async () => {
+    const clauses: SpecClause[] = [
+      { id: "a", sourceFile: "spec.md", heading: "Render", text: "x".repeat(700), embedding: null },
+      { id: "b", sourceFile: "spec.md", heading: "Billing", text: "y".repeat(700), embedding: null },
+      { id: "z", sourceFile: "spec.md", heading: "Session", text: "lock release", embedding: null },
+    ];
+    const ctx: AnalysisContext = {
+      repoPath: "/repo",
+      graph: {} as AnalysisContext["graph"],
+      files: [],
+      functions: [],
+      specClauses: clauses,
+    };
+    const bundle = await buildContextBundle(
+      ctx,
+      { task: "session lock release", maxBundleBytes: 700 },
+      createMemoryStore<ContextBundle>(),
+    );
+    expect(bundle.specClauses.map((c) => c.id)).toEqual(["z"]);
+    expect(Buffer.byteLength(JSON.stringify(bundle), "utf8")).toBeLessThanOrEqual(700);
   });
 });
