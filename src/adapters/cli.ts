@@ -5,6 +5,10 @@
  *   verify        -- run the 5-gate verify pipeline; exit 1 if any block gate fails
  *   context       -- assemble a ContextBundle; exit 0
  *   where         -- resolve landing points; exit 0
+ *   find          -- find function symbols by name; exit 0
+ *   callers       -- list callers of a function symbol/anchor; exit 0
+ *   callees       -- list callees of a function symbol/anchor; exit 0
+ *   spec-review   -- review spec/ against AIFormat criteria; exit 0
  *   export-graph  -- export a self-contained interactive HTML graph; -o <file>
  *   project       -- registry management:
  *                      project add <name> <path>   register a project
@@ -35,7 +39,17 @@ import {
   buildVerdict,
 } from "../core.js";
 import { resolveLanding } from "../supply/landing.js";
+import { landingInjections } from "../supply/detectors.js";
+import {
+  buildSymbolIndex,
+  callersOf,
+  calleesOf,
+  findSymbol,
+  type SymbolHit,
+  type SymbolLookupOptions,
+} from "../graph/index.js";
 import { buildReview, formatReview, loadBaseline, saveBaseline, applyBaseline } from "../review/index.js";
+import { reviewSpec, formatSpecReview } from "../spec-review/index.js";
 import { detectScreens } from "../screens/index.js";
 import type { ScreenGraph } from "../screens/index.js";
 import { ProjectManager } from "../project/manager.js";
@@ -65,13 +79,21 @@ import { join } from "node:path";
 import type { IntegralQuery, IntegralReport } from "../integral/types.js";
 import type { AnalysisContext } from "../core.js";
 import type { AnchorId, Verdict } from "../types.js";
+import {
+  initVestigium,
+  installCrashLogging,
+  vgCrash,
+  vgShutdown,
+  vgWrite,
+  withVgSpan,
+} from "../obs/vestigium.js";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 export type ProjectAction = "add" | "list" | "remove" | "analyze";
-export type DomainsAction = "draft" | "list" | "reconstruct";
+export type DomainsAction = "draft" | "list" | "reconstruct" | "suggest";
 export type TraceAction = "plan" | "ingest";
 
 export interface CliArgs {
@@ -79,7 +101,11 @@ export interface CliArgs {
     | "verify"
     | "context"
     | "where"
+    | "find"
+    | "callers"
+    | "callees"
     | "review"
+    | "spec-review"
     | "project"
     | "export-graph"
     | "web"
@@ -99,6 +125,12 @@ export interface CliArgs {
   file?: string;
   /** For context/where. */
   task?: string;
+  /** For find/callers/callees. */
+  symbol?: string;
+  /** For find. */
+  mode?: SymbolLookupOptions["mode"];
+  /** For find/callers/callees. */
+  limit?: number;
   /** --json flag: output raw JSON without human summary. */
   json?: boolean;
   /** --project <id>: target a registered project. */
@@ -154,7 +186,11 @@ export function parseArgs(argv: string[]): CliArgs {
     subcommand !== "verify" &&
     subcommand !== "context" &&
     subcommand !== "where" &&
+    subcommand !== "find" &&
+    subcommand !== "callers" &&
+    subcommand !== "callees" &&
     subcommand !== "review" &&
+    subcommand !== "spec-review" &&
     subcommand !== "project" &&
     subcommand !== "export-graph" &&
     subcommand !== "web" &&
@@ -165,7 +201,7 @@ export function parseArgs(argv: string[]): CliArgs {
     subcommand !== "screens"
   ) {
     throw new Error(
-      `Unknown subcommand "${subcommand ?? ""}". Expected: verify | context | where | review | project | export-graph | web | cache-stats | integral | domains | trace | screens`,
+      `Unknown subcommand "${subcommand ?? ""}". Expected: verify | context | where | find | callers | callees | review | spec-review | project | export-graph | web | cache-stats | integral | domains | trace | screens`,
     );
   }
 
@@ -200,6 +236,9 @@ export function parseArgs(argv: string[]): CliArgs {
   let diff: string | undefined;
   let file: string | undefined;
   let task: string | undefined;
+  let symbol: string | undefined;
+  let mode: SymbolLookupOptions["mode"] | undefined;
+  let limit: number | undefined;
   let json = false;
   let project: string | undefined;
   let output: string | undefined;
@@ -216,6 +255,14 @@ export function parseArgs(argv: string[]): CliArgs {
       file = args[++i];
     } else if (flag === "--task" || flag === "-t") {
       task = args[++i];
+    } else if (flag === "--mode") {
+      const value = args[++i] as SymbolLookupOptions["mode"] | undefined;
+      if (value !== "exact" && value !== "prefix" && value !== "substring") {
+        throw new Error(`Invalid --mode "${value ?? ""}". Expected: exact | prefix | substring`);
+      }
+      mode = value;
+    } else if (flag === "--limit") {
+      limit = parseInt(args[++i] ?? "", 10);
     } else if (flag === "--json" || flag === "-j") {
       json = true;
     } else if (flag === "--project" || flag === "-p") {
@@ -235,10 +282,16 @@ export function parseArgs(argv: string[]): CliArgs {
       } else {
         project = flag;
       }
+    } else if (
+      (subcommand === "find" || subcommand === "callers" || subcommand === "callees") &&
+      !flag.startsWith("-") &&
+      !symbol
+    ) {
+      symbol = flag;
     }
   }
 
-  return { subcommand, repoPath, diff, file, task, json, project, output, baselinePath, writeBaseline };
+  return { subcommand, repoPath, diff, file, task, symbol, mode, limit, json, project, output, baselinePath, writeBaseline };
 }
 
 /**
@@ -340,8 +393,8 @@ function parseIntegralArgs(args: string[]): CliArgs {
 
 function parseDomainsArgs(args: string[]): CliArgs {
   const action = args.shift();
-  if (action !== "draft" && action !== "list" && action !== "reconstruct") {
-    throw new Error(`Unknown domains action "${action ?? ""}". Expected: draft | list | reconstruct`);
+  if (action !== "draft" && action !== "list" && action !== "reconstruct" && action !== "suggest") {
+    throw new Error(`Unknown domains action "${action ?? ""}". Expected: draft | list | reconstruct | suggest`);
   }
   let repoPath = process.cwd();
   let project: string | undefined;
@@ -433,7 +486,35 @@ export async function runCli(
     return runTrace(args);
   }
 
+  if (args.subcommand === "spec-review") {
+    const report = await reviewSpec(args.repoPath);
+    if (args.json) return { exitCode: 0, output: JSON.stringify(report, null, 2) };
+    return { exitCode: 0, output: formatSpecReview(report) };
+  }
+
   const ctx = await resolveContext(args);
+
+  if (args.subcommand === "find") {
+    if (!args.symbol) throw new Error("find requires a symbol name.");
+    const hits = await findSymbol(
+      buildSymbolIndex(ctx.functions),
+      ctx.graph,
+      args.symbol,
+      { mode: args.mode, limit: args.limit },
+    );
+    if (args.json) return { exitCode: 0, output: JSON.stringify({ hits }, null, 2) };
+    return { exitCode: 0, output: formatSymbolHits(hits) };
+  }
+
+  if (args.subcommand === "callers" || args.subcommand === "callees") {
+    if (!args.symbol) throw new Error(`${args.subcommand} requires a symbol name or anchor.`);
+    const hits =
+      args.subcommand === "callers"
+        ? await callersOf(ctx, ctx.graph, args.symbol, args.limit)
+        : await calleesOf(ctx, ctx.graph, args.symbol, args.limit);
+    if (args.json) return { exitCode: 0, output: JSON.stringify({ hits }, null, 2) };
+    return { exitCode: 0, output: formatSymbolHits(hits) };
+  }
 
   if (args.subcommand === "verify") {
     let diffSource = "";
@@ -446,20 +527,7 @@ export async function runCli(
       diffSource = await readFile(diffArg, "utf8");
     }
 
-    // Attribute the diff to a file path so `by:path` architecture rules apply to
-    // the new functions (otherwise they land at "<diff>" and never match a layer).
-    // Prefer an explicit --file; else derive it from the diff's +++ headers.
-    const targetPaths = args.file ? [args.file] : diffTargetPaths(diffSource);
-    const targetPath = targetPaths[0];
-    if (!args.file && targetPaths.length > 1) {
-      console.error(
-        `[anatomia/verify] diff touches ${targetPaths.length} files; path-based rules ` +
-          `are evaluated against the first (${targetPath}). Pass --file <path> or verify ` +
-          `per-file (or use the warm /api/verify) for the rest.`,
-      );
-    }
-
-    const verdict = await buildVerdict(ctx, diffSource, targetPath);
+    const verdict = await buildVerdict(ctx, diffSource, args.file);
     const exitCode = verdict.pass ? 0 : 1;
 
     if (args.json) {
@@ -476,14 +544,12 @@ export async function runCli(
 
   if (args.subcommand === "where") {
     const task = args.task ?? "analyze";
-    const stubDetector = async () => ["general"];
-    const stubLayerRules = { layerFor: () => null };
-    const stubSiblings = async () => [];
+    const injections = landingInjections(ctx);
     const landings = await resolveLanding(
       { description: task },
-      stubDetector,
-      stubLayerRules,
-      stubSiblings,
+      injections.detector,
+      injections.layerRules,
+      injections.siblings,
     );
     return { exitCode: 0, output: JSON.stringify({ landings }, null, 2) };
   }
@@ -561,6 +627,17 @@ function formatScreens(graph: ScreenGraph): string {
     if (s.domains.length) lines.push(`    domains: ${s.domains.join(", ")}`);
   }
   return lines.join("\n");
+}
+
+function formatSymbolHits(hits: SymbolHit[]): string {
+  if (hits.length === 0) return "(no hits)";
+  return hits
+    .map((h) => {
+      const loc = `${h.filePath}:${h.startLine}`;
+      const anchor = h.anchor ? `  ${h.anchor}` : "";
+      return `${h.name}  ${loc}  fanIn=${h.fanIn} fanOut=${h.fanOut}${anchor}`;
+    })
+    .join("\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -768,7 +845,8 @@ async function runDomains(args: CliArgs): Promise<{ exitCode: number; output: st
     return { exitCode: 0, output: lines.join("\n") };
   }
 
-  // draft / reconstruct: analyze → synthesise → reconcile → save.
+  // suggest / draft / reconstruct: analyze -> synthesise. Only draft/reconstruct
+  // reconcile and save; suggest is read-only.
   const ctx = args.project
     ? await mgr!.getContext(projectId)
     : await analyze(repoRoot);
@@ -788,6 +866,21 @@ async function runDomains(args: CliArgs): Promise<{ exitCode: number; output: st
   if (args.only && args.only.length) {
     const want = new Set(args.only);
     drafts = drafts.filter((d) => want.has(d.name));
+  }
+
+  if (args.domainsAction === "suggest") {
+    if (args.json) {
+      return { exitCode: 0, output: JSON.stringify({ drafts }, null, 2) };
+    }
+    if (!drafts.length) return { exitCode: 0, output: "no domain suggestions" };
+    const lines = [`domain suggestions: ${drafts.length}`];
+    for (const d of drafts) {
+      const paths = d.pathPatterns.length ? ` paths=${d.pathPatterns.join(",")}` : "";
+      const specs = d.specRefs.length ? ` specs=${d.specRefs.join(",")}` : "";
+      lines.push(`- ${d.name}: ${d.description}${paths}${specs}`);
+      if (d.rationale) lines.push(`  ${d.rationale}`);
+    }
+    return { exitCode: 0, output: lines.join("\n") };
   }
 
   const existing = await loadEditableDomains(dir);
@@ -945,12 +1038,43 @@ export async function main(): Promise<void> {
   // The `web` subcommand starts an HTTP server and keeps the process alive.
   // We handle it here before runCli() so we never call process.exit().
   if (args.subcommand === "web") {
-    const mgr = await ProjectManager.load({ homeDir: args.homeDir });
-    await startServer({ ctx: mgr, port: args.port ?? 4200 });
+    initVestigium();
+    installCrashLogging();
+    vgWrite("info", "anatomia cli web start", { port: args.port ?? 4200, home_dir: args.homeDir ?? null });
+    try {
+      const mgr = await ProjectManager.load({ homeDir: args.homeDir });
+      await startServer({ ctx: mgr, port: args.port ?? 4200 });
+    } catch (err) {
+      vgCrash("cli.web", err);
+      await vgShutdown();
+      throw err;
+    }
     // startServer starts the Hono listener; the event loop keeps the process alive.
     return;
   }
 
-  const { exitCode, output } = await runCli(args);
+  initVestigium({ captureConsole: false });
+  installCrashLogging();
+  const obsCtx = cliObsContext(args);
+  vgWrite("info", "anatomia cli start", obsCtx);
+  let result: { exitCode: number; output: string };
+  try {
+    result = await withVgSpan(`cli.${args.subcommand}`, obsCtx, () => runCli(args));
+  } catch (err) {
+    await vgShutdown();
+    throw err;
+  }
+  const { exitCode, output } = result;
+  vgWrite(exitCode === 0 ? "info" : "warn", "anatomia cli exit", { ...obsCtx, exit_code: exitCode });
+  await vgShutdown();
   await writeThenExit(process.stdout, output + "\n", exitCode);
+}
+
+function cliObsContext(args: CliArgs): Record<string, unknown> {
+  return {
+    subcommand: args.subcommand,
+    project: args.project ?? null,
+    project_action: args.projectAction ?? null,
+    repo: args.repoPath,
+  };
 }

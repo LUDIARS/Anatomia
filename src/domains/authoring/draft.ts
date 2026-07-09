@@ -24,7 +24,10 @@ import { versionedKey, type CacheStore } from "../../cache/store.js";
 import type { DomainDraft } from "./types.js";
 
 /** BUMP whenever assembleDraftPrompt changes (shared-cache correctness). */
-export const DRAFT_PROMPT_VERSION = "1";
+export const DRAFT_PROMPT_VERSION = "2";
+
+const MAX_SPEC_SNIPPETS = 80;
+const MAX_SPEC_TEXT_CHARS = 700;
 
 /** Inputs the synthesiser reads. */
 export interface DraftInputs {
@@ -54,10 +57,20 @@ export function buildModuleMap(filePaths: string[]): { dir: string; files: numbe
 
 /** Deterministic content key over the inputs (for the draft cache). */
 function draftContentKey(inputs: DraftInputs): string {
-  const headings = inputs.specClauses.map((c) => c.heading).sort();
+  const clauses = inputs.specClauses
+    .map((c) => ({
+      sourceFile: c.sourceFile,
+      heading: c.heading,
+      text: c.text.replace(/\s+/g, " ").trim().slice(0, MAX_SPEC_TEXT_CHARS),
+    }))
+    .sort((a, b) => {
+      const ak = `${a.sourceFile}\0${a.heading}\0${a.text}`;
+      const bk = `${b.sourceFile}\0${b.heading}\0${b.text}`;
+      return ak < bk ? -1 : ak > bk ? 1 : 0;
+    });
   const dirs = buildModuleMap(inputs.filePaths).map((m) => `${m.dir}:${m.files}`);
   return createHash("sha256")
-    .update(JSON.stringify({ headings, dirs }), "utf8")
+    .update(JSON.stringify({ clauses, dirs }), "utf8")
     .digest("hex");
 }
 
@@ -70,10 +83,18 @@ export function assembleDraftPrompt(inputs: DraftInputs): string {
     "grouping of code; it MAY or MAY NOT involve game mechanics; scene/runtime",
     "state is NOT a domain (omit it). Keep it coarse — favour ~5–15 domains.",
     "",
-    "SPEC HEADINGS:",
+    "SPEC CLAUSES:",
   );
-  const headings = [...new Set(inputs.specClauses.map((c) => c.heading))].sort();
-  for (const h of headings.slice(0, 120)) lines.push(`  - ${h}`);
+  const clauses = [...inputs.specClauses].sort((a, b) => {
+    const ak = `${a.sourceFile}\0${a.heading}\0${a.id}`;
+    const bk = `${b.sourceFile}\0${b.heading}\0${b.id}`;
+    return ak < bk ? -1 : ak > bk ? 1 : 0;
+  });
+  for (const c of clauses.slice(0, MAX_SPEC_SNIPPETS)) {
+    const text = c.text.replace(/\s+/g, " ").trim().slice(0, MAX_SPEC_TEXT_CHARS);
+    lines.push(`  - ${c.heading} [${c.id}] (${c.sourceFile})`);
+    if (text) lines.push(`    ${text}`);
+  }
   lines.push("", "MODULE MAP (directory → #files):");
   for (const m of buildModuleMap(inputs.filePaths)) lines.push(`  - ${m.dir} (${m.files})`);
   lines.push(

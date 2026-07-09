@@ -99,6 +99,12 @@
     .proj-name:hover { color: #58a6ff; text-decoration: underline; }
     .proj-path { font-family: monospace; font-size: 0.75rem; color: #6e7681; }
     .proj-counts { font-size: 0.75rem; color: #8b949e; }
+    .proj-warning { display: block; margin-top: 3px; color: #d29922; font-size: 0.7rem; line-height: 1.3; }
+    .proj-cache { display: inline-flex; align-items: center; gap: 6px; font-size: 0.75rem; color: #8b949e; }
+    .cache-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: #6e7681; }
+    .cache-dot.ready { background: #3fb950; box-shadow: 0 0 0 2px rgba(63,185,80,.15); }
+    .cache-dot.stale { background: #d29922; }
+    .cache-dot.missing { background: #6e7681; }
     .proj-actions { display: flex; gap: 6px; }
 
     /* ── VIEW: dashboard ────────────────────────────────────── */
@@ -114,6 +120,7 @@
     #dash-proj-path { font-family: monospace; font-size: 0.72rem; color: #6e7681; }
     .dash-stat { font-size: 0.78rem; color: #8b949e; }
     .dash-stat strong { color: #c9d1d9; }
+    #dash-domain-warning { color: #d29922; font-size: 0.74rem; max-width: 420px; }
 
     /* Tabs */
     #dash-tabs {
@@ -398,6 +405,30 @@
     .sr-reason { font-size: 0.74rem; color: #8b949e; margin-top: 4px; line-height: 1.4; }
     .sr-doms { font-size: 0.68rem; color: #6e7681; margin-top: 2px; }
 
+    /* Augur test suggestions */
+    #panel-test-suggestions { padding: 16px 20px; }
+    .augur-form { display: grid; grid-template-columns: 160px minmax(260px, 1fr); gap: 10px; max-width: 920px; align-items: start; }
+    .augur-form label { color: #8b949e; font-size: 0.76rem; padding-top: 6px; }
+    .augur-form select,
+    .augur-form textarea {
+      background: #21262d; border: 1px solid #30363d; border-radius: 6px;
+      color: #e1e4e8; padding: 6px 10px; font-size: 0.8rem; outline: none;
+      font-family: inherit;
+    }
+    .augur-form textarea { min-height: 66px; resize: vertical; }
+    .augur-actions { grid-column: 2; display: flex; align-items: center; gap: 10px; }
+    #augur-status { font-size: 0.76rem; color: #8b949e; }
+    #augur-results { max-width: 1040px; margin-top: 16px; }
+    .augur-card {
+      background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+      padding: 10px 12px; margin-bottom: 10px;
+    }
+    .augur-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+    .augur-title { font-weight: 600; color: #c9d1d9; }
+    .augur-meta { color: #8b949e; font-size: 0.72rem; }
+    .augur-body { color: #8b949e; font-size: 0.76rem; line-height: 1.45; }
+    .augur-files { color: #6e7681; font-family: monospace; font-size: 0.7rem; margin-top: 5px; }
+
     /* ── Adjust panel ───────────────────────────────────────── */
     #panel-adjust { padding: 16px 20px; }
     #panel-adjust h3 { font-size: 0.78rem; color: #8b949e; text-transform: uppercase;
@@ -485,6 +516,7 @@
             <th>Name / ID</th>
             <th>Root Path</th>
             <th>Counts</th>
+            <th>Cache</th>
             <th>Actions</th>
           </tr>
         </thead>
@@ -527,6 +559,7 @@
         <div class="dash-stat"><strong id="d-edges">—</strong> edges</div>
         <div class="dash-stat"><strong id="d-domains">—</strong> domains</div>
         <div class="dash-stat"><strong id="d-links">—</strong> spec links</div>
+        <div id="dash-domain-warning" style="display:none"></div>
         <div class="dash-stat" id="dash-cache-status" style="margin-left:auto">
           <span id="dash-cache-label">キャッシュ: …</span>
           <span id="dash-cache-stale-badge"></span>
@@ -544,6 +577,7 @@
         <button class="tab-btn" data-tab="hotspots">Hotspots</button>
         <button class="tab-btn" data-tab="domains">Domains</button>
         <button class="tab-btn" data-tab="spec-links">Spec Links</button>
+        <button class="tab-btn" data-tab="test-suggestions">Test Suggestions</button>
         <button class="tab-btn" data-tab="adjust">Adjust</button>
       </div>
 
@@ -695,7 +729,39 @@
           </div>
         </div>
 
-        <!-- ── Adjust ── -->
+        <!-- Augur test suggestions -->
+        <div class="tab-panel" id="panel-test-suggestions">
+          <div class="augur-form">
+            <label for="augur-kind">Objective kind</label>
+            <select id="augur-kind">
+              <option value="bug_fix">bug_fix</option>
+              <option value="regression">regression</option>
+              <option value="new_feature">new_feature</option>
+              <option value="refactor">refactor</option>
+              <option value="performance">performance</option>
+              <option value="stability">stability</option>
+              <option value="security">security</option>
+              <option value="unknown">unknown</option>
+            </select>
+
+            <label for="augur-description">Objective</label>
+            <textarea id="augur-description"></textarea>
+
+            <label for="augur-outcome">Desired outcome</label>
+            <textarea id="augur-outcome" placeholder="All related requests are healthy and in a usable state."></textarea>
+
+            <label for="augur-files">Changed files</label>
+            <textarea id="augur-files" placeholder="src/adapters/web/public/index.html&#10;src/adapters/web/routes/test-suggestions.ts"></textarea>
+
+            <div class="augur-actions">
+              <button class="btn btn-primary" id="augur-run">Get suggestions</button>
+              <span id="augur-status"></span>
+            </div>
+          </div>
+          <div id="augur-results"><div class="empty-msg">No suggestions requested yet.</div></div>
+        </div>
+
+        <!-- Adjust -->
         <div class="tab-panel" id="panel-adjust">
           <div style="padding:16px 20px">
             <div id="adjust-stale-note">web キャッシュが古くなりました。ダッシュボードの「キャッシュ生成」で再生成してください。</div>
@@ -735,6 +801,17 @@
     return res.json();
   }
 
+  function summaryWarnings(summary) {
+    return (summary && summary.warnings && summary.warnings.length)
+      ? summary.warnings
+      : [];
+  }
+
+  function firstWarningText(summary) {
+    var warnings = summaryWarnings(summary);
+    return warnings.length ? String(warnings[0].message || warnings[0].code || 'Domain warning') : '';
+  }
+
   function setText(id, val) {
     var el = document.getElementById(id);
     if (el) el.textContent = val;
@@ -765,6 +842,8 @@
     sceneModules: null,
     sceneFilter: null,
     adjustModel: null,
+    augurPlan: null,
+    prepareJobs: {},
   };
 
   // ── Navigation ─────────────────────────────────────────────────────────────
@@ -809,8 +888,11 @@
     state.sceneModules = null;
     state.sceneFilter = null;
     state.adjustModel = null;
+    state.augurPlan = null;
     if (state.network) { state.network.destroy(); state.network = null; }
     if (state.domainNetwork) { state.domainNetwork.destroy(); state.domainNetwork = null; }
+    document.getElementById('dash-prepare').setAttribute('data-id', id);
+    updatePrepareButtons(id);
     renderCrumb();
     showView('dashboard');
     // Reset to graph tab
@@ -838,7 +920,7 @@
     var tbody  = document.getElementById('projects-tbody');
     var empty  = document.getElementById('projects-empty');
     var table  = document.getElementById('projects-table');
-    tbody.innerHTML = '<tr><td colspan="4" class="loading-msg">Loading&hellip;</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="5" class="loading-msg">Loading&hellip;</td></tr>';
     table.style.display = '';
     empty.style.display = 'none';
 
@@ -846,7 +928,7 @@
     try {
       data = await apiFetch('/api/projects');
     } catch (e) {
-      tbody.innerHTML = '<tr><td colspan="4" class="error-msg">' + esc(e.message) + '</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="5" class="error-msg">' + esc(e.message) + '</td></tr>';
       return;
     }
 
@@ -871,6 +953,8 @@
           esc(p.name) + '</span></td>' +
         '<td><span class="proj-path">' + esc(p.rootPath) + '</span></td>' +
         '<td><span class="proj-counts" id="cnt-' + esc(p.id) + '">—</span></td>' +
+        '<td><span class="proj-cache" id="cache-' + esc(p.id) + '">' +
+          '<span class="cache-dot missing"></span><span>checking</span></span></td>' +
         '<td><div class="proj-actions">' +
           '<button class="btn btn-sm btn-open" data-id="' + esc(p.id) + '"' +
             ' data-name="' + esc(p.name) + '" data-path="' + esc(p.rootPath) + '">Open</button>' +
@@ -880,6 +964,8 @@
         '</div></td>';
       tbody.appendChild(tr);
       fetchCounts(p.id);
+      fetchCacheStatus(p.id);
+      updatePrepareButtons(p.id);
     });
   }
 
@@ -887,10 +973,78 @@
     try {
       var s = await apiFetch('/api/projects/' + encodeURIComponent(id) + '/summary');
       var el = document.getElementById('cnt-' + id);
-      if (el) el.textContent =
+      if (el) {
+        var text = s.files + ' files - ' + s.functions + ' fns - ' +
+          s.nodes + ' nodes - ' + s.domains + ' domains';
+        var warning = firstWarningText(s);
+        el.innerHTML = esc(text) + (warning ? '<span class="proj-warning">Warning: ' + esc(warning) + '</span>' : '');
+      }
+      /*
         s.files + ' files · ' + s.functions + ' fns · ' +
         s.nodes + ' nodes · ' + s.domains + ' domains';
+      */
     } catch (_) {}
+  }
+
+  async function fetchCacheStatus(id) {
+    var el = document.getElementById('cache-' + id);
+    if (!el) return;
+    try {
+      var manifest = await apiFetch('/api/projects/' + encodeURIComponent(id) + '/web/manifest');
+      var s = WebViewsLogic.manifestSummary(manifest);
+      if (s.ready) {
+        el.innerHTML = '<span class="cache-dot ready"></span><span>ready</span>';
+      } else if (s.prepared && s.stale) {
+        el.innerHTML = '<span class="cache-dot stale"></span><span>stale</span>';
+      } else {
+        el.innerHTML = '<span class="cache-dot missing"></span><span>not ready</span>';
+      }
+    } catch (_) {
+      el.innerHTML = '<span class="cache-dot missing"></span><span>unknown</span>';
+    }
+  }
+
+  function prepareButtons(id) {
+    var all = document.querySelectorAll('.btn-prepare, #dash-prepare, #gate-prepare-btn');
+    return Array.prototype.filter.call(all, function (btn) {
+      return btn.getAttribute('data-id') === id;
+    });
+  }
+
+  function updatePrepareButtons(id) {
+    var busy = !!state.prepareJobs[id];
+    prepareButtons(id).forEach(function (btn) {
+      if (!btn.getAttribute('data-orig-text')) {
+        btn.setAttribute('data-orig-text', btn.textContent || 'Generate Cache');
+      }
+      btn.disabled = busy;
+      btn.textContent = busy ? 'Preparing...' : btn.getAttribute('data-orig-text');
+    });
+  }
+
+  async function refreshCacheStatus(id) {
+    await fetchCacheStatus(id);
+    if (state.projectId === id) {
+      await loadManifestSummary(id);
+      loadTabContent(state.activeTab);
+    }
+  }
+
+  async function runPrepare(id) {
+    if (state.prepareJobs[id]) return;
+    state.prepareJobs[id] = true;
+    updatePrepareButtons(id);
+    try {
+      var job = await enqueuePrepare(id);
+      var done = await QueueDock.waitFor(job.jobId);
+      if (done && done.state === 'failed') throw new Error(done.error || 'cache prepare failed');
+      await refreshCacheStatus(id);
+    } catch (e) {
+      alert('Cache prepare failed: ' + e.message);
+    } finally {
+      delete state.prepareJobs[id];
+      updatePrepareButtons(id);
+    }
   }
 
   // Delegation for project table actions
@@ -935,17 +1089,10 @@
   }
 
   async function prepareFromList(id, btn) {
-    var orig = btn.textContent;
-    btn.textContent = 'キュー追加…'; btn.disabled = true;
-    try {
-      await enqueuePrepare(id);   // returns at once; progress shown in the queue dock
-      btn.textContent = 'キュー追加済';
-    } catch (e) {
-      alert('キャッシュ生成に失敗: ' + e.message);
-    } finally {
-      btn.disabled = false;
-      setTimeout(function () { btn.textContent = orig; }, 3000);
+    if (btn && !btn.getAttribute('data-orig-text')) {
+      btn.setAttribute('data-orig-text', btn.textContent || 'Generate Cache');
     }
+    await runPrepare(id);
   }
 
   // ── Add-project form ───────────────────────────────────────────────────────
@@ -990,6 +1137,7 @@
     var id = state.projectId;
     setText('dash-proj-name', state.projectName || id);
     setText('dash-proj-path', state.projectPath || '');
+    renderDashboardDomainWarning(null);
     ['d-files','d-fns','d-nodes','d-edges','d-domains','d-links'].forEach(function (k) {
       setText(k, '…');
     });
@@ -1001,11 +1149,25 @@
       setText('d-edges', s.edges);
       setText('d-domains', s.domains);
       setText('d-links', s.links);
+      renderDashboardDomainWarning(s);
     } catch (e) {
       setText('d-files', '?');
     }
     loadManifestSummary(id);
     loadTabContent(state.activeTab);
+  }
+
+  function renderDashboardDomainWarning(summary) {
+    var el = document.getElementById('dash-domain-warning');
+    if (!el) return;
+    var warning = firstWarningText(summary);
+    if (!warning) {
+      el.style.display = 'none';
+      el.textContent = '';
+      return;
+    }
+    el.style.display = '';
+    el.textContent = 'Domain warning: ' + warning;
   }
 
   // ── Web cache manifest (summary strip) ──────────────────────────────────────
@@ -1025,9 +1187,11 @@
     state.webManifest = manifest;
     var s = WebViewsLogic.manifestSummary(manifest);
     labelEl.textContent = 'キャッシュ: ' + s.label;
-    badgeEl.innerHTML = s.stale
-      ? ' <span class="badge badge-orange" title="source が変わっています">source 変更あり</span>'
-      : '';
+    badgeEl.innerHTML = s.ready
+      ? ' <span class="badge badge-green" title="prepared cache is available">ready</span>'
+      : (s.stale
+        ? ' <span class="badge badge-orange" title="source が変わっています">source 変更あり</span>'
+        : '');
   }
 
   // Enqueue a background prepare (the build runs on a serial server-side queue so
@@ -1072,27 +1236,13 @@
         '<div class="gate-card">' +
           '<h3>' + esc(viewLabel) + '</h3>' +
           '<p>このビューはまだ生成されていません。</p>' +
-          '<button class="btn btn-primary" id="gate-prepare-btn">キャッシュ生成</button>' +
+          '<button class="btn btn-primary" id="gate-prepare-btn" data-id="' + esc(id) + '">キャッシュ生成</button>' +
         '</div>' +
       '</div>';
     var btn = document.getElementById('gate-prepare-btn');
+    updatePrepareButtons(id);
     btn.onclick = async function () {
-      btn.disabled = true; btn.textContent = 'キューに追加中…';
-      try {
-        var job = await enqueuePrepare(id);
-        btn.textContent = 'キューで生成中…（進捗は左下のキュー）';
-        var done = await QueueDock.waitFor(job.jobId);   // resolves when done/failed
-        if (done && done.state === 'failed') {
-          btn.disabled = false; btn.textContent = 'キャッシュ生成';
-          alert('キャッシュ生成に失敗: ' + (done.error || 'unknown'));
-          return;
-        }
-        loadManifestSummary(id);
-        loadTabContent(state.activeTab);   // re-render the current tab
-      } catch (e) {
-        btn.disabled = false; btn.textContent = 'キャッシュ生成';
-        alert('キャッシュ生成に失敗: ' + e.message);
-      }
+      await runPrepare(id);
     };
   }
 
@@ -1126,6 +1276,7 @@
     if (tab === 'hotspots')       loadHotspots(id);
     if (tab === 'domains')        loadDomains(id);
     if (tab === 'spec-links')     loadSpecLinks(id);
+    if (tab === 'test-suggestions') loadTestSuggestions(id);
     if (tab === 'adjust')         loadAdjust(id);
   }
 
@@ -1134,19 +1285,10 @@
   document.getElementById('dash-prepare').onclick = async function () {
     var btn = document.getElementById('dash-prepare');
     var id = state.projectId;
-    btn.disabled = true; btn.textContent = 'キューに追加中…';
-    try {
-      var job = await enqueuePrepare(id);
-      btn.textContent = 'キューで生成中…';
-      var done = await QueueDock.waitFor(job.jobId);
-      if (done && done.state === 'failed') {
-        alert('キャッシュ生成に失敗: ' + (done.error || 'unknown'));
-      } else {
-        await loadManifestSummary(id);
-        loadTabContent(state.activeTab);   // re-render current tab with fresh cache
-      }
-    } catch (e) { alert('キャッシュ生成に失敗: ' + e.message); }
-    finally { btn.disabled = false; btn.textContent = 'キャッシュ生成'; }
+    if (btn && !btn.getAttribute('data-orig-text')) {
+      btn.setAttribute('data-orig-text', btn.textContent || 'Generate Cache');
+    }
+    await runPrepare(id);
   };
 
   // Re-analyze from dashboard header
@@ -2046,6 +2188,128 @@
   }
 
   // ── Adjust tab ──────────────────────────────────────────────────────────────
+
+  // Augur test suggestions tab.
+  function loadTestSuggestions(id) {
+    var runBtn = document.getElementById('augur-run');
+    var descEl = document.getElementById('augur-description');
+    var outcomeEl = document.getElementById('augur-outcome');
+    if (descEl && !(descEl.value || '').trim()) {
+      descEl.value = 'Suggest tests for ' + (state.projectName || id) +
+        ' so its requests remain healthy and usable.';
+    }
+    if (outcomeEl && !(outcomeEl.value || '').trim()) {
+      outcomeEl.value = 'All related requests are healthy and in a usable state.';
+    }
+    if (runBtn) runBtn.onclick = function () { runAugurSuggestions(id); };
+    if (state.augurPlan) renderAugurPlan(state.augurPlan);
+  }
+
+  function augurChangedFiles() {
+    var filesEl = document.getElementById('augur-files');
+    return ((filesEl && filesEl.value) || '')
+      .split(/[\n,]+/)
+      .map(function (item) { return item.trim(); })
+      .filter(function (item) { return item.length > 0; });
+  }
+
+  async function runAugurSuggestions(id) {
+    var kindEl = document.getElementById('augur-kind');
+    var descEl = document.getElementById('augur-description');
+    var outcomeEl = document.getElementById('augur-outcome');
+    var runBtn = document.getElementById('augur-run');
+    var statusEl = document.getElementById('augur-status');
+    var resultsEl = document.getElementById('augur-results');
+    var description = ((descEl && descEl.value) || '').trim();
+    var desiredOutcome = ((outcomeEl && outcomeEl.value) || '').trim();
+    if (!description) {
+      if (statusEl) statusEl.textContent = 'Objective is required.';
+      return;
+    }
+
+    var changedFiles = augurChangedFiles();
+    var payload = {
+      objective: {
+        kind: (kindEl && kindEl.value) || 'unknown',
+        description: description,
+      },
+    };
+    if (desiredOutcome) payload.objective.desiredOutcome = desiredOutcome;
+    if (changedFiles.length) payload.change = { changedFiles: changedFiles };
+
+    if (runBtn) runBtn.disabled = true;
+    if (statusEl) statusEl.textContent = 'Requesting Augur...';
+    if (resultsEl) resultsEl.innerHTML = '<div class="loading-msg">Waiting for Augur...</div>';
+
+    try {
+      var res = await fetch('/api/projects/' + encodeURIComponent(id) + '/test-suggestions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      var body = await res.json().catch(function () { return {}; });
+      if (!res.ok) throw new Error(body.error || res.statusText);
+      state.augurPlan = body;
+      renderAugurPlan(body);
+      if (statusEl) {
+        statusEl.textContent = 'Ready (' + ((body.suggestions || []).length) + ' suggestions)';
+      }
+    } catch (e) {
+      renderAugurError(e.message);
+      if (statusEl) statusEl.textContent = 'Failed';
+    } finally {
+      if (runBtn) runBtn.disabled = false;
+    }
+  }
+
+  function renderAugurPlan(plan) {
+    var resultsEl = document.getElementById('augur-results');
+    if (!resultsEl) return;
+    var suggestions = plan.suggestions || [];
+    var strategy = plan.fixPolicy && plan.fixPolicy.strategy ? plan.fixPolicy.strategy : 'n/a';
+    var header =
+      '<div class="augur-card">' +
+        '<div class="augur-head">' +
+          '<span class="badge badge-green">ready</span>' +
+          '<span class="augur-title">Augur plan</span>' +
+          '<span class="augur-meta">strategy: ' + esc(strategy) + '</span>' +
+          '<span class="augur-meta">source: ' + esc(plan.augurUrl || '') + '</span>' +
+        '</div>' +
+        '<div class="augur-body">' + esc(plan.summary || '') + '</div>' +
+      '</div>';
+
+    if (!suggestions.length) {
+      resultsEl.innerHTML = header + '<div class="empty-msg">No suggestions returned.</div>';
+      return;
+    }
+
+    resultsEl.innerHTML = header + suggestions.map(function (s) {
+      var confidence = Math.round(Number(s.confidence || 0) * 100);
+      var files = s.targetFiles && s.targetFiles.length
+        ? '<div class="augur-files">targets: ' + s.targetFiles.map(esc).join(', ') + '</div>' : '';
+      var outline = s.draft && s.draft.outline && s.draft.outline.length
+        ? '<div class="augur-files">outline: ' + s.draft.outline.map(esc).join(' | ') + '</div>' : '';
+      var framework = s.draft && s.draft.framework ? s.draft.framework : '';
+      return '<div class="augur-card">' +
+        '<div class="augur-head">' +
+          '<span class="badge badge-blue">' + esc(s.kind || 'test') + '</span>' +
+          '<span class="augur-title">' + esc(s.title || s.id || 'suggestion') + '</span>' +
+          '<span class="augur-meta">' + esc(s.priority || 'priority') + '</span>' +
+          '<span class="augur-meta">' + confidence + '% confidence</span>' +
+          (framework ? '<span class="augur-meta">' + esc(framework) + '</span>' : '') +
+        '</div>' +
+        '<div class="augur-body">' + esc(s.rationale || '') + '</div>' +
+        (s.draft && s.draft.description ? '<div class="augur-body" style="margin-top:6px">' + esc(s.draft.description) + '</div>' : '') +
+        files +
+        outline +
+      '</div>';
+    }).join('');
+  }
+
+  function renderAugurError(message) {
+    var resultsEl = document.getElementById('augur-results');
+    if (resultsEl) resultsEl.innerHTML = '<div class="error-msg">' + esc(message || 'Augur request failed') + '</div>';
+  }
 
   async function loadAdjust(id) {
     var note = document.getElementById('adjust-stale-note');

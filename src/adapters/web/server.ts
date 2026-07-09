@@ -48,7 +48,7 @@ import { join, dirname } from "node:path";
 import { Hono } from "hono";
 import { computeMetrics } from "../../supply/metrics.js";
 import { ProjectManager } from "../../project/manager.js";
-import { initVestigium } from "../../obs/vestigium.js";
+import { initVestigium, installCrashLogging, vgShutdown, vgWrite } from "../../obs/vestigium.js";
 import { webContextSourceFrom } from "./context.js";
 import { mountProjectRoutes } from "./routes/projects.js";
 import { mountAnalysisRoutes } from "./routes/analysis.js";
@@ -62,6 +62,7 @@ import { mountPatternRoutes } from "./routes/patterns.js";
 import { mountScreenRoutes } from "./routes/screens.js";
 import { mountWebCacheRoutes } from "./routes/web-cache.js";
 import { mountAdjustRoutes } from "./routes/adjust.js";
+import { mountTestSuggestionRoutes } from "./routes/test-suggestions.js";
 import { resolveIdleMs, checkIntervalMs, shouldShutdown } from "./idle.js";
 import { resolveProviders, envConfig } from "../../providers/index.js";
 import { generateCard } from "../../domains/card.js";
@@ -221,6 +222,9 @@ export function createApp(
     retuneModelId: aux.retuneModelId,
   });
 
+  // ── Augur bridge: ask for test suggestions for the selected project ────────
+  mountTestSuggestionRoutes(app, source);
+
   // ── Global LLM-cache stats route (A-3 measurement) ───────────────────────
   mountCacheRoute(app);
 
@@ -331,6 +335,8 @@ export async function startServer(options: WebServerOptions): Promise<void> {
   // warm サーバでのみ Vestigium を立ち上げる (CLI 一発 / MCP / test では init しない)。
   // 以降の cache hit/miss・supply/verify が Vg JSONL に流れる。
   initVestigium();
+  installCrashLogging();
+  vgWrite("info", "anatomia web starting", { port, hostname });
 
   // Idle self-shutdown: the warm daemon exits after a window with no HTTP
   // access (default 3h, ANATOMIA_IDLE_SHUTDOWN_MS; <=0 disables). The harness
@@ -344,6 +350,7 @@ export async function startServer(options: WebServerOptions): Promise<void> {
 
   const { serve } = await import("@hono/node-server");
   serve({ fetch: app.fetch, port, hostname }, () => {
+    vgWrite("info", "anatomia web listening", { port, hostname, idle_ms: idleMs });
     console.log(`[anatomia/web] listening on http://${hostname}:${port}`);
     if (idleMs > 0) {
       console.log(`[anatomia/web] idle shutdown after ${Math.round(idleMs / 60000)}min of no access`);
@@ -354,7 +361,8 @@ export async function startServer(options: WebServerOptions): Promise<void> {
     const timer = setInterval(() => {
       if (shouldShutdown(lastAccess, Date.now(), idleMs)) {
         console.log(`[anatomia/web] idle for ${Math.round(idleMs / 60000)}min — shutting down`);
-        process.exit(0);
+        vgWrite("info", "anatomia web idle shutdown", { idle_ms: idleMs });
+        void vgShutdown().finally(() => process.exit(0));
       }
     }, checkIntervalMs(idleMs));
     // Don't let the idle timer itself keep the event loop alive.

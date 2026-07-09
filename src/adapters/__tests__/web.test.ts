@@ -6,14 +6,14 @@
  * Suite A — single-context mode:
  *   Tests the legacy createApp(ctx) path (backwards-compat) plus the new
  *   per-project data routes (GET /api/projects/:id/summary|hotspots|spec-links|domains|vis-data)
- *   which work with id="default" in single-context mode.
+ *   which work with the repo-derived id in single-context mode.
  *
  * Suite B — manager mode:
  *   Tests project CRUD routes (POST /api/projects, DELETE, POST /:id/analyze)
  *   using a real temp directory with a minimal C++ fixture file.
  */
 
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { mkdtemp, rm, writeFile as writeFs } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -122,14 +122,14 @@ describe("GET /api/projects (single-context)", () => {
     expect(res.status).toBe(200);
     const body = await res.json() as { projects: Array<{ id: string }> };
     expect(body.projects.length).toBe(1);
-    expect(body.projects[0].id).toBe("default");
+    expect(body.projects[0].id).toBe("fixture");
   });
 });
 
 describe("GET /api/projects/:id/summary (single-context)", () => {
-  it("returns count fields for id=default", async () => {
+  it("returns count fields for the repo-derived id", async () => {
     const res = await singleApp.fetch(
-      new Request("http://localhost/api/projects/default/summary"),
+      new Request("http://localhost/api/projects/fixture/summary"),
     );
     expect(res.status).toBe(200);
     const body = await res.json() as Record<string, number>;
@@ -142,10 +142,127 @@ describe("GET /api/projects/:id/summary (single-context)", () => {
   });
 });
 
+describe("POST /api/projects/:id/test-suggestions (single-context)", () => {
+  it("forwards a shaped Augur plan request and returns suggestions", async () => {
+    vi.stubEnv("ANATOMIA_AUGUR_URL", "");
+    vi.stubEnv("AUGUR_URL", "");
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    vi.stubGlobal("fetch", async (url: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(url), init });
+      return new Response(JSON.stringify({
+        summary: "Create regression guidance from Anatomia evidence.",
+        testPlan: {
+          suggestions: [{
+            id: "test-001",
+            title: "Cache generation request regression",
+            kind: "regression",
+            priority: "high",
+            confidence: 0.86,
+            targetFiles: ["src/adapters/web/public/index.html"],
+            rationale: "The cache generation control is user-facing and stateful.",
+            draft: {
+              framework: "vitest",
+              description: "Assert the request is posted once and the button is disabled while pending.",
+              outline: ["Arrange dashboard state", "Click generate", "Assert disabled state"],
+            },
+            evidenceIds: ["ev-001"],
+          }],
+        },
+        fixPolicy: {
+          strategy: "test_first",
+          steps: [{ id: "fix-001", title: "Add regression test", description: "Cover the cache action." }],
+          risks: [],
+        },
+        evidence: [{ id: "ev-001", type: "objective", detail: "Objective supplied." }],
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+
+    try {
+      const res = await singleApp.fetch(
+        new Request("http://localhost/api/projects/fixture/test-suggestions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            objective: {
+              kind: "bug_fix",
+              description: "Cache generation should disable while the request is running.",
+              desiredOutcome: "All related requests are healthy and usable.",
+            },
+            change: { changedFiles: ["src/adapters/web/public/index.html"] },
+          }),
+        }),
+      );
+      expect(res.status).toBe(200);
+      const body = await res.json() as {
+        suggestions: Array<{ title: string; kind: string }>;
+        request: {
+          objective: { kind: string };
+          project: { testRunners: string[] };
+          change: { changedFiles: string[] };
+          runtimeSignals: Array<{ name: string }>;
+        };
+      };
+      expect(body.suggestions[0]).toMatchObject({
+        title: "Cache generation request regression",
+        kind: "regression",
+      });
+      expect(body.request.project.testRunners).toContain("vitest");
+      expect(body.request.change.changedFiles).toEqual(["src/adapters/web/public/index.html"]);
+      expect(body.request.runtimeSignals.some((signal) => signal.name === "anatomia.files")).toBe(true);
+
+      expect(calls).toHaveLength(1);
+      expect(calls[0].url).toBe("http://127.0.0.1:4210/v1/plans");
+      expect(typeof calls[0].init?.body).toBe("string");
+      const forwarded = JSON.parse(calls[0].init?.body as string) as {
+        objective: { kind: string };
+        project: { frameworks: string[] };
+      };
+      expect(forwarded.objective.kind).toBe("bug_fix");
+      expect(forwarded.project.frameworks).toContain("hono");
+    } finally {
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("returns 503 when Augur is unreachable", async () => {
+    vi.stubEnv("ANATOMIA_AUGUR_URL", "");
+    vi.stubEnv("AUGUR_URL", "");
+    vi.stubGlobal("fetch", async () => {
+      throw new Error("ECONNREFUSED");
+    });
+
+    try {
+      const res = await singleApp.fetch(
+        new Request("http://localhost/api/projects/fixture/test-suggestions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            objective: {
+              kind: "regression",
+              description: "Protect the cache generation workflow.",
+            },
+          }),
+        }),
+      );
+      expect(res.status).toBe(503);
+      const body = await res.json() as { error: string; augurUrl: string };
+      expect(body.error).toBe("Augur is not reachable");
+      expect(body.augurUrl).toBe("http://127.0.0.1:4210");
+    } finally {
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+    }
+  });
+});
+
 describe("GET /api/projects/:id/hotspots (single-context)", () => {
   it("returns an array", async () => {
     const res = await singleApp.fetch(
-      new Request("http://localhost/api/projects/default/hotspots"),
+      new Request("http://localhost/api/projects/fixture/hotspots"),
     );
     expect(res.status).toBe(200);
     const body = await res.json() as unknown[];
@@ -154,7 +271,7 @@ describe("GET /api/projects/:id/hotspots (single-context)", () => {
 
   it("hotspot entries have expected shape", async () => {
     const res = await singleApp.fetch(
-      new Request("http://localhost/api/projects/default/hotspots"),
+      new Request("http://localhost/api/projects/fixture/hotspots"),
     );
     const body = await res.json() as Array<Record<string, unknown>>;
     if (body.length > 0) {
@@ -172,7 +289,7 @@ describe("GET /api/projects/:id/hotspots (single-context)", () => {
 describe("GET /api/projects/:id/spec-links (single-context)", () => {
   it("returns an array (empty for fixture context)", async () => {
     const res = await singleApp.fetch(
-      new Request("http://localhost/api/projects/default/spec-links"),
+      new Request("http://localhost/api/projects/fixture/spec-links"),
     );
     expect(res.status).toBe(200);
     const body = await res.json() as unknown[];
@@ -183,7 +300,7 @@ describe("GET /api/projects/:id/spec-links (single-context)", () => {
 describe("GET /api/projects/:id/domains (single-context)", () => {
   it("returns an array (empty for fixture context)", async () => {
     const res = await singleApp.fetch(
-      new Request("http://localhost/api/projects/default/domains"),
+      new Request("http://localhost/api/projects/fixture/domains"),
     );
     expect(res.status).toBe(200);
     const body = await res.json() as unknown[];
@@ -194,7 +311,7 @@ describe("GET /api/projects/:id/domains (single-context)", () => {
 describe("GET /api/projects/:id/vis-data (single-context)", () => {
   it("returns vis-network data with nodes/edges/groups/summary", async () => {
     const res = await singleApp.fetch(
-      new Request("http://localhost/api/projects/default/vis-data"),
+      new Request("http://localhost/api/projects/fixture/vis-data"),
     );
     expect(res.status).toBe(200);
     const body = await res.json() as {
@@ -212,7 +329,7 @@ describe("GET /api/projects/:id/vis-data (single-context)", () => {
 
   it("vis-data nodes include _meta fields", async () => {
     const res = await singleApp.fetch(
-      new Request("http://localhost/api/projects/default/vis-data"),
+      new Request("http://localhost/api/projects/fixture/vis-data"),
     );
     const body = await res.json() as { nodes: Array<{ _meta: Record<string, unknown> }> };
     if (body.nodes.length > 0) {
@@ -230,6 +347,9 @@ describe("GET / (single-context)", () => {
     expect(res.status).toBe(200);
     const ct = res.headers.get("content-type") ?? "";
     expect(ct).toContain("html");
+    const body = await res.text();
+    expect(body).toContain('data-tab="test-suggestions"');
+    expect(body).toContain('id="augur-run"');
   });
 });
 
@@ -448,14 +568,14 @@ describe("Mutation routes in single-context mode", () => {
 
   it("DELETE /api/projects/:id returns 501", async () => {
     const res = await singleApp.fetch(
-      new Request("http://localhost/api/projects/default", { method: "DELETE" }),
+      new Request("http://localhost/api/projects/fixture", { method: "DELETE" }),
     );
     expect(res.status).toBe(501);
   });
 
   it("POST /api/projects/:id/analyze returns 501", async () => {
     const res = await singleApp.fetch(
-      new Request("http://localhost/api/projects/default/analyze", { method: "POST" }),
+      new Request("http://localhost/api/projects/fixture/analyze", { method: "POST" }),
     );
     expect(res.status).toBe(501);
   });
