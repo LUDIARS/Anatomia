@@ -9,6 +9,8 @@
  *   callers       -- list callers of a function symbol/anchor; exit 0
  *   callees       -- list callees of a function symbol/anchor; exit 0
  *   spec-review   -- review spec/ against AIFormat criteria; exit 0
+ *   domain-review -- deterministic per-domain review (coverage / cohesion /
+ *                      drift / overlap / spec integrity); exit 0
  *   export-graph  -- export a self-contained interactive HTML graph; -o <file>
  *   project       -- registry management:
  *                      project add <name> <path>   register a project
@@ -52,7 +54,15 @@ import {
   type SymbolHit,
   type SymbolLookupOptions,
 } from "../graph/index.js";
-import { buildReview, formatReview, loadBaseline, saveBaseline, applyBaseline } from "../review/index.js";
+import {
+  buildReview,
+  formatReview,
+  loadBaseline,
+  saveBaseline,
+  applyBaseline,
+  buildDomainReview,
+  formatDomainReview,
+} from "../review/index.js";
 import { ratifyLink, SpecLinkRatifyError } from "../spec/ratify.js";
 import {
   loadStability,
@@ -119,6 +129,7 @@ export interface CliArgs {
     | "callees"
     | "review"
     | "spec-review"
+    | "domain-review"
     | "project"
     | "export-graph"
     | "web"
@@ -211,6 +222,7 @@ export function parseArgs(argv: string[]): CliArgs {
     subcommand !== "callees" &&
     subcommand !== "review" &&
     subcommand !== "spec-review" &&
+    subcommand !== "domain-review" &&
     subcommand !== "project" &&
     subcommand !== "export-graph" &&
     subcommand !== "web" &&
@@ -222,7 +234,7 @@ export function parseArgs(argv: string[]): CliArgs {
     subcommand !== "links"
   ) {
     throw new Error(
-      `Unknown subcommand "${subcommand ?? ""}". Expected: verify | context | where | find | callers | callees | review | spec-review | project | export-graph | web | cache-stats | integral | domains | trace | screens | links`,
+      `Unknown subcommand "${subcommand ?? ""}". Expected: verify | context | where | find | callers | callees | review | spec-review | domain-review | project | export-graph | web | cache-stats | integral | domains | trace | screens | links`,
     );
   }
 
@@ -548,6 +560,10 @@ export async function runCli(
     return { exitCode: 0, output: formatSpecReview(report) };
   }
 
+  if (args.subcommand === "domain-review") {
+    return runDomainReview(args);
+  }
+
   const ctx = await resolveContext(args);
 
   if (args.subcommand === "find") {
@@ -659,6 +675,32 @@ async function resolveContext(args: CliArgs): Promise<AnalysisContext> {
     return mgr.getContext(args.project);
   }
   return analyze(args.repoPath);
+}
+
+/**
+ * domain-review subcommand. Resolves the context like resolveContext, but also
+ * needs the project's ontology dir so the editable defs (which carry specRefs)
+ * feed the spec-integrity check — hence its own resolution here.
+ */
+async function runDomainReview(
+  args: CliArgs,
+): Promise<{ exitCode: number; output: string }> {
+  let ctx: AnalysisContext;
+  let defsDir: string;
+  if (args.project) {
+    const mgr = await ProjectManager.load();
+    const projectId = mgr.resolveId(args.project);
+    ctx = await mgr.getContext(projectId);
+    const project = mgr.get(projectId)!;
+    defsDir = project.ontologyDir ?? domainsDir(project.rootPath);
+  } else {
+    ctx = await analyze(args.repoPath);
+    defsDir = domainsDir(args.repoPath);
+  }
+  const domainDefs = await loadEditableDomains(defsDir);
+  const report = await buildDomainReview(ctx, { domainDefs });
+  if (args.json) return { exitCode: 0, output: JSON.stringify(report, null, 2) };
+  return { exitCode: 0, output: formatDomainReview(report) };
 }
 
 /** Human-readable summary of a detected screen composition. */
