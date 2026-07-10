@@ -16,6 +16,9 @@
  *                        overlap density).
  *   - spec integrity  : domain defs that declare specRefs while none of their
  *                        implementors appears in ctx.links.
+ *   - boundary drift  : implementors whose calls-neighbourhood majority (after
+ *                        deterministic label propagation, boundary.ts) points
+ *                        at a different domain than their assignment.
  *
  * SRP: pure assembly over AnalysisContext (mirrors build.ts). No I/O, no
  * formatting (domain-review-format.ts), no analysis (core.ts).
@@ -26,6 +29,7 @@ import type { AnalysisContext } from "../core.js";
 import type { AnchorId, CodeNode } from "../types.js";
 import type { DomainDef } from "../domains/ontology.js";
 import type { ReviewLocation } from "./build.js";
+import { detectBoundaryDrift, type DriftVote } from "./boundary.js";
 
 /** A DomainDef possibly carrying authoring metadata (EditableDomainDef). */
 export type DomainDefWithSpecs = DomainDef & { specRefs?: string[] };
@@ -64,6 +68,16 @@ export interface DomainOverlap {
   domains: string[];
 }
 
+/** A boundary-drift finding shaped for the report (location + evidence). */
+export interface BoundaryDriftFinding extends ReviewLocation {
+  /** The domain the detection assigned (seed label). */
+  domain: string;
+  /** The calls-neighbourhood majority domain under the final labeling. */
+  suggested: string;
+  /** Vote breakdown (count desc, then domain asc) — the finding's evidence. */
+  votes: DriftVote[];
+}
+
 export interface SpecIntegrityWarning {
   domain: string;
   /** The specRefs the def declares (evidence for why linkage was expected). */
@@ -87,6 +101,7 @@ export interface DomainReviewReport {
     overlap: number;
     isolated: number;
     specIntegrity: number;
+    boundaryDrift: number;
   };
   domains: DomainReviewEntry[];
   /** Function/method nodes in no domain's implementors (capped, sorted). */
@@ -95,6 +110,8 @@ export interface DomainReviewReport {
   overlap: DomainOverlap[];
   /** Domains declaring specRefs with zero spec-linked implementors. */
   specIntegrity: SpecIntegrityWarning[];
+  /** Implementors whose calls-neighbourhood majority disagrees (capped, sorted). */
+  boundaryDrift: BoundaryDriftFinding[];
 }
 
 export interface DomainReviewOptions {
@@ -107,6 +124,8 @@ export interface DomainReviewOptions {
    * Omitted / empty → the spec-integrity section is empty.
    */
   domainDefs?: DomainDefWithSpecs[];
+  /** Label-propagation rounds for boundary drift (boundary.ts). Default 10. */
+  driftRounds?: number;
 }
 
 const cmp = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
@@ -261,6 +280,13 @@ export async function buildDomainReview(
     }
   }
 
+  // ── boundary drift: propagation-based disagreement (boundary.ts) ───────────
+  const driftAll: BoundaryDriftFinding[] = (
+    await detectBoundaryDrift(ctx.graph, detections, { rounds: opts.driftRounds })
+  )
+    .map((d) => ({ ...locOf(d.anchor), domain: d.domain, suggested: d.suggested, votes: d.votes }))
+    .sort(sortLocs);
+
   return {
     project: ctx.repoPath,
     summary: {
@@ -272,10 +298,12 @@ export async function buildDomainReview(
       overlap: overlapAll.length,
       isolated: isolatedTotal,
       specIntegrity: specIntegrity.length,
+      boundaryDrift: driftAll.length,
     },
     domains: entries,
     unassigned: unassignedAll.slice(0, maxList),
     overlap: overlapAll.slice(0, maxList),
     specIntegrity,
+    boundaryDrift: driftAll.slice(0, maxList),
   };
 }

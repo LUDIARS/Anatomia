@@ -207,6 +207,44 @@ describe("buildDomainReview", () => {
     expect(r.summary.isolated).toBe(2);
   });
 
+  it("integrates boundary drift findings with source locations", async () => {
+    // X = {x1,x2,x3}, Y = {y1,y2,y3}; x3's only calls neighbours are y1/y2.
+    const nodes = [
+      node("x1", "src/x/x1.cpp", 1),
+      node("x2", "src/x/x2.cpp", 1),
+      node("x3", "src/x/x3.cpp", 1),
+      node("y1", "src/y/y1.cpp", 1),
+      node("y2", "src/y/y2.cpp", 1),
+      node("y3", "src/y/y3.cpp", 1),
+    ];
+    const edges = [call("x1", "x2"), call("y1", "y2"), call("y2", "y3"), call("x3", "y1"), call("y2", "x3")];
+    const ctx: AnalysisContext = {
+      repoPath: "/repo",
+      graph: makeGraph(nodes, edges),
+      files: [],
+      functions: [],
+      domains: [detection("X", ["x1", "x2", "x3"]), detection("Y", ["y1", "y2", "y3"])],
+    };
+    const r = await buildDomainReview(ctx);
+    expect(r.summary.boundaryDrift).toBe(1);
+    expect(r.boundaryDrift).toHaveLength(1);
+    const f = r.boundaryDrift[0]!;
+    expect(f.name).toBe("x3");
+    expect(f.file).toBe("src/x/x3.cpp");
+    expect(f.domain).toBe("X");
+    expect(f.suggested).toBe("Y");
+    expect(f.votes).toEqual([{ domain: "Y", count: 2 }]);
+    const text = formatDomainReview(r);
+    expect(text).toContain("# Boundary drift");
+    expect(text).toContain("assigned=X suggested=Y");
+  });
+
+  it("reports no boundary drift on the base fixture", async () => {
+    const r = await buildDomainReview(makeCtx());
+    expect(r.summary.boundaryDrift).toBe(0);
+    expect(r.boundaryDrift).toEqual([]);
+  });
+
   it("is deterministic (same context → identical report)", async () => {
     const ctx = makeCtx();
     const a = await buildDomainReview(ctx);
