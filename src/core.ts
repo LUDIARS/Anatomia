@@ -43,6 +43,8 @@ import type { Providers } from "./providers/index.js";
 import { parseSpecFiles } from "./spec/parse.js";
 import { findExplicitLinks } from "./spec/explicit.js";
 import { findStructuralLinks } from "./spec/structural.js";
+import { specLinkCacheKey } from "./spec/cache.js";
+import type { SpecLinkResult } from "./spec/cache.js";
 import type { AnchorId, ContextBundle, FileNode, FunctionNode, GateResult, Link, Rule, SpecClause, TypeDecl, Verdict } from "./types.js";
 import type { Landing, LandingTask } from "./supply/landing.js";
 import type { DetectionResult } from "./domains/detect.js";
@@ -127,6 +129,14 @@ export interface AnalyzeOptions {
    * and rebuilding. Omit → always rebuild.
    */
   graphCache?: CacheStore<CodeGraph>;
+  /**
+   * Content-keyed cache for the Phase-5 spec-link result (clauses + links).
+   * Keyed by spec file contents + source file paths/raw-content hashes
+   * (spec/cache.ts), so a re-analysis whose spec and sources are unchanged
+   * reuses the linked result instead of re-reading every source file through
+   * both linkers. Omit → always relink.
+   */
+  specLinkCache?: CacheStore<SpecLinkResult>;
   /**
    * Cache transcript + session for observability. When present, the per-file
    * reuse loop records one `get` event (ns "perfile", hit = reused) per file, so
@@ -468,13 +478,39 @@ export async function analyze(
       spec_files: specPaths.length,
     });
     if (specPaths.length > 0) {
-      specClauses = await parseSpecFiles(specPaths);
       const sourcePaths = files.map((f) => f.path);
-      const [explicit, structural] = await Promise.all([
-        findExplicitLinks(specClauses, sourcePaths),
-        findStructuralLinks(specClauses, sourcePaths),
-      ]);
-      links = [...explicit, ...structural];
+      const runLinkers = async (): Promise<SpecLinkResult> => {
+        const clauses = await parseSpecFiles(specPaths);
+        const [explicit, structural] = await Promise.all([
+          findExplicitLinks(clauses, sourcePaths),
+          findStructuralLinks(clauses, sourcePaths),
+        ]);
+        return { specClauses: clauses, links: [...explicit, ...structural] };
+      };
+      // Reuse the linked result when spec contents + source contents are
+      // unchanged (the code-only / config-only edit cases). No cache
+      // configured → always relink (the hermetic default).
+      const specLinkCache = options.specLinkCache;
+      let result: SpecLinkResult;
+      if (specLinkCache) {
+        const specContents = await Promise.all(
+          specPaths.map(async (p) => ({ path: p, content: await readFile(p, "utf8") })),
+        );
+        const key = specLinkCacheKey(specContents, files);
+        const hit = await specLinkCache.get(key);
+        if (hit) {
+          vgWrite("debug", "anatomia spec link cache hit", { repo: repoName, spec_files: specPaths.length });
+          result = hit;
+        } else {
+          vgWrite("debug", "anatomia spec link cache miss", { repo: repoName, spec_files: specPaths.length });
+          result = await runLinkers();
+          await specLinkCache.set(key, result);
+        }
+      } else {
+        result = await runLinkers();
+      }
+      specClauses = result.specClauses;
+      links = result.links;
     }
   } catch (err) {
     vgWrite("error", "anatomia spec linking failed", {
