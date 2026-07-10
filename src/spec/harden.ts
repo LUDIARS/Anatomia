@@ -1,6 +1,7 @@
 /**
  * T25 — Link hardening utilities.
- * ratify / mergeLinks / hardenLoop — confidence + evidence promotion.
+ * ratify / mergeLinks / combineEvidence / hardenLoop — confidence + evidence
+ * promotion and multi-evidence (noisy-OR) combination.
  */
 
 import type { Link, LinkEvidence } from "../types.js";
@@ -61,6 +62,50 @@ export function mergeLinks(links: Link[]): Link[] {
   }
 
   return Array.from(best.values());
+}
+
+/**
+ * De-duplicate links by (from, to) like mergeLinks, but treat INDEPENDENT
+ * heuristic evidence as corroborating: when the same pair carries both a
+ * structural and a semantic link, the combined confidence is the noisy-OR
+ *   1 - (1 - c_structural)(1 - c_semantic)
+ * (each source is an independent "detector" of the true link, so the pair is
+ * missed only if BOTH miss), and the evidence label keeps the stronger tier.
+ * An explicit link still wins outright (mergeLinks priority, confidence 1.0
+ * territory — no boosting needed or wanted); duplicates WITHIN one evidence
+ * tier are not independent, so only the tier's best confidence enters the OR.
+ */
+export function combineEvidence(links: Link[]): Link[] {
+  const groups = new Map<string, Link[]>();
+  for (const link of links) {
+    const key = `${link.from}::${link.to}`;
+    const group = groups.get(key);
+    if (group) group.push(link);
+    else groups.set(key, [link]);
+  }
+
+  const out: Link[] = [];
+  for (const group of groups.values()) {
+    const winner = mergeLinks(group)[0]!;
+    if (winner.evidence === "explicit") {
+      out.push(winner);
+      continue;
+    }
+    // Best confidence per heuristic tier; noisy-OR across tiers when >1.
+    const bestByTier = new Map<LinkEvidence, number>();
+    for (const l of group) {
+      const prev = bestByTier.get(l.evidence);
+      if (prev === undefined || l.confidence > prev) bestByTier.set(l.evidence, l.confidence);
+    }
+    if (bestByTier.size <= 1) {
+      out.push(winner);
+      continue;
+    }
+    let missAll = 1;
+    for (const c of bestByTier.values()) missAll *= 1 - c;
+    out.push({ ...winner, confidence: 1 - missAll });
+  }
+  return out;
 }
 
 /**

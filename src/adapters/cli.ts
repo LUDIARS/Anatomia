@@ -24,6 +24,7 @@
  *   links         -- code↔spec link hardening loop:
  *                      links list [--project <id>]              list current links
  *                      links ratify <from> <to> [--project <id>] ratify + persist a link
+ *                      links candidates [--project <id>]        stable links proposed for promotion
  *
  * `verify` / `context` / `where` / `export-graph` accept `--project <id>` to
  * target a registered project (the registered rootPath overrides --repo).
@@ -53,6 +54,13 @@ import {
 } from "../graph/index.js";
 import { buildReview, formatReview, loadBaseline, saveBaseline, applyBaseline } from "../review/index.js";
 import { ratifyLink, SpecLinkRatifyError } from "../spec/ratify.js";
+import {
+  loadStability,
+  recordAnalysis,
+  promotionCandidates,
+  promoteStreakThreshold,
+} from "../spec/stability.js";
+import { computeFingerprint } from "../project/cache.js";
 import { reviewSpec, formatSpecReview } from "../spec-review/index.js";
 import { detectScreens } from "../screens/index.js";
 import type { ScreenGraph } from "../screens/index.js";
@@ -99,7 +107,7 @@ import {
 export type ProjectAction = "add" | "list" | "remove" | "analyze";
 export type DomainsAction = "draft" | "list" | "reconstruct" | "suggest";
 export type TraceAction = "plan" | "ingest";
-export type LinksAction = "list" | "ratify";
+export type LinksAction = "list" | "ratify" | "candidates";
 
 export interface CliArgs {
   subcommand:
@@ -460,8 +468,8 @@ function parseTraceArgs(args: string[]): CliArgs {
 
 function parseLinksArgs(args: string[]): CliArgs {
   const action = args.shift();
-  if (action !== "list" && action !== "ratify") {
-    throw new Error(`Unknown links action "${action ?? ""}". Expected: list | ratify`);
+  if (action !== "list" && action !== "ratify" && action !== "candidates") {
+    throw new Error(`Unknown links action "${action ?? ""}". Expected: list | ratify | candidates`);
   }
   let repoPath = process.cwd();
   let project: string | undefined;
@@ -973,6 +981,7 @@ async function runLinks(args: CliArgs): Promise<{ exitCode: number; output: stri
   // Resolve repo root + context: --project via the registry, else --repo / cwd.
   let repoRoot = args.repoPath;
   let ctx: AnalysisContext;
+  const viaProject = Boolean(args.project);
   if (args.project) {
     const mgr = await ProjectManager.load();
     const projectId = mgr.resolveId(args.project);
@@ -982,6 +991,30 @@ async function runLinks(args: CliArgs): Promise<{ exitCode: number; output: stri
     ctx = await analyze(args.repoPath, { quiet: true });
   }
   const links = ctx.links ?? [];
+
+  if (args.linksAction === "candidates") {
+    // The manager path already folded this analysis into the stability state
+    // (analyzeWith); the bare-repo path records it here so streaks accrue.
+    const state = viaProject
+      ? await loadStability(repoRoot)
+      : await recordAnalysis(repoRoot, links, await computeFingerprint(repoRoot));
+    const candidates = promotionCandidates(state, links);
+    if (args.json) {
+      return {
+        exitCode: 0,
+        output: JSON.stringify({ threshold: promoteStreakThreshold(), candidates }, null, 2),
+      };
+    }
+    if (candidates.length === 0) {
+      return { exitCode: 0, output: "(no promotion candidates — no non-explicit link has a stable streak yet)" };
+    }
+    const lines = candidates.map(
+      ({ link, streak }) =>
+        `${link.from} -> ${link.to}  [${link.evidence} conf=${link.confidence.toFixed(2)} streak=${streak}]`,
+    );
+    lines.push("", `ratify with: anatomia links ratify <from> <to>${args.project ? ` --project ${args.project}` : ""}`);
+    return { exitCode: 0, output: lines.join("\n") };
+  }
 
   if (args.linksAction === "list") {
     if (args.json) return { exitCode: 0, output: JSON.stringify({ links }, null, 2) };
