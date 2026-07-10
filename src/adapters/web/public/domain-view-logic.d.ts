@@ -51,6 +51,7 @@ export interface ScreenInput {
   file: string;
   domains?: string[];
 }
+/** Screen row for the Domain View panel (screens belonging to a domain). */
 export interface ScreenRow {
   name: string;
   kind: string;

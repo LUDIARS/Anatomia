@@ -46,6 +46,10 @@
  * single-project mode) or a ProjectManager (multi-project). In legacy mode
  * mutation routes return 501; all read routes use the single context.
  *
+ * Auth: with ANATOMIA_WEB_TOKEN set, mutation requests (POST/PUT/PATCH/DELETE)
+ * require `Authorization: Bearer <token>` (401 otherwise); reads stay open.
+ * Without a token, startServer refuses non-loopback binds (see auth.ts).
+ *
  * SRP: HTTP routing + static file serving only. Analysis via core.ts /
  *      ProjectManager. Route groups in src/adapters/web/routes/.
  */
@@ -58,6 +62,7 @@ import { computeMetrics } from "../../supply/metrics.js";
 import { ProjectManager } from "../../project/manager.js";
 import { initVestigium, installCrashLogging, vgShutdown, vgWrite } from "../../obs/vestigium.js";
 import { webContextSourceFrom } from "./context.js";
+import { resolveWebToken, mutationAuth, assertBindAllowed } from "./auth.js";
 import { mountProjectRoutes } from "./routes/projects.js";
 import { mountAnalysisRoutes } from "./routes/analysis.js";
 import { mountSpecLinkRoutes } from "./routes/spec-links.js";
@@ -104,8 +109,9 @@ export interface WebServerOptions {
   /**
    * Bind address. Default "127.0.0.1" (loopback-only — the panel is a local
    * developer tool; mutation routes like POST /api/projects are not intended to
-   * be reachable from other machines). Set "0.0.0.0" explicitly only when you
-   * need LAN access and accept the risk.
+   * be reachable from other machines). A non-loopback bind REQUIRES
+   * ANATOMIA_WEB_TOKEN to be set (startServer fails fast otherwise); mutation
+   * routes then demand `Authorization: Bearer <token>`.
    */
   hostname?: string;
   /**
@@ -174,6 +180,16 @@ export function createApp(
       onAccess();
       await next();
     });
+  }
+
+  // ── Mutation auth gate (opt-in via ANATOMIA_WEB_TOKEN) ───────────────────
+  // When a token is configured, every mutation request (POST/PUT/PATCH/DELETE)
+  // must carry `Authorization: Bearer <token>`; read routes stay open. Without
+  // a token nothing is gated here — startServer refuses non-loopback binds
+  // instead (assertBindAllowed).
+  const webToken = resolveWebToken();
+  if (webToken !== undefined) {
+    app.use("*", mutationAuth(webToken));
   }
 
   // ── Project management routes ────────────────────────────────────────────
@@ -355,6 +371,10 @@ export function createApp(
 
 export async function startServer(options: WebServerOptions): Promise<WebServerStartStatus> {
   const { ctx, port = 4200, hostname = "127.0.0.1", traceSource } = options;
+
+  // Fail fast: a non-loopback bind without ANATOMIA_WEB_TOKEN would expose the
+  // unauthenticated mutation routes (LLM-billed analyze jobs) to the network.
+  assertBindAllowed(hostname, resolveWebToken());
 
   // warm サーバでのみ Vestigium を立ち上げる (CLI 一発 / MCP / test では init しない)。
   // 以降の cache hit/miss・supply/verify が Vg JSONL に流れる。
