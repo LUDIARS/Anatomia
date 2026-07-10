@@ -28,6 +28,12 @@ import { conventionDriftGate } from "./gates/convention_drift.js";
 export interface VerifyOptions {
   /** Escalate spec_linkage from warn to block. Default false. */
   strictSpecLinkage?: boolean;
+  /**
+   * Confidence floor for spec_linkage: links below it leave their function
+   * "weakly linked" (advisory, never blocking). Default: 0 normally (any link
+   * counts — legacy behaviour), 0.5 when strictSpecLinkage is set.
+   */
+  specLinkageMinConfidence?: number;
 }
 
 /**
@@ -41,7 +47,9 @@ export function buildDefaultGates(
   return [
     ruleConformanceGate(),
     duplicationGate(dupDeps),
-    specLinkageGate(options.strictSpecLinkage ?? false),
+    specLinkageGate(options.strictSpecLinkage ?? false, {
+      minConfidence: options.specLinkageMinConfidence,
+    }),
     couplingDeltaGate(),
     conventionDriftGate(),
   ];
