@@ -22,6 +22,7 @@ import { instrumentStore } from "../cache/instrumented.js";
 import { resolveTranscript, type CacheTranscript } from "../cache/transcript.js";
 import type { DetectionResult } from "../domains/detect.js";
 import type { CodeGraph } from "../graph/build.js";
+import type { SpecLinkResult } from "../spec/cache.js";
 import { vgWrite, withVgSpan } from "../obs/vestigium.js";
 
 export interface ProjectManagerOptions {
@@ -47,6 +48,13 @@ export class ProjectManager {
    * skips edge extraction + graph build — the largest uncached slice.
    */
   private readonly graphCache: CacheStore<CodeGraph>;
+  /**
+   * Process-shared spec-link cache (memory), instrumented (ns "speclink").
+   * Reused across analyze() calls so a re-analysis whose spec + source
+   * contents are unchanged skips re-running the Phase-5 linkers (which
+   * re-read every source file). See spec/cache.ts.
+   */
+  private readonly specLinkCache: CacheStore<SpecLinkResult>;
   /** Cache transcript + session, resolved once from ANATOMIA_CACHE_LOG. */
   private readonly transcript: CacheTranscript;
   private readonly session: string;
@@ -67,6 +75,9 @@ export class ProjectManager {
     }).store;
     this.graphCache = instrumentStore(createMemoryStore<CodeGraph>(), {
       ns: "graph", transcript: this.transcript, session: this.session,
+    }).store;
+    this.specLinkCache = instrumentStore(createMemoryStore<SpecLinkResult>(), {
+      ns: "speclink", transcript: this.transcript, session: this.session,
     }).store;
     this.cache = new AnalysisCache(this.homeDir, { transcript: this.transcript, session: this.session });
     vgWrite("debug", "project manager init", {
@@ -185,6 +196,8 @@ export class ProjectManager {
       detectionCache: this.detectionCache,
       // Reuse the built graph on the same code-unchanged path.
       graphCache: this.graphCache,
+      // Reuse the Phase-5 spec-link result when spec + source contents match.
+      specLinkCache: this.specLinkCache,
       // Per-file reuse hit/miss → transcript (ns "perfile").
       transcript: this.transcript,
       session: this.session,
