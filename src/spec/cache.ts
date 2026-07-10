@@ -45,11 +45,14 @@ function sha256(text: string): string {
 /**
  * Content identity of the spec-linking inputs: spec files (path + content
  * hash) and source files (path + raw content hash), each sorted so ordering
- * never perturbs the key.
+ * never perturbs the key, plus the embedder identity when the semantic
+ * linker is active — a cached result that includes (or lacks) semantic links
+ * must never be served to an analysis with a different embedding capability.
  */
 export function specLinkContentKey(
   specFiles: SpecFileContent[],
   sourceFiles: FileNode[],
+  embedderId?: string,
 ): string {
   const specStamps = specFiles
     .map((f) => `${f.path.replace(/\\/g, "/")}\0${sha256(f.content)}`)
@@ -57,16 +60,19 @@ export function specLinkContentKey(
   const sourceStamps = sourceFiles
     .map((f) => `${f.path.replace(/\\/g, "/")}\0${f.contentHash ?? f.hash ?? ""}`)
     .sort();
-  return sha256(`${specStamps.join("\n")}\n\0\n${sourceStamps.join("\n")}`);
+  return sha256(
+    `${specStamps.join("\n")}\n\0\n${sourceStamps.join("\n")}\n\0\n${embedderId ?? "no-semantic"}`,
+  );
 }
 
 /** Cache key for the spec-link result over `specFiles` × `sourceFiles`. */
 export function specLinkCacheKey(
   specFiles: SpecFileContent[],
   sourceFiles: FileNode[],
+  embedderId?: string,
 ): string {
   return versionedKey(
-    specLinkContentKey(specFiles, sourceFiles),
+    specLinkContentKey(specFiles, sourceFiles, embedderId),
     "spec-link",
     SPEC_LINK_CACHE_VERSION,
   );
