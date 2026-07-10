@@ -115,6 +115,8 @@ export interface WebServerOptions {
   traceSource?: TraceSource;
 }
 
+export type WebServerStartStatus = "listening" | "address-in-use";
+
 // ---------------------------------------------------------------------------
 // index.html loader (read once at module init time)
 // ---------------------------------------------------------------------------
@@ -351,7 +353,7 @@ export function createApp(
 // startServer
 // ---------------------------------------------------------------------------
 
-export async function startServer(options: WebServerOptions): Promise<void> {
+export async function startServer(options: WebServerOptions): Promise<WebServerStartStatus> {
   const { ctx, port = 4200, hostname = "127.0.0.1", traceSource } = options;
 
   // warm サーバでのみ Vestigium を立ち上げる (CLI 一発 / MCP / test では init しない)。
@@ -371,13 +373,29 @@ export async function startServer(options: WebServerOptions): Promise<void> {
   });
 
   const { serve } = await import("@hono/node-server");
-  serve({ fetch: app.fetch, port, hostname }, () => {
-    vgWrite("info", "anatomia web listening", { port, hostname, idle_ms: idleMs });
-    console.log(`[anatomia/web] listening on http://${hostname}:${port}`);
-    if (idleMs > 0) {
-      console.log(`[anatomia/web] idle shutdown after ${Math.round(idleMs / 60000)}min of no access`);
-    }
-  });
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const onError = (error: Error): void => reject(error);
+      const server = serve({ fetch: app.fetch, port, hostname }, () => {
+        server.off("error", onError);
+        vgWrite("info", "anatomia web listening", { port, hostname, idle_ms: idleMs });
+        console.log(`[anatomia/web] listening on http://${hostname}:${port}`);
+        if (idleMs > 0) {
+          console.log(`[anatomia/web] idle shutdown after ${Math.round(idleMs / 60000)}min of no access`);
+        }
+        resolve();
+      });
+      server.once("error", onError);
+    });
+  } catch (error) {
+    if (!isAddressInUseError(error)) throw error;
+    // The hook and service supervisor can race to ensure the warm server is up.
+    // An occupied endpoint is therefore a controlled duplicate start, not a crash.
+    vgWrite("warn", "anatomia web start skipped; address already in use", { port, hostname });
+    console.warn(`[anatomia/web] ${hostname}:${port} is already in use; duplicate start skipped`);
+    await vgShutdown();
+    return "address-in-use";
+  }
 
   if (idleMs > 0) {
     const timer = setInterval(() => {
@@ -390,6 +408,12 @@ export async function startServer(options: WebServerOptions): Promise<void> {
     // Don't let the idle timer itself keep the event loop alive.
     timer.unref?.();
   }
+
+  return "listening";
+}
+
+function isAddressInUseError(error: unknown): boolean {
+  return error instanceof Error && (error as NodeJS.ErrnoException).code === "EADDRINUSE";
 }
 
 /**
