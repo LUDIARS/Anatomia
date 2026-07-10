@@ -176,7 +176,8 @@ export async function exportGraphHtml(
     var s = DATA.summary;
     document.getElementById('summary').textContent =
       s.title + ' — ' + s.fileCount + ' files, ' + s.funcCount + ' functions, ' +
-      s.nodeCount + ' nodes, ' + s.edgeCount + ' edges, ' + s.groupCount + ' groups';
+      s.nodeCount + ' nodes, ' + s.edgeCount + ' edges, ' + s.groupCount + ' groups, ' +
+      s.unresolvedCount + ' unresolved calls';
 
     // --- Populate group filter dropdown ---
     var gf = document.getElementById('group-filter');

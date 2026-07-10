@@ -27,7 +27,7 @@ import type { CodeGraph } from "./build.js";
 import type { FileNode } from "../types.js";
 
 /** BUMP when CodeGraph's shape or buildGraph's semantics change. */
-export const GRAPH_CACHE_VERSION = "1";
+export const GRAPH_CACHE_VERSION = "2"; // 2: CodeGraph.unresolved (dropped-call records)
 
 /**
  * Code identity for graph/detection reuse: each file's path + structural Merkle

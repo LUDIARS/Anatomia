@@ -224,6 +224,42 @@ export interface Edge {
   kind: EdgeKind;
 }
 
+/**
+ * Why a call edge was dropped during resolution (graph/build.ts). Mirrors the
+ * resolveCall / emitEdges precedence order:
+ *   - "abstract-no-impl"    : receiver's type is a known repo class but no body
+ *                             for the method exists in its hierarchy (the
+ *                             pure-virtual interface / dependency-inversion case);
+ *   - "external-type"       : receiver's type is determined but is NOT a repo
+ *                             class (std:: containers etc.);
+ *   - "unresolved-receiver" : receiver present but its type could not be
+ *                             determined, and no same-file/same-dir candidate;
+ *   - "no-local-candidate"  : callee name has no definition anywhere in the
+ *                             analyzed code (stdlib / external free call).
+ */
+export type UnresolvedReason =
+  | "abstract-no-impl"
+  | "external-type"
+  | "unresolved-receiver"
+  | "no-local-candidate";
+
+/**
+ * A call site whose edge was DROPPED by static resolution rather than emitted.
+ * The static layer prefers false-negative drops over phantom edges (build.ts
+ * header); this record keeps the drop auditable and gives the dynamic layer a
+ * join key to later re-confirm the edge from observed traces
+ * (spec/feature/dynamic-edge-recovery.md).
+ */
+export interface UnresolvedCall {
+  /** Caller function's anchor. */
+  from: AnchorId;
+  /** Terminal callee name at the call site (`obj.method()` → `method`). */
+  calleeName: string;
+  /** Receiver's resolved static type, when it was determined before the drop. */
+  receiverType?: string;
+  reason: UnresolvedReason;
+}
+
 // ---------------------------------------------------------------------------
 // Architecture rules (G3, DESIGN §4.3)
 // ---------------------------------------------------------------------------
