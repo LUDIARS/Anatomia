@@ -5,6 +5,7 @@ logs/
 
 # eval / scratch artifacts (not part of source)
 .eval-cache/
+.tmp/
 ks-graph.html
 .tmp/
 
