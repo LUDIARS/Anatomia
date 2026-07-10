@@ -46,7 +46,7 @@ import { findStructuralLinks } from "./spec/structural.js";
 import { specLinkCacheKey } from "./spec/cache.js";
 import type { SpecLinkResult } from "./spec/cache.js";
 import { loadRatifiedLinks } from "./spec/persist.js";
-import { mergeLinks } from "./spec/harden.js";
+import { combineEvidence } from "./spec/harden.js";
 import type { AnchorId, ContextBundle, FileNode, FunctionNode, GateResult, Link, Rule, SpecClause, TypeDecl, Verdict } from "./types.js";
 import type { Landing, LandingTask } from "./supply/landing.js";
 import type { DetectionResult } from "./domains/detect.js";
@@ -517,9 +517,10 @@ export async function analyze(
       // changes the artifact but not the .md/source inputs the key folds, so
       // merging after the cache keeps a fresh ratify visible on the next
       // analyze without a key bust. Ratified links are explicit/1.0, so they
-      // win mergeLinks' (from,to) dedup against structural/semantic proposals.
+      // win the (from,to) dedup against structural/semantic proposals; pairs
+      // with independent structural + semantic evidence get noisy-OR combined.
       const ratified = await loadRatifiedLinks(repoPath);
-      links = mergeLinks([...ratified, ...result.links]);
+      links = combineEvidence([...ratified, ...result.links]);
     }
   } catch (err) {
     vgWrite("error", "anatomia spec linking failed", {
