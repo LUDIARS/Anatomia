@@ -9,7 +9,7 @@ import {
   step6Merge,
 } from "./steps.js";
 import { emptyTaxonomy, findOrCreateDomain, findOrCreateModule, addDir } from "./taxonomy-ops.js";
-import type { DirStat, NodeSummary } from "./types.js";
+import type { DirStat, NodeSummary, DomainReviewSummary } from "./types.js";
 import type { DomainSkeleton } from "./prompts.js";
 
 /** A canned LLM that answers each step by detecting its prompt. */
@@ -111,6 +111,47 @@ describe("retune steps", () => {
     const { log } = await step5Split(fakeLlm, t, 6);
     expect(log.llm).toBe(false);
     expect(t.domains).toHaveLength(1);
+  });
+
+  it("step5/step6 inject domain-review evidence into the LLM prompt", async () => {
+    const review: DomainReviewSummary = {
+      domains: [{ domain: "big", internalEdges: 2, boundaryEdges: 8, cohesion: 0.2 }],
+      boundaryDrift: [
+        {
+          name: "fnDrift",
+          file: "src/m1/a.ts",
+          line: 3,
+          domain: "big",
+          suggested: "other",
+          votes: [{ domain: "other", count: 3 }],
+        },
+      ],
+      overlap: [],
+    };
+    const prompts: string[] = [];
+    const capturing = async (p: string): Promise<string> => {
+      prompts.push(p);
+      return fakeLlm(p);
+    };
+
+    const t5 = emptyTaxonomy("p");
+    const d5 = findOrCreateDomain(t5, "big", "b");
+    for (const m of ["m1", "m2", "m3", "m4", "m5", "m6", "m7"]) addDir(findOrCreateModule(d5, m, ""), `src/${m}`);
+    await step5Split(capturing, t5, 6, review);
+    const splitPrompt = prompts.find((p) => p.includes("Split it into"))!;
+    expect(splitPrompt).toContain("Domain review evidence");
+    expect(splitPrompt).toContain("cohesion 0.20");
+    expect(splitPrompt).toContain("boundary drift: fnDrift");
+
+    prompts.length = 0;
+    const t6 = emptyTaxonomy("p");
+    const d6 = findOrCreateDomain(t6, "big", "b");
+    addDir(findOrCreateModule(d6, "t1", ""), "src/t1");
+    addDir(findOrCreateModule(d6, "t2", ""), "src/t2");
+    await step6Merge(capturing, t6, [], 3, review);
+    const mergePrompt = prompts.find((p) => p.includes("These modules are very small"))!;
+    expect(mergePrompt).toContain("Domain review evidence");
+    expect(mergePrompt).toContain("cohesion 0.20");
   });
 
   it("step6 merges tiny modules", async () => {

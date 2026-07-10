@@ -33,6 +33,7 @@ import {
 } from "../../../domains/retune/taxonomy-ops.js";
 import { loadTaxonomy, saveTaxonomy } from "../../../domains/retune/taxonomy-store.js";
 import { runRetuneOnContext } from "../../../domains/retune/index.js";
+import { buildDomainReview } from "../../../review/index.js";
 import { callLlmJson } from "../../../domains/retune/llm.js";
 import {
   applyDomainOrganization,
@@ -307,10 +308,14 @@ export function mountAdjustRoutes(app: Hono, deps: AdjustRouteDeps): void {
     };
     try {
       const ctx = await manager.getContext(id);
+      // review → retune 還流: run the deterministic domain review first so the
+      // split/merge LLM prompts carry cohesion/drift/overlap evidence.
+      const reviewFindings = await buildDomainReview(ctx);
       const report = await runRetuneOnContext(ctx, {
         project: project.name,
         llm: deps.retuneLlm,
         options,
+        reviewFindings,
       });
       // Point the project at the regenerated ontology + drop the stale analysis.
       project.ontologyDir = report.ontologyDir;
