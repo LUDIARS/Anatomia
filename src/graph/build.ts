@@ -38,8 +38,10 @@
  *         rather than fan out to every same-named override (see type-resolve.ts).
  *      b. LOCALITY — otherwise (unqualified call, or receiver type unknown),
  *         prefer same-file then same-directory candidates (see localityResolve).
- *   4. Calls to unknown names (stdlib, external, unresolved) are silently
- *      dropped — no phantom nodes.
+ *   4. Calls to unknown names (stdlib, external, unresolved) are dropped —
+ *      no phantom nodes. Dropped calls are no longer silent: each drop is
+ *      recorded on CodeGraph.unresolved with a reason (UnresolvedCall), so the
+ *      dynamic layer can later re-confirm real edges from observed traces.
  *   5. Cycles (recursion, mutual recursion) are preserved; this is a general
  *      graph, not a DAG.
  *
@@ -60,7 +62,16 @@
  */
 
 import type { AstNode } from "../types.js";
-import type { AnchorId, CodeNode, Edge, EdgeKind, FileNode, FunctionNode } from "../types.js";
+import type {
+  AnchorId,
+  CodeNode,
+  Edge,
+  EdgeKind,
+  FileNode,
+  FunctionNode,
+  UnresolvedCall,
+  UnresolvedReason,
+} from "../types.js";
 import { findDeclaratorName, simpleTypeName, templateElementName } from "../dag/extract.js";
 import { TypeRegistry } from "./type-resolve.js";
 
@@ -150,6 +161,14 @@ export interface CodeGraph {
    * resolution) can omit it.
    */
   typeRegistry?: TypeRegistry;
+  /**
+   * Call sites whose edges were DROPPED by resolution (sorted, deduplicated).
+   * The drops are deliberate (no phantom edges — see header §4); this keeps them
+   * auditable and feeds the dynamic-trace recovery join
+   * (spec/feature/dynamic-edge-recovery.md). Always set by buildGraph /
+   * augmentGraph; optional only for hand-built test fixtures.
+   */
+  unresolved?: UnresolvedCall[];
 }
 
 // ---------------------------------------------------------------------------
@@ -539,6 +558,7 @@ export function buildGraph(
     reverseAdjacency: new Map(),
     edges: [],
     typeRegistry: TypeRegistry.build(files),
+    unresolved: [],
   };
 
   const nameIndex = buildNameIndex(files);
@@ -569,6 +589,7 @@ export function buildGraph(
   }
 
   emitEdges(graph, effectiveEdgeInfo, nameIndex);
+  graph.unresolved = finalizeUnresolved(graph.unresolved ?? []);
   return graph;
 }
 
@@ -609,9 +630,22 @@ function emitEdges(
     // calls
     for (const call of info.calls) {
       const targets = nameIndex.get(call.name);
-      if (!targets) continue;
+      if (!targets) {
+        // Callee name is not defined anywhere in the analyzed code (stdlib /
+        // external free call) — no edge is possible, but keep the drop auditable.
+        recordUnresolved(graph, { from: fromId, calleeName: call.name, reason: "no-local-candidate" });
+        continue;
+      }
       const resolved = resolveCall(graph, callerPath, call, symbols, info.selfType, targets);
-      for (const toId of resolved) {
+      if (resolved.drop) {
+        recordUnresolved(graph, {
+          from: fromId,
+          calleeName: call.name,
+          ...(resolved.drop.receiverType ? { receiverType: resolved.drop.receiverType } : {}),
+          reason: resolved.drop.reason,
+        });
+      }
+      for (const toId of resolved.targets) {
         addEdge(graph, { from: fromId, to: toId, kind: "calls" });
       }
     }
@@ -734,6 +768,16 @@ function resolveChainType(
 }
 
 /**
+ * Result of resolveCall: the resolved target(s), plus — when the call was
+ * dropped (targets empty for one of the deliberate reasons) — the drop record
+ * for CodeGraph.unresolved.
+ */
+interface CallResolution {
+  targets: AnchorId[];
+  drop?: { reason: UnresolvedReason; receiverType?: string };
+}
+
+/**
  * Resolve a call site to its target AnchorId(s).
  *
  * Precedence:
@@ -746,6 +790,8 @@ function resolveChainType(
  *        unrelated `count()`).
  *   2. LOCALITY — unqualified call, or a receiver whose type we cannot determine:
  *      fall back to same-file/same-directory preference (localityResolve).
+ *
+ * Every deliberate drop is reported via `drop` so emitEdges can record it.
  */
 function resolveCall(
   graph: CodeGraph,
@@ -754,24 +800,29 @@ function resolveCall(
   symbols: Record<string, string>,
   selfType: string | undefined,
   targets: AnchorId[],
-): AnchorId[] {
+): CallResolution {
   const registry = graph.typeRegistry;
   if (call.receiver !== null && registry) {
     const recvType = resolveChainType(call.receiver, symbols, selfType, registry);
     if (recvType) {
       if (registry.isKnownType(recvType)) {
-        // Known repo type → trust hierarchy resolution, even if empty. But the
-        // registry keys methods by type NAME, so distinct file-local types that
-        // share a name (e.g. an anonymous-namespace `struct Parser { skip_ws();
-        // ... }` copy-pasted into several serializers) collapse, and resolveMethod
+        const inHierarchy = registry.resolveMethod(recvType, call.name);
+        if (inHierarchy.length === 0) {
+          // No body anywhere in the hierarchy — the pure-virtual interface case.
+          return { targets: [], drop: { reason: "abstract-no-impl", receiverType: recvType } };
+        }
+        // Known repo type → trust hierarchy resolution. But the registry keys
+        // methods by type NAME, so distinct file-local types that share a name
+        // (e.g. an anonymous-namespace `struct Parser { skip_ws(); ... }`
+        // copy-pasted into several serializers) collapse, and resolveMethod
         // fans the call to EVERY file's same-named method — manufacturing phantom
         // cross-layer edges. Disambiguate with caller locality, exactly as the
         // by-name path does: a same-file/same-dir definition wins, otherwise all
         // candidates are kept so a genuine cross-module method call still surfaces.
-        return localityResolve(graph, callerPath, registry.resolveMethod(recvType, call.name));
+        return { targets: localityResolve(graph, callerPath, inHierarchy) };
       }
       // Determined but external type → external method, no repo edge.
-      return [];
+      return { targets: [], drop: { reason: "external-type", receiverType: recvType } };
     }
     // Receiver present but its type is undetermined — commonly an external/std
     // container (`map_.find(...)`, `vec_.size()`) we can't type, or a repo type
@@ -780,9 +831,35 @@ function resolveCall(
     // drawing an edge to a lone `find` in pipeline/). Keep only a same-file/
     // same-dir definition; if none, DROP rather than fan out. Real cross-module
     // edges are unqualified free calls, handled below.
-    return localityResolve(graph, callerPath, targets, /* dropForeign */ true);
+    const local = localityResolve(graph, callerPath, targets, /* dropForeign */ true);
+    if (local.length === 0) {
+      return { targets: [], drop: { reason: "unresolved-receiver" } };
+    }
+    return { targets: local };
   }
-  return localityResolve(graph, callerPath, targets);
+  return { targets: localityResolve(graph, callerPath, targets) };
+}
+
+/** Append a dropped-call record (finalizeUnresolved sorts + dedups at build end). */
+function recordUnresolved(graph: CodeGraph, record: UnresolvedCall): void {
+  (graph.unresolved ??= []).push(record);
+}
+
+/**
+ * Sort + deduplicate the unresolved records so the list is deterministic
+ * regardless of file/function iteration order (cache/export stability).
+ */
+function finalizeUnresolved(records: UnresolvedCall[]): UnresolvedCall[] {
+  const keyOf = (u: UnresolvedCall): string =>
+    `${u.from}\0${u.calleeName}\0${u.receiverType ?? ""}\0${u.reason}`;
+  const byKey = new Map<string, UnresolvedCall>();
+  for (const r of records) {
+    const k = keyOf(r);
+    if (!byKey.has(k)) byKey.set(k, r);
+  }
+  return [...byKey.entries()]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([, r]) => r);
 }
 
 /**
@@ -869,6 +946,8 @@ export function augmentGraph(
     reverseAdjacency: new Map([...base.reverseAdjacency].map(([k, v]) => [k, [...v]])),
     edges: [...base.edges],
     typeRegistry,
+    // Copy so the diff's drops never leak into the (cached, shared) base graph.
+    unresolved: [...(base.unresolved ?? [])],
   };
 
   // Add diff nodes (a changed function whose id collides with an existing one is
@@ -887,5 +966,6 @@ export function augmentGraph(
   }
 
   emitEdges(graph, diffEdgeInfo, nameIndex);
+  graph.unresolved = finalizeUnresolved(graph.unresolved ?? []);
   return graph;
 }

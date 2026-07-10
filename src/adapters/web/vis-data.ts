@@ -18,7 +18,7 @@
 import { basename, relative, dirname } from "node:path";
 import { computeMetrics } from "../../supply/metrics.js";
 import type { AnalysisContext } from "../../core.js";
-import type { AnchorId, CodeNode, Edge } from "../../types.js";
+import type { AnchorId, CodeNode, Edge, UnresolvedCall } from "../../types.js";
 import type { NodeMetrics } from "../../supply/metrics.js";
 
 // ---------------------------------------------------------------------------
@@ -92,6 +92,8 @@ export interface VisSummary {
   nodeCount: number;
   edgeCount: number;
   groupCount: number;
+  /** Count of call sites whose edges static resolution dropped (B-6). */
+  unresolvedCount: number;
 }
 
 export interface VisData {
@@ -100,6 +102,12 @@ export interface VisData {
   groups: string[];
   groupColors: Record<string, string>;
   legend: { group: string; color: string }[];
+  /**
+   * Dropped call sites (CodeGraph.unresolved, already sorted/deduped) — the
+   * static layer's honest record of edges it refused to guess. Exported so the
+   * dynamic layer / users can audit them (spec/feature/dynamic-edge-recovery.md).
+   */
+  unresolved: UnresolvedCall[];
   summary: VisSummary;
 }
 
@@ -292,12 +300,16 @@ export async function buildVisData(
     color: groupColorMap[g] ?? "#8b949e",
   }));
 
+  // Dropped call sites, straight from the built graph (sorted/deduped there).
+  const unresolved: UnresolvedCall[] = ctx.graph.raw.unresolved ?? [];
+
   return {
     nodes: visNodes,
     edges: visEdges,
     groups: allGroups,
     groupColors: groupColorMap,
     legend: legendItems,
+    unresolved,
     summary: {
       title: t,
       fileCount: ctx.files.length,
@@ -305,6 +317,7 @@ export async function buildVisData(
       nodeCount: nodes.length,
       edgeCount: edges.length,
       groupCount: allGroups.length,
+      unresolvedCount: unresolved.length,
     },
   };
 }
