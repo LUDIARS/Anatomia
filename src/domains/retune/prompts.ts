@@ -8,7 +8,7 @@
  * SRP: string construction only. No LLM calls (llm.ts), no step logic (steps.ts).
  */
 
-import type { DirStat, DomainPlan } from "./types.js";
+import type { DirStat, DomainPlan, DomainReviewSummary } from "./types.js";
 
 /** Skeleton a step-1 prompt produces (domains + conceptual module hints). */
 export interface DomainSkeleton {
@@ -112,8 +112,47 @@ export function step3Prompt(input: {
   ].join("\n");
 }
 
+/**
+ * Deterministic domain-review evidence lines for the named domains: per-domain
+ * cohesion/coupling ratio, boundary-drift findings and overlaps. Empty when the
+ * review has nothing to say about those domains (no section emitted).
+ */
+export function reviewEvidenceSection(
+  review: DomainReviewSummary | undefined,
+  domainNames: string[],
+): string[] {
+  if (!review) return [];
+  const want = new Set(domainNames);
+  const lines: string[] = [];
+  for (const d of review.domains) {
+    if (!want.has(d.domain)) continue;
+    const coh = d.cohesion === null ? "n/a" : d.cohesion.toFixed(2);
+    lines.push(
+      `- domain "${d.domain}": cohesion ${coh} (internal ${d.internalEdges} / boundary ${d.boundaryEdges} calls edges)`,
+    );
+  }
+  for (const f of review.boundaryDrift) {
+    if (!want.has(f.domain) && !want.has(f.suggested)) continue;
+    const votes = f.votes.map((v) => `${v.domain}:${v.count}`).join(", ");
+    lines.push(
+      `- boundary drift: ${f.name} (${f.file}:${f.line}) assigned=${f.domain} neighbours-suggest=${f.suggested} (votes ${votes})`,
+    );
+  }
+  for (const o of review.overlap) {
+    if (!o.domains.some((x) => want.has(x))) continue;
+    lines.push(`- overlap: ${o.name} (${o.file}:${o.line}) claimed by [${o.domains.join(", ")}]`);
+  }
+  if (lines.length === 0) return [];
+  return [
+    ``,
+    `## Domain review evidence (deterministic structural review)`,
+    `Use these measured facts when deciding:`,
+    ...lines,
+  ];
+}
+
 /** Step 5 — split an over-large domain (too many modules) into sub-domains. */
-export function step5Prompt(input: { domain: DomainPlan }): string {
+export function step5Prompt(input: { domain: DomainPlan; review?: DomainReviewSummary }): string {
   const mods = input.domain.modules
     .map((m) => `- ${m.name}: ${m.description} [paths: ${m.paths.join(", ")}]`)
     .join("\n");
@@ -124,6 +163,7 @@ export function step5Prompt(input: { domain: DomainPlan }): string {
     ``,
     `## Modules`,
     mods,
+    ...reviewEvidenceSection(input.review, [input.domain.name]),
     ``,
     `${JSON_ONLY} Shape:`,
     `{"subdomains":[{"name":"...","description":"...","modules":["moduleName"]}]}`,
@@ -133,10 +173,12 @@ export function step5Prompt(input: { domain: DomainPlan }): string {
 /** Step 6 — merge too many tiny modules. */
 export function step6Prompt(input: {
   smallModules: { name: string; domain: string; nodeCount: number; description: string }[];
+  review?: DomainReviewSummary;
 }): string {
   const list = input.smallModules
     .map((m) => `- ${m.name} (domain ${m.domain}, ${m.nodeCount} fns): ${m.description}`)
     .join("\n");
+  const domains = [...new Set(input.smallModules.map((m) => m.domain))].sort();
   return [
     `These modules are very small (few functions each). Propose merges that combine`,
     `related tiny modules into a single larger module. Only merge modules that are`,
@@ -145,6 +187,7 @@ export function step6Prompt(input: {
     ``,
     `## Small modules`,
     list,
+    ...reviewEvidenceSection(input.review, domains),
     ``,
     `${JSON_ONLY} Shape:`,
     `{"merges":[{"domain":"...","into":"newOrExistingModuleName","description":"...","modules":["a","b"]}]}`,

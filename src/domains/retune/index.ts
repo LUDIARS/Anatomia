@@ -5,7 +5,7 @@
  */
 
 export * from "./types.js";
-export { runRetune, runRetuneOnContext } from "./pipeline.js";
+export { runRetune, runRetuneOnContext, reviewFeedbackNotes } from "./pipeline.js";
 export type { RetuneOptions } from "./pipeline.js";
 export { summarizeNodes, classifyBySize, dirStats, nodeSize, percentile } from "./graph-stats.js";
 export {

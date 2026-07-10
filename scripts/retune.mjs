@@ -18,7 +18,9 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { resolveProviders } from "../dist/providers/index.js";
-import { runRetune } from "../dist/domains/retune/index.js";
+import { analyze } from "../dist/core.js";
+import { buildDomainReview } from "../dist/review/index.js";
+import { runRetuneOnContext } from "../dist/domains/retune/index.js";
 
 const repoPath = process.env.RETUNE_REPO || process.cwd();
 const project = process.env.RETUNE_PROJECT || "anatomia";
@@ -31,10 +33,20 @@ async function main() {
   console.error(`[retune] providers: ${providers.describe()}`);
   console.error(`[retune] repo=${repoPath} project=${project}`);
 
-  const report = await runRetune({
-    repoPath,
+  // review → retune 還流: analyze once, run the deterministic domain review on
+  // that context, and hand the findings to the pipeline as split/merge evidence.
+  const ctx = await analyze(repoPath, { quiet: true });
+  const reviewFindings = await buildDomainReview(ctx);
+  console.error(
+    `[retune] domain review: ${reviewFindings.summary.domains} domains, ` +
+      `coverage ${(reviewFindings.summary.coverage * 100).toFixed(1)}%, ` +
+      `boundaryDrift ${reviewFindings.summary.boundaryDrift}, overlap ${reviewFindings.summary.overlap}`,
+  );
+
+  const report = await runRetuneOnContext(ctx, {
     project,
     llm: providers.llm,
+    reviewFindings,
     options: { now: new Date().toISOString(), largePercentile },
   });
 

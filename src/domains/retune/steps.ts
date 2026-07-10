@@ -16,7 +16,7 @@
  */
 
 import type { LLMClient } from "../card.js";
-import type { DirStat, Taxonomy, NodeSummary, StepLog } from "./types.js";
+import type { DirStat, Taxonomy, NodeSummary, StepLog, DomainReviewSummary } from "./types.js";
 import { callLlmJson, asArray } from "./llm.js";
 import { step1Prompt, step2Prompt, step3Prompt, step5Prompt, step6Prompt } from "./prompts.js";
 import type { DomainSkeleton } from "./prompts.js";
@@ -189,11 +189,12 @@ export async function step5Split(
   llm: LLMClient,
   t: Taxonomy,
   maxModules: number = MAX_MODULES_PER_DOMAIN,
+  review?: DomainReviewSummary,
 ): Promise<{ log: StepLog }> {
   const oversized = t.domains.filter((d) => d.modules.length > maxModules);
   let splits = 0;
   for (const d of oversized) {
-    const parsed = await callLlmJson<{ subdomains?: unknown }>(llm, step5Prompt({ domain: d }));
+    const parsed = await callLlmJson<{ subdomains?: unknown }>(llm, step5Prompt({ domain: d, review }));
     const subdomains = asArray<any>(parsed.subdomains).map((s) => ({
       name: kebab(s?.name ?? ""),
       description: String(s?.description ?? ""),
@@ -218,6 +219,7 @@ export async function step6Merge(
   t: Taxonomy,
   nodes: NodeSummary[],
   minNodes: number = MIN_NODES_PER_MODULE,
+  review?: DomainReviewSummary,
 ): Promise<{ log: StepLog }> {
   const counts = moduleNodeCounts(t, nodes);
   const small: { name: string; domain: string; nodeCount: number; description: string }[] = [];
@@ -230,7 +232,7 @@ export async function step6Merge(
   if (small.length < 2) {
     return { log: { step: 6, title: "小モジュールの統合", llm: false, summary: `${small.length} tiny modules (<${minNodes} fns); nothing to merge` } };
   }
-  const parsed = await callLlmJson<{ merges?: unknown }>(llm, step6Prompt({ smallModules: small }));
+  const parsed = await callLlmJson<{ merges?: unknown }>(llm, step6Prompt({ smallModules: small, review }));
   const merges = asArray<any>(parsed.merges).map((m) => ({
     domain: kebab(m?.domain ?? ""),
     into: kebab(m?.into ?? ""),

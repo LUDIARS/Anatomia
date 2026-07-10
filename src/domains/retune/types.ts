@@ -110,6 +110,49 @@ export interface RetuneReport {
   humanReviewNotes: string[];
 }
 
+// ── Domain-review feedback (review → retune 還流) ───────────────────────────
+
+/**
+ * Distilled findings of the deterministic domain review handed INTO a retune
+ * pass as evidence for the split/merge LLM decisions and the human-review
+ * notes. This is a STRUCTURAL SUBSET of review/DomainReviewReport — declared
+ * here instead of importing it so the domains layer keeps no dependency on the
+ * review layer (one-way layer boundary); a DomainReviewReport is assignable
+ * as-is.
+ */
+export interface DomainReviewSummary {
+  domains: DomainReviewDomainStat[];
+  boundaryDrift: DomainReviewDriftFinding[];
+  overlap: DomainReviewOverlapFinding[];
+}
+
+/** Per-domain cohesion/coupling stat (conductance-like calls-edge ratio). */
+export interface DomainReviewDomainStat {
+  domain: string;
+  internalEdges: number;
+  boundaryEdges: number;
+  /** internal / (internal + boundary); null when the domain touches no edge. */
+  cohesion: number | null;
+}
+
+/** A function whose calls-neighbourhood majority disagrees with its domain. */
+export interface DomainReviewDriftFinding {
+  name: string;
+  file: string;
+  line: number;
+  domain: string;
+  suggested: string;
+  votes: { domain: string; count: number }[];
+}
+
+/** A function claimed by multiple domains. */
+export interface DomainReviewOverlapFinding {
+  name: string;
+  file: string;
+  line: number;
+  domains: string[];
+}
+
 // ── Persisted iteration state (.anatomia/retune-state.json, local) ───────────
 
 export interface RetuneState {
