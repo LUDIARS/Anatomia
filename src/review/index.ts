@@ -14,6 +14,19 @@ export type {
   ReviewOptions,
 } from "./build.js";
 export { formatReview } from "./format.js";
+export { buildDomainReview } from "./domain-review.js";
+export type {
+  DomainReviewReport,
+  DomainReviewEntry,
+  DomainReviewOptions,
+  DomainOverlap,
+  SpecIntegrityWarning,
+  DomainDefWithSpecs,
+  BoundaryDriftFinding,
+} from "./domain-review.js";
+export { formatDomainReview } from "./domain-review-format.js";
+export { detectBoundaryDrift } from "./boundary.js";
+export type { BoundaryDrift, DriftVote, BoundaryDriftOptions } from "./boundary.js";
 export {
   loadBaseline,
   saveBaseline,

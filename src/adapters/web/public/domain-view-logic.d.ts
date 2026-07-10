@@ -43,6 +43,14 @@ export function foldUnitGraph(
   opts: { fold: boolean },
 ): FoldedUnitGraph;
 
+export interface ScreenInput {
+  name: string;
+  kind: string;
+  stack: string;
+  route?: string | null;
+  file: string;
+  domains?: string[];
+}
 /** Screen row for the Domain View panel (screens belonging to a domain). */
 export interface ScreenRow {
   name: string;
@@ -52,16 +60,6 @@ export interface ScreenRow {
   file: string;
 }
 export function screensRowsFor(
-  screens:
-    | Array<{
-        name: string;
-        kind: string;
-        stack: string;
-        route?: string | null;
-        file: string;
-        domains?: string[];
-      }>
-    | null
-    | undefined,
+  screens: ScreenInput[] | null | undefined,
   domainName: string,
 ): ScreenRow[];

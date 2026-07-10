@@ -10,7 +10,7 @@
 
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { extname } from "node:path";
+import { basename, extname, relative } from "node:path";
 import type { Tree } from "web-tree-sitter";
 import { collectFilesByExt, readGitignoreDirs, EXCLUDE_DIRS } from "./fs/walk.js";
 import { parse } from "./dag/parser.js";
@@ -26,6 +26,8 @@ import { assembleBundle } from "./supply/bundle.js";
 import { sharedBundleCache, BUNDLE_CACHE_VERSION } from "./supply/cache.js";
 import { verify, buildDefaultGates } from "./supply/verify.js";
 import { resolveLanding } from "./supply/landing.js";
+import { landingInjections } from "./supply/detectors.js";
+import { rankExemplars, rankSpecClauses, RELEVANCE_VERSION } from "./supply/relevance.js";
 import { loadOntology } from "./domains/ontology.js";
 import { detectDomains } from "./domains/detect.js";
 import { detectionCacheKey } from "./domains/cache.js";
@@ -41,11 +43,18 @@ import type { Providers } from "./providers/index.js";
 import { parseSpecFiles } from "./spec/parse.js";
 import { findExplicitLinks } from "./spec/explicit.js";
 import { findStructuralLinks } from "./spec/structural.js";
-import type { AnchorId, ContextBundle, FileNode, FunctionNode, Link, Rule, SpecClause, TypeDecl, Verdict } from "./types.js";
-import type { Landing, LandingTask, DomainDetector, LayerRules, SiblingLookup } from "./supply/landing.js";
+import { findSemanticLinks } from "./spec/semantic.js";
+import { cachedEmbeddingClient } from "./spec/embed-cache.js";
+import { specLinkCacheKey } from "./spec/cache.js";
+import type { SpecLinkResult } from "./spec/cache.js";
+import { loadRatifiedLinks } from "./spec/persist.js";
+import { combineEvidence } from "./spec/harden.js";
+import type { AnchorId, ContextBundle, FileNode, FunctionNode, GateResult, Link, Rule, SpecClause, TypeDecl, Verdict } from "./types.js";
+import type { Landing, LandingTask } from "./supply/landing.js";
 import type { DetectionResult } from "./domains/detect.js";
 import type { DiffInput } from "./supply/gates/types.js";
 import type { Lang } from "./types.js";
+import { vgCrash, vgWrite } from "./obs/vestigium.js";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -75,11 +84,21 @@ export interface AnalysisContext {
   rules?: Rule[];
   /** Files that could not be read or parsed (skipped, with reason). */
   skipped?: { filePath: string; reason: string }[];
+  /**
+   * True when the semantic linker was active in this analysis (an embedder
+   * capability was injected and spec files existed). False/absent means links
+   * carry only explicit/structural (+ ratified) evidence — the embedder-less
+   * skip is a capability absence, and this flag is what makes it observable.
+   */
+  semanticLinked?: boolean;
 }
 
 export interface BundleRequest {
   task: string;
   domainHints?: string[];
+  topClauses?: number;
+  topExemplars?: number;
+  maxBundleBytes?: number;
 }
 
 /** Options for analyze(). */
@@ -121,6 +140,23 @@ export interface AnalyzeOptions {
    * and rebuilding. Omit → always rebuild.
    */
   graphCache?: CacheStore<CodeGraph>;
+  /**
+   * Content-keyed cache for the Phase-5 spec-link result (clauses + links).
+   * Keyed by spec file contents + source file paths/raw-content hashes
+   * (spec/cache.ts), so a re-analysis whose spec and sources are unchanged
+   * reuses the linked result instead of re-reading every source file through
+   * both linkers. Omit → always relink.
+   */
+  specLinkCache?: CacheStore<SpecLinkResult>;
+  /**
+   * Optional capability providers. When present, Phase 5 additionally runs
+   * the semantic (embedding-similarity) linker with `providers.embed`,
+   * per-text cached under `providers.embedModelId` (spec/embed-cache.ts).
+   * Absent → semantic linking is skipped: a missing embedder is an absent
+   * CAPABILITY (like the hash-embedder tier), not a config deficiency, so no
+   * error — but the skip is observable via AnalysisContext.semanticLinked.
+   */
+  providers?: Providers;
   /**
    * Cache transcript + session for observability. When present, the per-file
    * reuse loop records one `get` event (ns "perfile", hit = reused) per file, so
@@ -195,6 +231,20 @@ function diffTargetPath(diff: string): string | null {
   return null;
 }
 
+function diffTargetPaths(diff: string): string[] {
+  const out: string[] = [];
+  for (const line of diff.split(/\r?\n/)) {
+    if (!line.startsWith("+++ ")) continue;
+    let p = line.slice(4).trim();
+    const tab = p.indexOf("\t");
+    if (tab >= 0) p = p.slice(0, tab);
+    if (p === "/dev/null") continue;
+    p = p.replace(/^[ab]\//, "");
+    if (p.length > 0 && !out.includes(p)) out.push(p);
+  }
+  return out;
+}
+
 /** Path segments that should be excluded from TypeScript source collection. */
 const TS_EXCLUDE_SEGMENTS = new Set(["node_modules", "dist", ".git"]);
 
@@ -235,12 +285,24 @@ export async function analyze(
   repoPath: string,
   options: AnalyzeOptions = {},
 ): Promise<AnalysisContext> {
+  const started = Date.now();
+  const repoName = basename(repoPath);
+  vgWrite("info", "anatomia analyze start", {
+    repo: repoName,
+    quiet: options.quiet ?? false,
+    prior_files: options.priorFiles?.size ?? 0,
+  });
   const rawFilePaths = await collectSourceFiles(repoPath);
   // For TypeScript files, skip *.d.ts and files under node_modules/dist.
   const filePaths = rawFilePaths.filter((fp) => {
     const ext = extname(fp).toLowerCase();
     if (ext === ".ts" || ext === ".tsx") return !shouldSkipTsPath(fp);
     return true;
+  });
+  vgWrite("info", "anatomia analyze files discovered", {
+    repo: repoName,
+    raw_files: rawFilePaths.length,
+    files: filePaths.length,
   });
 
   const files: FileNode[] = [];
@@ -257,6 +319,11 @@ export async function analyze(
 
   const warn = (filePath: string, reason: string): void => {
     skipped.push({ filePath, reason });
+    vgWrite("warn", "anatomia analyze skipped file", {
+      repo: repoName,
+      file: fileLabel(repoPath, filePath),
+      reason: truncateForLog(reason),
+    });
     if (!options.quiet) {
       console.warn(`[anatomia/analyze] skipping ${filePath}: ${reason}`);
     }
@@ -264,7 +331,17 @@ export async function analyze(
 
   // Phase 1 — parse + extract + hash. Each file's tree is freed as soon as its
   // functions (with detached bodyAst) and type decls are extracted.
-  for (const filePath of filePaths) {
+  for (let index = 0; index < filePaths.length; index++) {
+    const filePath = filePaths[index]!;
+    if (index > 0 && index % 100 === 0) {
+      vgWrite("debug", "anatomia analyze parse progress", {
+        repo: repoName,
+        index,
+        files: filePaths.length,
+        parsed: files.length,
+        skipped: skipped.length,
+      });
+    }
     let src: string;
     try {
       src = await readFile(filePath, "utf8");
@@ -311,6 +388,12 @@ export async function analyze(
       // result. Stop the scan now; the warm server's next restart gets a fresh
       // module. (Per-file freeing above is what keeps us from reaching this.)
       if (isWasmAbort(err)) {
+        vgCrash("wasm-abort", err, {
+          repo: repoName,
+          file: fileLabel(repoPath, filePath),
+          parsed: files.length,
+          skipped: skipped.length,
+        });
         if (!options.quiet) {
           console.warn(
             "[anatomia/analyze] tree-sitter WASM aborted (heap exhausted); " +
@@ -345,12 +428,15 @@ export async function analyze(
     const key = graphCacheKey(files);
     const hit = await graphCache.get(key);
     if (hit) {
+      vgWrite("debug", "anatomia graph cache hit", { repo: repoName, files: files.length });
       codeGraph = hit;
     } else {
+      vgWrite("debug", "anatomia graph cache miss", { repo: repoName, files: files.length });
       codeGraph = buildGraph(files, extractEdgeInfo(files));
       await graphCache.set(key, codeGraph);
     }
   } else {
+    vgWrite("debug", "anatomia graph build", { repo: repoName, files: files.length });
     codeGraph = buildGraph(files, extractEdgeInfo(files));
   }
   const graph = new InMemoryCodeGraph(codeGraph);
@@ -369,18 +455,26 @@ export async function analyze(
       const key = detectionCacheKey(files, ontology);
       const hit = await detectionCache.get(key);
       if (hit) {
+        vgWrite("debug", "anatomia domain detection cache hit", { repo: repoName, files: files.length });
         domains = hit;
       } else {
+        vgWrite("debug", "anatomia domain detection cache miss", { repo: repoName, files: files.length });
         domains = await detectDomains(ontology, graph, allFunctions);
         await detectionCache.set(key, domains);
       }
     } else {
+      vgWrite("debug", "anatomia domain detection start", { repo: repoName, files: files.length });
       domains = await detectDomains(ontology, graph, allFunctions);
     }
     // Surface the ontology's preset rules so supply can list them and verify
     // can evaluate them (detection only reports violations on existing code).
     rules = compileDomainRules(ontology);
   } catch (err) {
+    vgWrite("error", "anatomia domain detection failed", {
+      repo: repoName,
+      files: files.length,
+      error: truncateForLog(String(err)),
+    });
     if (!options.quiet) {
       console.warn(`[anatomia/analyze] domain detection failed: ${String(err)}`);
     }
@@ -389,29 +483,98 @@ export async function analyze(
   // (Trees were freed per-file in phase 1; the detached bodyAst mirrors retained
   // on the returned context are plain JS and pin no native memory.)
 
-  // Phase 5 — spec linking (G4). Parse markdown, then explicit + structural links.
+  // Phase 5 — spec linking (G4). Parse markdown, then explicit + structural
+  // (+ semantic when an embedder capability is present) links.
   let specClauses: SpecClause[] = [];
   let links: Link[] = [];
+  let semanticLinked = false;
   try {
     // Scan the code root plus any extra spec dirs (e.g. a sibling spec/ when the
     // code root is <repo>/src). De-dupe so an overlapping dir is not parsed twice.
     const specRoots = [repoPath, ...(options.specDirs ?? [])];
     const collected = await Promise.all(specRoots.map((d) => collectSpecFiles(d)));
     const specPaths = [...new Set(collected.flat())];
+    vgWrite("debug", "anatomia spec files discovered", {
+      repo: repoName,
+      spec_roots: specRoots.length,
+      spec_files: specPaths.length,
+    });
     if (specPaths.length > 0) {
-      specClauses = await parseSpecFiles(specPaths);
       const sourcePaths = files.map((f) => f.path);
-      const [explicit, structural] = await Promise.all([
-        findExplicitLinks(specClauses, sourcePaths),
-        findStructuralLinks(specClauses, sourcePaths),
-      ]);
-      links = [...explicit, ...structural];
+      // Semantic linking is capability-gated: it runs only when an embedder
+      // was injected. The embedder is wrapped in the per-text content-key
+      // cache so re-analysis embeds only changed texts (deterministic either
+      // way). The skip without a provider is recorded on the context.
+      const embedProviders = options.providers;
+      const embedClient = embedProviders
+        ? cachedEmbeddingClient(embedProviders.embed, sharedEmbeddingCache(), embedProviders.embedModelId)
+        : undefined;
+      semanticLinked = embedClient !== undefined;
+      const runLinkers = async (): Promise<SpecLinkResult> => {
+        const clauses = await parseSpecFiles(specPaths);
+        const [explicit, structural, semantic] = await Promise.all([
+          findExplicitLinks(clauses, sourcePaths),
+          findStructuralLinks(clauses, sourcePaths),
+          embedClient
+            ? findSemanticLinks(clauses, sourcePaths, embedClient)
+            : Promise.resolve([] as Link[]),
+        ]);
+        return { specClauses: clauses, links: [...explicit, ...structural, ...semantic] };
+      };
+      // Reuse the linked result when spec contents + source contents are
+      // unchanged (the code-only / config-only edit cases). No cache
+      // configured → always relink (the hermetic default). The embedder id is
+      // folded into the key: results with/without semantic evidence (or from
+      // a different embedding model) never cross-serve.
+      const specLinkCache = options.specLinkCache;
+      let result: SpecLinkResult;
+      if (specLinkCache) {
+        const specContents = await Promise.all(
+          specPaths.map(async (p) => ({ path: p, content: await readFile(p, "utf8") })),
+        );
+        const key = specLinkCacheKey(specContents, files, embedProviders?.embedModelId);
+        const hit = await specLinkCache.get(key);
+        if (hit) {
+          vgWrite("debug", "anatomia spec link cache hit", { repo: repoName, spec_files: specPaths.length });
+          result = hit;
+        } else {
+          vgWrite("debug", "anatomia spec link cache miss", { repo: repoName, spec_files: specPaths.length });
+          result = await runLinkers();
+          await specLinkCache.set(key, result);
+        }
+      } else {
+        result = await runLinkers();
+      }
+      specClauses = result.specClauses;
+      // Merge the committed ratified links (spec/data/spec-links.json) over the
+      // heuristic proposals. Loaded OUTSIDE the spec-link cache: ratification
+      // changes the artifact but not the .md/source inputs the key folds, so
+      // merging after the cache keeps a fresh ratify visible on the next
+      // analyze without a key bust. Ratified links are explicit/1.0, so they
+      // win the (from,to) dedup against structural/semantic proposals; pairs
+      // with independent structural + semantic evidence get noisy-OR combined.
+      const ratified = await loadRatifiedLinks(repoPath);
+      links = combineEvidence([...ratified, ...result.links]);
     }
   } catch (err) {
+    vgWrite("error", "anatomia spec linking failed", {
+      repo: repoName,
+      error: truncateForLog(String(err)),
+    });
     if (!options.quiet) {
       console.warn(`[anatomia/analyze] spec linking failed: ${String(err)}`);
     }
   }
+
+  vgWrite("info", "anatomia analyze done", {
+    repo: repoName,
+    files: files.length,
+    functions: allFunctions.length,
+    skipped: skipped.length,
+    domains: domains.length,
+    links: links.length,
+    duration_ms: Date.now() - started,
+  });
 
   return {
     repoPath,
@@ -423,6 +586,7 @@ export async function analyze(
     domains,
     rules,
     skipped,
+    semanticLinked,
   };
 }
 
@@ -444,25 +608,24 @@ export async function buildContextBundle(
   const cached = await bundleCache.get(key);
   if (cached) return cached;
 
-  // Up to 5 hashed exemplars from the context (source-order first).
-  const exemplars = ctx.functions.filter((f) => f.id !== null).slice(0, 5);
-
-  // Stub injections for landing resolution (no real domain db in adapters).
-  const stubDetector: DomainDetector = async (task: LandingTask) =>
-    task.domainHints ?? ["general"];
-  const stubLayerRules: LayerRules = { layerFor: () => null };
-  const stubSiblings: SiblingLookup = async () => [];
+  const topClauses = req.topClauses ?? 12;
+  const topExemplars = req.topExemplars ?? 5;
+  const maxBundleBytes = req.maxBundleBytes ?? 32768;
+  const specClauses = rankSpecClauses(req.task, ctx.specClauses ?? [], { topClauses });
+  const exemplars = rankExemplars(req.task, ctx.functions, { topExemplars });
+  const injections = landingInjections(ctx);
 
   const landings = await resolveLanding(
     { description: req.task, domainHints: req.domainHints },
-    stubDetector,
-    stubLayerRules,
-    stubSiblings,
+    injections.detector,
+    injections.layerRules,
+    injections.siblings,
   );
 
   const landingAnchors = landings
     .map((l) => l.anchor)
     .filter((a): a is AnchorId => a !== null);
+  const impactRadius = await impactRadiusForLandings(ctx, landingAnchors);
 
   // Existing domains that actually have implementors in this repo feed the
   // duplication-avoidance segment of the bundle (DESIGN §9.1 ①).
@@ -475,17 +638,95 @@ export async function buildContextBundle(
   const activeNames = new Set(existingDomains);
   const applicable = (ctx.rules ?? []).filter((r) => activeNames.has(r.id.split("/")[0]!));
 
-  const { bundle } = assembleBundle({
-    landingAnchors,
-    rules: applicable,
-    specClauses: ctx.specClauses ?? [],
-    exemplars,
-    impactRadius: [],
-    existingDomains,
-  });
+  const bundle = assembleFittingBundle(
+    {
+      landingAnchors,
+      rules: applicable,
+      specClauses,
+      exemplars,
+      impactRadius,
+      existingDomains,
+    },
+    maxBundleBytes,
+  );
 
   await bundleCache.set(key, bundle);
   return bundle;
+}
+
+function assembleFittingBundle(
+  inputs: {
+    landingAnchors: AnchorId[];
+    rules: Rule[];
+    specClauses: SpecClause[];
+    exemplars: FunctionNode[];
+    impactRadius: AnchorId[];
+    existingDomains: string[];
+  },
+  maxBytes: number,
+): ContextBundle {
+  let specClauses = inputs.specClauses;
+  let exemplars = inputs.exemplars;
+  let bundle = assembleBundle({
+    landingAnchors: inputs.landingAnchors,
+    rules: inputs.rules,
+    specClauses,
+    exemplars,
+    impactRadius: inputs.impactRadius,
+    existingDomains: inputs.existingDomains,
+  }).bundle;
+
+  if (!Number.isFinite(maxBytes) || maxBytes <= 0) return bundle;
+
+  while (bundleBytes(bundle) > maxBytes && specClauses.length > 0) {
+    specClauses = specClauses.slice(0, -1);
+    bundle = assembleBundle({
+      landingAnchors: inputs.landingAnchors,
+      rules: inputs.rules,
+      specClauses,
+      exemplars,
+      impactRadius: inputs.impactRadius,
+      existingDomains: inputs.existingDomains,
+    }).bundle;
+  }
+  while (bundleBytes(bundle) > maxBytes && exemplars.length > 0) {
+    exemplars = exemplars.slice(0, -1);
+    bundle = assembleBundle({
+      landingAnchors: inputs.landingAnchors,
+      rules: inputs.rules,
+      specClauses,
+      exemplars,
+      impactRadius: inputs.impactRadius,
+      existingDomains: inputs.existingDomains,
+    }).bundle;
+  }
+  return bundle;
+}
+
+function bundleBytes(bundle: ContextBundle): number {
+  return Buffer.byteLength(JSON.stringify(bundle), "utf8");
+}
+
+async function impactRadiusForLandings(
+  ctx: AnalysisContext,
+  landingAnchors: AnchorId[],
+): Promise<AnchorId[]> {
+  const out: AnchorId[] = [];
+  const seen = new Set<AnchorId>();
+  for (const anchor of landingAnchors.sort()) {
+    const nodes = await ctx.graph.reachable(anchor, {
+      maxDepth: 2,
+      direction: "both",
+      kinds: ["calls"],
+    });
+    for (const node of nodes) {
+      if (seen.has(node.id)) continue;
+      seen.add(node.id);
+      out.push(node.id);
+      if (out.length >= 50) return out;
+    }
+  }
+  return out;
 }
 
 /**
@@ -499,6 +740,8 @@ function bundleCacheKey(ctx: AnalysisContext, req: BundleRequest): string {
   h.update(req.task);
   h.update("\0");
   h.update([...(req.domainHints ?? [])].sort().join(","));
+  h.update("\0");
+  h.update(`${RELEVANCE_VERSION}|${req.topClauses ?? 12}|${req.topExemplars ?? 5}|${req.maxBundleBytes ?? 32768}`);
   h.update("\0");
   h.update(filesContentKey(ctx.files));
   h.update("\0");
@@ -555,6 +798,16 @@ export async function buildVerdict(
   targetPath?: string,
   opts?: VerifyOptions,
 ): Promise<Verdict> {
+  if (!targetPath) {
+    const sections = splitUnifiedDiffByFile(diff);
+    if (sections.length > 1) {
+      const verdicts = await Promise.all(
+        sections.map((section) => buildVerdict(ctx, section.diff, section.path, opts)),
+      );
+      return mergeVerdicts(verdicts);
+    }
+  }
+
   const source = sourceFromDiffInput(diff);
   const lang = langForDiff(diff, targetPath);
   const tree = await parse(source, lang);
@@ -622,6 +875,73 @@ export async function buildVerdict(
   }
 }
 
+function splitUnifiedDiffByFile(diff: string): Array<{ path: string; diff: string }> {
+  const paths = diffTargetPaths(diff);
+  if (paths.length <= 1) return [];
+
+  const lines = diff.split(/\r?\n/);
+  const sections: string[][] = [];
+  let current: string[] = [];
+  for (const line of lines) {
+    if (line.startsWith("diff --git ") && current.length > 0) {
+      sections.push(current);
+      current = [];
+    }
+    current.push(line);
+  }
+  if (current.length > 0) sections.push(current);
+
+  const out: Array<{ path: string; diff: string }> = [];
+  for (const section of sections) {
+    const text = section.join("\n");
+    const path = diffTargetPath(text);
+    if (!path) continue;
+    out.push({ path, diff: text });
+  }
+  return out.length > 1 ? out : [];
+}
+
+function mergeVerdicts(verdicts: Verdict[]): Verdict {
+  const gateNames: GateResult["gate"][] = [
+    "rule_conformance",
+    "duplication",
+    "spec_linkage",
+    "coupling_delta",
+    "convention_drift",
+  ];
+  const gates = gateNames.map((gate) => {
+    const parts = verdicts.flatMap((v) => v.gates.filter((g) => g.gate === gate));
+    const anchors = uniqueAnchors(parts.flatMap((g) => g.anchors));
+    const suggestions = uniqueStrings(
+      parts.map((g) => g.suggestion).filter((s): s is string => s !== null),
+    );
+    return {
+      gate,
+      pass: parts.every((g) => g.pass),
+      anchors,
+      suggestion: suggestions.length ? suggestions.join("\n") : null,
+    };
+  });
+  const anchors = uniqueAnchors(verdicts.flatMap((v) => v.anchors));
+  const suggestions = uniqueStrings(
+    verdicts.map((v) => v.suggestion).filter((s): s is string => s !== null),
+  );
+  return {
+    pass: gates.every((g) => g.pass),
+    gates,
+    anchors,
+    suggestion: suggestions.length ? suggestions.join("\n") : null,
+  };
+}
+
+function uniqueAnchors(values: AnchorId[]): AnchorId[] {
+  return [...new Set(values)].sort();
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values)].sort();
+}
+
 /**
  * Distil each non-empty detected domain into a card and return its compare
  * text (summary + rules) for the duplication gate. Content-keyed via the
@@ -671,6 +991,15 @@ function sourceFromDiffInput(input: string): string {
 
 function looksLikeUnifiedDiff(input: string): boolean {
   return /^diff --git /m.test(input) || /^@@ .* @@/m.test(input);
+}
+
+function fileLabel(repoPath: string, filePath: string): string {
+  const rel = relative(repoPath, filePath);
+  return rel && !rel.startsWith("..") ? rel : basename(filePath);
+}
+
+function truncateForLog(value: string, max = 500): string {
+  return value.length <= max ? value : `${value.slice(0, max)}...(truncated)`;
 }
 
 // ---------------------------------------------------------------------------

@@ -7,7 +7,10 @@ logs/
 .eval-cache/
 .tmp/
 ks-graph.html
+.tmp/
 
 # ローカル依存ライブラリ (git submodule update --init でセットアップ)
-/lib/
+/lib/*
+!/lib/vestigium
+!/lib/aiformat
 eval/ws/

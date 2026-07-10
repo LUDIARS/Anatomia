@@ -22,12 +22,20 @@
  *   GET /api/projects/:id/summary     counts
  *   GET /api/projects/:id/hotspots    top-N by coupling/complexity
  *   GET /api/projects/:id/spec-links  code↔spec links
+ *   POST /api/projects/:id/spec-links/ratify  ratify + persist a link (manager mode)
+ *   GET /api/projects/:id/spec-links/candidates  stability-based promotion candidates
  *   GET /api/projects/:id/domains     domain detection results
  *   GET /api/projects/:id/vis-data    vis-network data (shared with export.ts)
  *   GET /api/projects/:id/branch-diff branch-diff function delta (?base=<ref>)
  *   GET /api/projects/:id/branches    base refs for the branch-diff selector
  *   GET /api/projects/:id/domain-view per-domain focus + spec-derived JP descriptions
  *   GET /api/projects/:id/access-patterns heuristic singleton/locator/facade + accessor domains
+ *
+ * 学習フロー routes (domain authoring via HTTP):
+ *   POST /api/projects/:id/flow/draft  run domains draft (spec → LLM → reconcile → save)
+ *   GET  /api/projects/:id/flow/drafts list current editable domains for a project
+ *   POST /api/flow/draft               repo-path or spec-file based draft (no project)
+ *   GET  /api/flow/drafts              list drafts from an explicit dir (?dir=)
  *
  * Dynamic trace routes (G8):
  *   GET /api/trace/timeline -- TimelineData (T40)
@@ -52,11 +60,12 @@ import { join, dirname } from "node:path";
 import { Hono } from "hono";
 import { computeMetrics } from "../../supply/metrics.js";
 import { ProjectManager } from "../../project/manager.js";
-import { initVestigium } from "../../obs/vestigium.js";
+import { initVestigium, installCrashLogging, vgShutdown, vgWrite } from "../../obs/vestigium.js";
 import { webContextSourceFrom } from "./context.js";
 import { resolveWebToken, mutationAuth, assertBindAllowed } from "./auth.js";
 import { mountProjectRoutes } from "./routes/projects.js";
 import { mountAnalysisRoutes } from "./routes/analysis.js";
+import { mountSpecLinkRoutes } from "./routes/spec-links.js";
 import { mountCacheRoute } from "./routes/cache.js";
 import { mountCostRoute } from "./routes/cost.js";
 import { mountHarnessRoutes } from "./routes/harness.js";
@@ -67,11 +76,14 @@ import { mountPatternRoutes } from "./routes/patterns.js";
 import { mountScreenRoutes } from "./routes/screens.js";
 import { mountWebCacheRoutes } from "./routes/web-cache.js";
 import { mountAdjustRoutes } from "./routes/adjust.js";
+import { mountTestSuggestionRoutes } from "./routes/test-suggestions.js";
+import { mountFlowRoutes } from "./routes/flow.js";
 import { resolveIdleMs, checkIntervalMs, shouldShutdown } from "./idle.js";
 import { resolveProviders, envConfig } from "../../providers/index.js";
 import { generateCard } from "../../domains/card.js";
 import type { DomainCard } from "../../domains/card.js";
 import type { CachedIntegral } from "../../integral/cache.js";
+import type { DomainDraft } from "../../domains/authoring/index.js";
 import { resolveCacheStore } from "../../cache/resolve.js";
 import { instrumentStore } from "../../cache/instrumented.js";
 import { resolveTranscript } from "../../cache/transcript.js";
@@ -108,6 +120,8 @@ export interface WebServerOptions {
    */
   traceSource?: TraceSource;
 }
+
+export type WebServerStartStatus = "listening" | "address-in-use";
 
 // ---------------------------------------------------------------------------
 // index.html loader (read once at module init time)
@@ -203,6 +217,9 @@ export function createApp(
   // ── Per-project analysis routes ──────────────────────────────────────────
   mountAnalysisRoutes(app, source);
 
+  // ── Spec-link mutation routes (ratify → committed spec/data artifact) ─────
+  mountSpecLinkRoutes(app, { manager });
+
   // ── Branch-diff analysis route (diff-only view over the full analysis) ────
   mountBranchRoutes(app, source);
 
@@ -235,6 +252,17 @@ export function createApp(
     manager,
     retuneLlm: aux.retuneLlm,
     retuneModelId: aux.retuneModelId,
+  });
+
+  // ── Augur bridge: ask for test suggestions for the selected project ────────
+  mountTestSuggestionRoutes(app, source);
+
+  // ── 学習フロー routes: domains draft synthesis via HTTP ───────────────────
+  mountFlowRoutes(app, {
+    manager,
+    draftLlm: aux.retuneLlm,
+    draftModelId: aux.retuneModelId,
+    draftCache: resolveCacheStore<DomainDraft[]>(),
   });
 
   // ── Global LLM-cache stats route (A-3 measurement) ───────────────────────
@@ -341,7 +369,7 @@ export function createApp(
 // startServer
 // ---------------------------------------------------------------------------
 
-export async function startServer(options: WebServerOptions): Promise<void> {
+export async function startServer(options: WebServerOptions): Promise<WebServerStartStatus> {
   const { ctx, port = 4200, hostname = "127.0.0.1", traceSource } = options;
 
   // Fail fast: a non-loopback bind without ANATOMIA_WEB_TOKEN would expose the
@@ -351,6 +379,8 @@ export async function startServer(options: WebServerOptions): Promise<void> {
   // warm サーバでのみ Vestigium を立ち上げる (CLI 一発 / MCP / test では init しない)。
   // 以降の cache hit/miss・supply/verify が Vg JSONL に流れる。
   initVestigium();
+  installCrashLogging();
+  vgWrite("info", "anatomia web starting", { port, hostname });
 
   // Idle self-shutdown: the warm daemon exits after a window with no HTTP
   // access (default 3h, ANATOMIA_IDLE_SHUTDOWN_MS; <=0 disables). The harness
@@ -363,23 +393,47 @@ export async function startServer(options: WebServerOptions): Promise<void> {
   });
 
   const { serve } = await import("@hono/node-server");
-  serve({ fetch: app.fetch, port, hostname }, () => {
-    console.log(`[anatomia/web] listening on http://${hostname}:${port}`);
-    if (idleMs > 0) {
-      console.log(`[anatomia/web] idle shutdown after ${Math.round(idleMs / 60000)}min of no access`);
-    }
-  });
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const onError = (error: Error): void => reject(error);
+      const server = serve({ fetch: app.fetch, port, hostname }, () => {
+        server.off("error", onError);
+        vgWrite("info", "anatomia web listening", { port, hostname, idle_ms: idleMs });
+        console.log(`[anatomia/web] listening on http://${hostname}:${port}`);
+        if (idleMs > 0) {
+          console.log(`[anatomia/web] idle shutdown after ${Math.round(idleMs / 60000)}min of no access`);
+        }
+        resolve();
+      });
+      server.once("error", onError);
+    });
+  } catch (error) {
+    if (!isAddressInUseError(error)) throw error;
+    // The hook and service supervisor can race to ensure the warm server is up.
+    // An occupied endpoint is therefore a controlled duplicate start, not a crash.
+    vgWrite("warn", "anatomia web start skipped; address already in use", { port, hostname });
+    console.warn(`[anatomia/web] ${hostname}:${port} is already in use; duplicate start skipped`);
+    await vgShutdown();
+    return "address-in-use";
+  }
 
   if (idleMs > 0) {
     const timer = setInterval(() => {
       if (shouldShutdown(lastAccess, Date.now(), idleMs)) {
         console.log(`[anatomia/web] idle for ${Math.round(idleMs / 60000)}min — shutting down`);
-        process.exit(0);
+        vgWrite("info", "anatomia web idle shutdown", { idle_ms: idleMs });
+        void vgShutdown().finally(() => process.exit(0));
       }
     }, checkIntervalMs(idleMs));
     // Don't let the idle timer itself keep the event loop alive.
     timer.unref?.();
   }
+
+  return "listening";
+}
+
+function isAddressInUseError(error: unknown): boolean {
+  return error instanceof Error && (error as NodeJS.ErrnoException).code === "EADDRINUSE";
 }
 
 /**

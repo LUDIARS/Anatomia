@@ -4,7 +4,7 @@
 
 import { describe, it, expect } from "vitest";
 import type { Link } from "../types.js";
-import { ratify, mergeLinks, hardenLoop } from "./harden.js";
+import { ratify, mergeLinks, combineEvidence, hardenLoop } from "./harden.js";
 
 function makeLink(
   from: string,
@@ -77,6 +77,56 @@ describe("mergeLinks", () => {
 
     const result = mergeLinks([a, b, c]);
     expect(result).toHaveLength(3);
+  });
+});
+
+describe("combineEvidence (noisy-OR)", () => {
+  it("combines structural + semantic on the same pair: 1-(1-c1)(1-c2), stronger evidence kept", () => {
+    const structural = makeLink("a.ts", "SPEC-001", "structural", 0.6);
+    const semantic = makeLink("a.ts", "SPEC-001", "semantic", 0.5);
+
+    const result = combineEvidence([structural, semantic]);
+    expect(result).toHaveLength(1);
+    expect(result[0].evidence).toBe("structural");
+    expect(result[0].confidence).toBeCloseTo(1 - (1 - 0.6) * (1 - 0.5), 10); // 0.8
+  });
+
+  it("explicit still wins outright — no boosting", () => {
+    const explicit = makeLink("a.ts", "SPEC-001", "explicit", 1.0);
+    const structural = makeLink("a.ts", "SPEC-001", "structural", 0.6);
+    const semantic = makeLink("a.ts", "SPEC-001", "semantic", 0.5);
+
+    const result = combineEvidence([explicit, structural, semantic]);
+    expect(result).toHaveLength(1);
+    expect(result[0].evidence).toBe("explicit");
+    expect(result[0].confidence).toBe(1.0);
+  });
+
+  it("duplicates within one tier are not independent: only the tier best enters the OR", () => {
+    const semLow = makeLink("a.ts", "SPEC-001", "semantic", 0.3);
+    const semHigh = makeLink("a.ts", "SPEC-001", "semantic", 0.5);
+    const structural = makeLink("a.ts", "SPEC-001", "structural", 0.6);
+
+    const result = combineEvidence([semLow, semHigh, structural]);
+    expect(result).toHaveLength(1);
+    expect(result[0].confidence).toBeCloseTo(1 - (1 - 0.6) * (1 - 0.5), 10);
+  });
+
+  it("single-evidence pairs behave exactly like mergeLinks", () => {
+    const links = [
+      makeLink("a.ts", "SPEC-001", "structural", 0.7),
+      makeLink("b.ts", "SPEC-002", "semantic", 0.4),
+      makeLink("b.ts", "SPEC-002", "semantic", 0.6),
+    ];
+    expect(combineEvidence(links)).toEqual(mergeLinks(links));
+  });
+
+  it("keeps distinct (from, to) pairs separate", () => {
+    const result = combineEvidence([
+      makeLink("a.ts", "SPEC-001", "structural", 0.6),
+      makeLink("a.ts", "SPEC-002", "semantic", 0.5),
+    ]);
+    expect(result).toHaveLength(2);
   });
 });
 

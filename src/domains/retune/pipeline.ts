@@ -13,7 +13,7 @@
 import { analyze } from "../../core.js";
 import type { AnalysisContext } from "../../core.js";
 import type { LLMClient } from "../card.js";
-import type { RetuneReport, StepLog, NodeSummary } from "./types.js";
+import type { RetuneReport, StepLog, NodeSummary, DomainReviewSummary } from "./types.js";
 import { summarizeNodes, classifyBySize, dirStats, DEFAULT_LARGE_PERCENTILE } from "./graph-stats.js";
 import { gatherPurpose, gatherSpecHeadings } from "./gather.js";
 import {
@@ -41,6 +41,12 @@ export interface RetuneOptions {
 }
 
 const UNASSIGNED_SAMPLE = 20;
+/**
+ * Cohesion below this flags a domain for human review — under half of a
+ * domain's calls edges staying inside it means its boundary cuts through more
+ * traffic than it contains.
+ */
+const LOW_COHESION = 0.5;
 
 /** Directories that contain at least one "large" node. */
 function partitionDirs(nodes: NodeSummary[], large: NodeSummary[]): { largeDirs: Set<string> } {
@@ -56,7 +62,17 @@ function partitionDirs(nodes: NodeSummary[], large: NodeSummary[]): { largeDirs:
  */
 export async function runRetuneOnContext(
   ctx: AnalysisContext,
-  input: { project: string; llm: LLMClient; options?: RetuneOptions },
+  input: {
+    project: string;
+    llm: LLMClient;
+    options?: RetuneOptions;
+    /**
+     * Deterministic domain-review findings (review → retune 還流). When set,
+     * the split/merge steps see cohesion/drift/overlap evidence in their
+     * prompts and the human-review notes carry the low-cohesion domains.
+     */
+    reviewFindings?: DomainReviewSummary;
+  },
 ): Promise<RetuneReport> {
   const opts = input.options ?? {};
   const steps: StepLog[] = [];
@@ -101,22 +117,33 @@ export async function runRetuneOnContext(
   steps.push(s3.log);
 
   // ── Step 5: split over-large domains ──────────────────────────────────────
-  const s5 = await step5Split(input.llm, taxonomy, opts.maxModulesPerDomain ?? MAX_MODULES_PER_DOMAIN);
+  const s5 = await step5Split(
+    input.llm,
+    taxonomy,
+    opts.maxModulesPerDomain ?? MAX_MODULES_PER_DOMAIN,
+    input.reviewFindings,
+  );
   steps.push(s5.log);
 
   // ── Step 6: merge tiny modules ────────────────────────────────────────────
-  const s6 = await step6Merge(input.llm, taxonomy, nodes, opts.minNodesPerModule ?? MIN_NODES_PER_MODULE);
+  const s6 = await step6Merge(
+    input.llm,
+    taxonomy,
+    nodes,
+    opts.minNodesPerModule ?? MIN_NODES_PER_MODULE,
+    input.reviewFindings,
+  );
   steps.push(s6.log);
 
-  // ── Step 8: fold the auto-learned screen composition in as a domain ───────
-  // Deterministic (no LLM) and added after the LLM steps so split/merge never
-  // reshape it. Owns its screen files by path → surfaces in the Domain View and
-  // feeds supply/verify like any generated domain.
+  // ── Step 8: retune compatibility projection for screen composition ─────────
+  // The web panel projects screens to Scenes view. Retune also keeps a
+  // deterministic `screen-composition` domain after the LLM steps so legacy
+  // supply/verify flows can still reason about screen files as module owners.
   if (screenPlan) {
     taxonomy.domains.push(screenPlan);
     steps.push({
       step: 8,
-      title: "画面構成を自動検出しドメイン化",
+      title: "画面構成を自動検出し互換ドメインへ投影",
       llm: false,
       summary: `${screenGraph.summary.total} screens, ${screenPlan.modules.length} screen modules, ${screenGraph.summary.edges} edges`,
     });
@@ -150,6 +177,9 @@ export async function runRetuneOnContext(
     humanReviewNotes.push(`未割当ノード ${taxonomy.unassigned.count} 件（先頭 ${UNASSIGNED_SAMPLE}）:`);
     humanReviewNotes.push(...taxonomy.unassigned.sample.map((s) => `  - ${s}`));
   }
+  if (input.reviewFindings) {
+    humanReviewNotes.push(...reviewFeedbackNotes(input.reviewFindings));
+  }
   if (haltForHuman) {
     humanReviewNotes.unshift(
       `反復 ${next.iterations} 回に到達（上限 ${prior.iterations >= 0 ? "RETUNE_HALT_AFTER" : ""}）。自動反復を停止し人間判断を仰ぐ（step 7）。`,
@@ -166,6 +196,35 @@ export async function runRetuneOnContext(
     haltForHuman,
     humanReviewNotes,
   };
+}
+
+/**
+ * Human-review notes derived from the deterministic domain review: facts the
+ * human should weigh alongside the LLM decisions (low cohesion = the boundary
+ * carries more traffic than the domain contains; drift = the calls
+ * neighbourhood disagrees with membership). Pure — unit-testable without a repo.
+ */
+export function reviewFeedbackNotes(review: DomainReviewSummary): string[] {
+  const notes: string[] = [];
+  const low = review.domains.filter((d) => d.cohesion !== null && d.cohesion < LOW_COHESION);
+  if (low.length) {
+    notes.push(`低凝集ドメイン ${low.length} 件 (cohesion < ${LOW_COHESION}):`);
+    notes.push(
+      ...low.map(
+        (d) =>
+          `  - ${d.domain} (cohesion ${(d.cohesion ?? 0).toFixed(2)}, internal ${d.internalEdges} / boundary ${d.boundaryEdges})`,
+      ),
+    );
+  }
+  if (review.boundaryDrift.length) {
+    notes.push(`境界ズレ疑い ${review.boundaryDrift.length} 件（先頭 ${UNASSIGNED_SAMPLE}）:`);
+    notes.push(
+      ...review.boundaryDrift
+        .slice(0, UNASSIGNED_SAMPLE)
+        .map((f) => `  - ${f.name} (${f.file}:${f.line}) ${f.domain} → ${f.suggested}`),
+    );
+  }
+  return notes;
 }
 
 /** Analyze the repo, then run the re-tune on it. */

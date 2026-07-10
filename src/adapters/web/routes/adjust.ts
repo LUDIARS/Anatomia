@@ -33,6 +33,17 @@ import {
 } from "../../../domains/retune/taxonomy-ops.js";
 import { loadTaxonomy, saveTaxonomy } from "../../../domains/retune/taxonomy-store.js";
 import { runRetuneOnContext } from "../../../domains/retune/index.js";
+import { buildDomainReview } from "../../../review/index.js";
+import { callLlmJson } from "../../../domains/retune/llm.js";
+import {
+  applyDomainOrganization,
+  applyDomainOrganizationEdits,
+  buildDomainOrganization,
+  buildDomainOrganizationPrompt,
+  type DomainOrganizationEdits,
+  type DomainOrganizationInput,
+  type DomainOrganizationResult,
+} from "../../../domains/organize/index.js";
 import { loadScenes, saveScenes } from "../../../scenes/store.js";
 import type { SceneRef } from "../../../integral/scene.js";
 
@@ -177,7 +188,92 @@ export function mountAdjustRoutes(app: Hono, deps: AdjustRouteDeps): void {
     return c.json({ ok: true, scenes });
   });
 
-  // POST adjust/retune — granularity auto-flow (the retune pipeline).
+  // POST adjust/domain-organization - build/apply a human-authored taxonomy plan.
+  app.post("/api/projects/:id/adjust/domain-organization", async (c) => {
+    if (!manager) return c.json({ error: "adjustment requires manager mode" }, 501);
+    const id = c.req.param("id");
+    let project;
+    try {
+      project = resolveProject(manager, id);
+    } catch {
+      return c.json({ error: `no such project "${id}"` }, 404);
+    }
+    if (!project) return c.json({ error: `no such project "${id}"` }, 404);
+
+    let body: Record<string, unknown>;
+    try {
+      body = (await c.req.json()) as Record<string, unknown>;
+    } catch {
+      return c.json({ error: "invalid JSON body" }, 400);
+    }
+
+    const taxonomy = await loadTaxonomy(project.rootPath, project.name);
+    const input = domainOrganizationInput(body, project.name, taxonomy);
+    const edits = body["edits"] as DomainOrganizationEdits | undefined;
+    const draft = applyDomainOrganizationEdits(buildDomainOrganization(input), edits);
+    const prompt = buildDomainOrganizationPrompt(input, draft);
+
+    let result: DomainOrganizationResult = draft;
+    if (body["runLlm"] === true) {
+      if (!deps.retuneLlm || deps.retuneModelId === "stub-llm") {
+        return c.json(
+          {
+            error: "domain organization requires a real LLM when runLlm is true",
+            draft,
+            prompt,
+          },
+          501,
+        );
+      }
+      try {
+        result = applyDomainOrganizationEdits(
+          await callLlmJson<DomainOrganizationResult>(deps.retuneLlm, prompt),
+          edits,
+        );
+      } catch (err) {
+        return c.json(
+          {
+            error: "domain organization LLM failed",
+            detail: err instanceof Error ? err.message : String(err),
+            draft,
+            prompt,
+          },
+          502,
+        );
+      }
+    }
+
+    if (body["apply"] !== true) {
+      return c.json({ draft, prompt, result: body["runLlm"] === true ? result : undefined });
+    }
+
+    if (!isConfirmed(body)) {
+      return c.json(
+        {
+          error: "human_confirmation_required",
+          detail: "Set confirmApply:true or humanConfirmation.confirmed:true after reviewing the domain organization draft.",
+          draft,
+          prompt,
+          result,
+        },
+        409,
+      );
+    }
+
+    try {
+      const applied = await applyDomainOrganization(project.rootPath, project.name, result, {
+        removeDomains: droppedDomainTargets(edits),
+      });
+      project.ontologyDir = applied.ontologyDir;
+      await manager.save();
+      manager.cache.invalidate(project.id);
+      return c.json({ draft, prompt, result, apply: applied });
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : String(err), draft, prompt, result }, 500);
+    }
+  });
+
+  // POST adjust/retune - granularity auto-flow (the retune pipeline).
   app.post("/api/projects/:id/adjust/retune", async (c) => {
     if (!manager) return c.json({ error: "adjustment requires manager mode" }, 501);
     if (!deps.retuneLlm || deps.retuneModelId === "stub-llm") {
@@ -212,10 +308,14 @@ export function mountAdjustRoutes(app: Hono, deps: AdjustRouteDeps): void {
     };
     try {
       const ctx = await manager.getContext(id);
+      // review → retune 還流: run the deterministic domain review first so the
+      // split/merge LLM prompts carry cohesion/drift/overlap evidence.
+      const reviewFindings = await buildDomainReview(ctx);
       const report = await runRetuneOnContext(ctx, {
         project: project.name,
         llm: deps.retuneLlm,
         options,
+        reviewFindings,
       });
       // Point the project at the regenerated ontology + drop the stale analysis.
       project.ontologyDir = report.ontologyDir;
@@ -276,4 +376,59 @@ export function mountAdjustRoutes(app: Hono, deps: AdjustRouteDeps): void {
 
 function numOpt(v: unknown): number | undefined {
   return typeof v === "number" && Number.isFinite(v) ? v : undefined;
+}
+
+function domainOrganizationInput(
+  body: Record<string, unknown>,
+  projectName: string,
+  taxonomy: Taxonomy | null,
+): DomainOrganizationInput {
+  return {
+    project: stringOpt(body["project"]) ?? projectName,
+    serviceName: stringOpt(body["serviceName"]) ?? projectName,
+    serviceDescription: stringOpt(body["serviceDescription"]),
+    specs: records(body["specs"]).map((spec, index) => ({
+      id: stringOpt(spec["id"]) ?? stringOpt(spec["code"]),
+      title: stringOpt(spec["title"]) ?? `Spec ${index + 1}`,
+      path: stringOpt(spec["path"]),
+      text: stringOpt(spec["text"]) ?? stringOpt(spec["body"]) ?? "",
+    })).filter((spec) => spec.text.length > 0),
+    existingDomains: Array.isArray(body["existingDomains"])
+      ? records(body["existingDomains"]).map((domain) => ({
+        name: stringOpt(domain["name"]) ?? "",
+        description: stringOpt(domain["description"]) ?? null,
+      })).filter((domain) => domain.name.length > 0)
+      : (taxonomy?.domains ?? []).map((domain) => ({
+        name: domain.name,
+        description: domain.description,
+      })),
+    uxAnswers: records(body["uxAnswers"]).map((answer) => ({
+      questionId: stringOpt(answer["questionId"]) ?? "",
+      answer: stringOpt(answer["answer"]) ?? "",
+    })).filter((answer) => answer.questionId.length > 0 && answer.answer.length > 0),
+    generatedAt: stringOpt(body["generatedAt"]),
+  };
+}
+
+function isConfirmed(body: Record<string, unknown>): boolean {
+  const human = body["humanConfirmation"];
+  return body["confirmApply"] === true ||
+    (human != null && typeof human === "object" && (human as Record<string, unknown>)["confirmed"] === true);
+}
+
+function droppedDomainTargets(edits: DomainOrganizationEdits | undefined): string[] {
+  return (edits?.domains ?? [])
+    .filter((edit) => edit.drop === true)
+    .map((edit) => edit.match.trim())
+    .filter(Boolean);
+}
+
+function records(value: unknown): Array<Record<string, unknown>> {
+  return Array.isArray(value)
+    ? value.filter((item): item is Record<string, unknown> => item != null && typeof item === "object")
+    : [];
+}
+
+function stringOpt(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }

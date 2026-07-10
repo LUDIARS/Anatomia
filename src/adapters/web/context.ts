@@ -9,6 +9,7 @@
 
 import { ProjectManager } from "../../project/manager.js";
 import { summarize } from "../../project/cache.js";
+import { slug } from "../../project/registry.js";
 import type { SummaryCounts } from "../../project/cache.js";
 import type { AnalysisContext } from "../../core.js";
 import type { Project } from "../../project/types.js";
@@ -27,7 +28,7 @@ export interface WebContextSource {
   summary(projectId?: string, opts?: { stale?: boolean }): Promise<SummaryCounts>;
   /** All registered projects (or a synthetic single-entry list). */
   projects(): Project[];
-  /** The currently selected/default project id, or null. */
+  /** The currently selected project id, or null. */
   selected(): string | null;
   /** The source fingerprint for a project (for content-keyed derived caches). */
   fingerprint(projectId?: string): Promise<string>;
@@ -65,10 +66,11 @@ export function webContextSourceFrom(
     };
   }
 
-  // Legacy single context: synthesise a one-entry "registry" view.
+  // Legacy single context: synthesise a one-entry registry view.
+  const singleId = singleContextProjectId(src.repoPath);
   const single: Project = {
-    id: "default",
-    name: "default",
+    id: singleId,
+    name: singleId,
     rootPath: src.repoPath,
     addedAt: "",
   };
@@ -78,11 +80,17 @@ export function webContextSourceFrom(
     // serve stale — always summarise the in-memory context directly.
     summary: async () => summarize(src),
     projects: () => [single],
-    selected: () => "default",
+    selected: () => singleId,
     fingerprint: async () => "nofp",
     // Legacy single-context mode has no project home/fingerprint to key a disk
     // cache on, so build fresh each call. This is the one-off CLI/export path,
     // not the warm multi-project server where the cache matters.
     cachedArtifact: async (_projectId, _name, build) => build(src),
   };
+}
+
+function singleContextProjectId(repoPath: string): string {
+  const trimmed = (repoPath || "").replace(/[\\/]+$/, "");
+  const tail = trimmed.split(/[\\/]/).filter(Boolean).pop() || "project";
+  return slug(tail) || "project";
 }
