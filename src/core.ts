@@ -28,6 +28,7 @@ import { verify, buildDefaultGates } from "./supply/verify.js";
 import { resolveLanding } from "./supply/landing.js";
 import { landingInjections } from "./supply/detectors.js";
 import { rankExemplars, rankSpecClauses, RELEVANCE_VERSION } from "./supply/relevance.js";
+import { selectSiblings, verifyThresholds } from "./supply/verify-inputs.js";
 import { loadOntology } from "./domains/ontology.js";
 import { detectDomains } from "./domains/detect.js";
 import { detectionCacheKey } from "./domains/cache.js";
@@ -866,6 +867,12 @@ export async function buildVerdict(
     // whether the changed functions tie into any spec clause (orphan warning).
     specClauses: ctx.specClauses ?? [],
     links: ctx.links ?? [],
+    // Repo-relative thresholds + sibling conventions: without these the
+    // coupling_delta and convention_drift gates pass unconditionally (they
+    // treat absence as "nothing to compare against"), leaving only 3 of the
+    // 5 gates live on this path. Memoized per ctx (verify-inputs.ts).
+    thresholds: await verifyThresholds(ctx),
+    siblings: selectSiblings(ctx, targetPath ?? diffTargetPath(diff) ?? undefined, fns),
   };
 
   const gates = buildDefaultGates({ embed: embed! });
