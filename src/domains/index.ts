@@ -64,5 +64,18 @@ export {
 } from "./card.js";
 export type { LLMClient, DomainCard, CardCache } from "./card.js";
 
+// Deterministic analysis facts for caller-prioritized testing.
+export { buildFocusedTestingFacts, FocusedTestingError } from "./focused-testing.js";
+export type {
+  DomainFocusPolicy,
+  FocusedDomainFact,
+  FocusedTargetFact,
+  FocusedTestingFacts,
+  FocusedVariableFact,
+  FocusPriority,
+  FocusRisk,
+  VariableFocusPolicy,
+} from "./focused-testing.js";
+
 // Domain organization (human-authored taxonomy + implementation hints)
 export * from "./organize/index.js";

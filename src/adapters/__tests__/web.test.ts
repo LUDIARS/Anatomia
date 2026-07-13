@@ -350,6 +350,56 @@ describe("GET / (single-context)", () => {
     const body = await res.text();
     expect(body).toContain('data-tab="test-suggestions"');
     expect(body).toContain('id="augur-run"');
+    expect(body).toContain('id="augur-focus"');
+  });
+
+  it("forwards mechanically inferred focused-testing facts", async () => {
+    const { graph, file, functions } = await buildFromSource(CPP_FIXTURE);
+    const anchor = functions[0]?.id;
+    if (anchor == null) throw new Error("fixture function must have an anchor");
+    const focusedApp = createApp({
+      repoPath: "/fixture",
+      graph,
+      files: [file],
+      functions,
+      domains: [{ domain: "player-actions", implementors: [anchor], violations: [], conforms: true }],
+      links: [],
+      specClauses: [],
+    });
+    let forwarded: Record<string, unknown> | undefined;
+    vi.stubGlobal("fetch", async (_url: RequestInfo | URL, init?: RequestInit) => {
+      forwarded = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return new Response(JSON.stringify({
+        summary: "Focused plan",
+        testPlan: { suggestions: [] },
+        fixPolicy: { strategy: "test_first", steps: [], risks: [] },
+        evidence: [],
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    });
+
+    try {
+      const res = await focusedApp.fetch(new Request("http://localhost/api/projects/fixture/test-suggestions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          objective: { kind: "regression", description: "Protect player actions." },
+          focusedTesting: {
+            domains: [{ domain: "player-actions", priority: "critical", risks: [] }],
+          },
+        }),
+      }));
+      expect(res.status).toBe(200);
+      const focused = forwarded?.focusedTesting as {
+        source: string;
+        domains: Array<{ risks: string[]; inferredRisks: string[]; targets: unknown[] }>;
+      };
+      expect(focused.source).toBe("anatomia");
+      expect(focused.domains[0]?.risks).toEqual(["boundary", "memory_safety", "contract"]);
+      expect(focused.domains[0]?.inferredRisks).toEqual(focused.domains[0]?.risks);
+      expect(focused.domains[0]?.targets).toHaveLength(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 

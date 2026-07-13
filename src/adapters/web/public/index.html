@@ -753,6 +753,9 @@
             <label for="augur-files">Changed files</label>
             <textarea id="augur-files" placeholder="src/adapters/web/public/index.html&#10;src/adapters/web/routes/test-suggestions.ts"></textarea>
 
+            <label for="augur-focus">Focused domains</label>
+            <textarea id="augur-focus" placeholder="player-actions | critical | auto | input:critical,health:high | Player-controlled state"></textarea>
+
             <div class="augur-actions">
               <button class="btn btn-primary" id="augur-run">Get suggestions</button>
               <span id="augur-status"></span>
@@ -2213,6 +2216,51 @@
       .filter(function (item) { return item.length > 0; });
   }
 
+  function augurFocusedTesting() {
+    var focusEl = document.getElementById('augur-focus');
+    var lines = ((focusEl && focusEl.value) || '')
+      .split(/\n+/)
+      .map(function (line) { return line.trim(); })
+      .filter(function (line) { return line.length > 0; });
+    if (!lines.length) return null;
+    var priorities = { critical: 1, high: 1, medium: 1, low: 1 };
+    var allowedRisks = {
+      boundary: 1, memory_safety: 1, authorization: 1,
+      state_transition: 1, concurrency: 1, contract: 1,
+    };
+    var seen = {};
+    var domains = lines.map(function (line, index) {
+      var parts = line.split('|').map(function (part) { return part.trim(); });
+      var domain = parts[0] || '';
+      var priority = parts[1] || '';
+      var rawRisks = parts[2] || '';
+      var risks = rawRisks === 'auto' ? [] : rawRisks.split(',').map(function (risk) { return risk.trim(); }).filter(Boolean);
+      if (!domain || !priorities[priority]) {
+        throw new Error('Focused domain line ' + (index + 1) + ' must be: domain | priority | auto-or-risks | variables | rationale');
+      }
+      if (seen[domain]) throw new Error('Focused domain "' + domain + '" is duplicated.');
+      seen[domain] = 1;
+      risks.forEach(function (risk) {
+        if (!allowedRisks[risk]) throw new Error('Unsupported focused risk "' + risk + '" on line ' + (index + 1) + '.');
+      });
+      var variables = (parts[3] || '').split(',').map(function (entry) {
+        var pair = entry.trim();
+        if (!pair) return null;
+        var colon = pair.lastIndexOf(':');
+        var pattern = colon >= 0 ? pair.slice(0, colon).trim() : '';
+        var variablePriority = colon >= 0 ? pair.slice(colon + 1).trim() : '';
+        if (!pattern || !priorities[variablePriority]) {
+          throw new Error('Focused variable "' + pair + '" must be pattern:priority.');
+        }
+        return { pattern: pattern, priority: variablePriority };
+      }).filter(Boolean);
+      var result = { domain: domain, priority: priority, risks: risks, variables: variables };
+      if (parts[4]) result.rationale = parts[4];
+      return result;
+    });
+    return { domains: domains };
+  }
+
   async function runAugurSuggestions(id) {
     var kindEl = document.getElementById('augur-kind');
     var descEl = document.getElementById('augur-description');
@@ -2228,6 +2276,13 @@
     }
 
     var changedFiles = augurChangedFiles();
+    var focusedTesting;
+    try {
+      focusedTesting = augurFocusedTesting();
+    } catch (e) {
+      if (statusEl) statusEl.textContent = e.message;
+      return;
+    }
     var payload = {
       objective: {
         kind: (kindEl && kindEl.value) || 'unknown',
@@ -2236,6 +2291,7 @@
     };
     if (desiredOutcome) payload.objective.desiredOutcome = desiredOutcome;
     if (changedFiles.length) payload.change = { changedFiles: changedFiles };
+    if (focusedTesting) payload.focusedTesting = focusedTesting;
 
     if (runBtn) runBtn.disabled = true;
     if (statusEl) statusEl.textContent = 'Requesting Augur...';
@@ -2267,6 +2323,7 @@
     if (!resultsEl) return;
     var suggestions = plan.suggestions || [];
     var strategy = plan.fixPolicy && plan.fixPolicy.strategy ? plan.fixPolicy.strategy : 'n/a';
+    var focusedCount = plan.focusedTesting && plan.focusedTesting.domains ? plan.focusedTesting.domains.length : 0;
     var header =
       '<div class="augur-card">' +
         '<div class="augur-head">' +
@@ -2274,6 +2331,7 @@
           '<span class="augur-title">Augur plan</span>' +
           '<span class="augur-meta">strategy: ' + esc(strategy) + '</span>' +
           '<span class="augur-meta">source: ' + esc(plan.augurUrl || '') + '</span>' +
+          (focusedCount ? '<span class="augur-meta">focused domains: ' + focusedCount + '</span>' : '') +
         '</div>' +
         '<div class="augur-body">' + esc(plan.summary || '') + '</div>' +
       '</div>';
