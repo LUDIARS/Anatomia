@@ -7,7 +7,9 @@
  */
 
 import type { Hono } from "hono";
+import { buildFocusedTestingFacts, FocusedTestingError } from "../../../domains/focused-testing.js";
 import type { WebContextSource } from "../context.js";
+import { parseFocusedTestingInput } from "./focused-testing-input.js";
 
 const OBJECTIVE_KINDS = new Set([
   "new_feature",
@@ -40,6 +42,7 @@ interface AugurPlanRequest {
     changedFiles?: unknown;
     diff?: unknown;
   };
+  focusedTesting?: unknown;
 }
 
 export function mountTestSuggestionRoutes(app: Hono, source: WebContextSource): void {
@@ -62,6 +65,20 @@ export function mountTestSuggestionRoutes(app: Hono, source: WebContextSource): 
     const project = source.projects().find((p) => p.id === id);
     const objective = parseObjective(body, project?.name ?? id);
     if (!objective.ok) return c.json({ error: objective.error }, 400);
+
+    let focusedTesting;
+    try {
+      const policies = parseFocusedTestingInput(body.focusedTesting);
+      if (policies !== undefined) {
+        const ctx = await source.resolve(id);
+        focusedTesting = buildFocusedTestingFacts(ctx, policies);
+      }
+    } catch (err) {
+      if (err instanceof FocusedTestingError) {
+        return c.json({ error: err.message }, 400);
+      }
+      throw err;
+    }
 
     const augurUrl = resolveAugurUrl();
     const changedFiles = stringList(body.change?.changedFiles).slice(0, 20);
@@ -104,6 +121,7 @@ export function mountTestSuggestionRoutes(app: Hono, source: WebContextSource): 
           value: "Augur suggests tests only; execution remains outside Augur.",
         },
       ],
+      ...(focusedTesting !== undefined ? { focusedTesting } : {}),
     };
 
     let res: Response;
@@ -144,6 +162,7 @@ export function mountTestSuggestionRoutes(app: Hono, source: WebContextSource): 
       suggestions: payload.testPlan?.suggestions ?? [],
       fixPolicy: payload.fixPolicy ?? null,
       evidence: payload.evidence ?? [],
+      focusedTesting: focusedTesting ?? null,
     });
   });
 }
