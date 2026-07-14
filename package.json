@@ -20,6 +20,10 @@
     "web-tree-sitter": "^0.25.3",
     "zod": "^4.4.3"
   },
+  "overrides": {
+    "cmake-js": "8.0.0",
+    "tar": "7.5.20"
+  },
   "devDependencies": {
     "@types/emscripten": "^1.41.5",
     "@types/node": "^22.0.0",
