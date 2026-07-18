@@ -56,6 +56,8 @@ import type { DetectionResult } from "./domains/detect.js";
 import type { DiffInput } from "./supply/gates/types.js";
 import type { Lang } from "./types.js";
 import { vgCrash, vgWrite } from "./obs/vestigium.js";
+import { buildProjectProfile } from "./project/profile.js";
+import type { ProjectProfile } from "./project/profile.js";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -67,6 +69,8 @@ export interface AnalysisContext {
   graph: InMemoryCodeGraph;
   files: FileNode[];
   functions: FunctionNode[];
+  /** Project/framework classification used to gate framework-specific maps. */
+  projectProfile?: ProjectProfile;
   /**
    * The following are always populated by `analyze()`. They are optional in the
    * type so adapter tests / external callers can build a minimal context (just
@@ -174,6 +178,9 @@ export interface AnalyzeOptions {
 // ---------------------------------------------------------------------------
 
 const SOURCE_EXTS = new Set([".cpp", ".h", ".cs", ".ts", ".tsx"]);
+// Java/Go are not parsed by the current grammar set, but their extensions still
+// participate in graph-view default selection for mixed/future-language repos.
+const PROJECT_PROFILE_EXTS = new Set([...SOURCE_EXTS, ".java", ".go"]);
 const SPEC_EXTS = new Set([".md"]);
 
 // Source-file discovery uses the directory-pruning walk in fs/walk.ts so huge
@@ -181,7 +188,7 @@ const SPEC_EXTS = new Set([".md"]);
 
 async function collectSourceFiles(dir: string): Promise<string[]> {
   const gitDirs = await readGitignoreDirs(dir);
-  return collectFilesByExt(dir, SOURCE_EXTS, new Set([...EXCLUDE_DIRS, ...gitDirs]));
+  return collectFilesByExt(dir, PROJECT_PROFILE_EXTS, new Set([...EXCLUDE_DIRS, ...gitDirs]));
 }
 
 async function collectSpecFiles(dir: string): Promise<string[]> {
@@ -293,7 +300,9 @@ export async function analyze(
     quiet: options.quiet ?? false,
     prior_files: options.priorFiles?.size ?? 0,
   });
-  const rawFilePaths = await collectSourceFiles(repoPath);
+  const discoveredFilePaths = await collectSourceFiles(repoPath);
+  const projectProfile = await buildProjectProfile(repoPath, discoveredFilePaths);
+  const rawFilePaths = discoveredFilePaths.filter((path) => SOURCE_EXTS.has(extname(path).toLowerCase()));
   // For TypeScript files, skip *.d.ts and files under node_modules/dist.
   const filePaths = rawFilePaths.filter((fp) => {
     const ext = extname(fp).toLowerCase();
@@ -579,6 +588,7 @@ export async function analyze(
 
   return {
     repoPath,
+    projectProfile,
     graph,
     files,
     functions: allFunctions,
