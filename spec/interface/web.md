@@ -11,7 +11,7 @@ branch / domain-view）。
 
 | メソッド | パス | 返り |
 |---|---|---|
-| GET | `/api/graph` | `{ nodes: CodeNode[], edges: Edge[] }`（`?project=<id>`） |
+| GET | `/api/graph` | 関数グラフ互換 payload + `defaultView` + `views.function` / `views.class`（`?project=<id>`） |
 | GET | `/api/metrics` | `NodeMetrics[]`（`?project=<id>`） |
 | GET | `/api/domains` | `{ domains: string[], cards: [] }`（`?project=<id>`） |
 | GET | `/` | 管理パネル SPA（index.html） |

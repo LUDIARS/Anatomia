@@ -590,6 +590,10 @@
             <div id="graph-canvas"></div>
             <div id="graph-loading">Loading graph&hellip;</div>
             <div id="graph-filter-bar">
+              <div id="graph-view-toggle" role="group" aria-label="Graph node granularity">
+                <button class="btn btn-sm" id="graph-view-function" type="button">関数</button>
+                <button class="btn btn-sm" id="graph-view-class" type="button">クラス</button>
+              </div>
               <label for="graph-group-filter"
                      style="font-size:0.75rem;color:#8b949e">Group:</label>
               <select id="graph-group-filter"><option value="">All groups</option></select>
@@ -830,6 +834,8 @@
     activeTab: 'graph',
     network: null,
     rawVisData: null,
+    graphPayload: null,
+    graphMode: null,
     graphLoaded: false,
     branchDiff: null,
     branchDiffBase: null,
@@ -878,6 +884,8 @@
     state.projectPath = path;
     state.graphLoaded = false;
     state.rawVisData = null;
+    state.graphPayload = null;
+    state.graphMode = null;
     state.branchDiff = null;
     state.branchDiffBase = null;
     state.domainViewLoaded = false;
@@ -1306,6 +1314,8 @@
       var done = await QueueDock.waitFor(job.jobId);
       if (done && done.state === 'failed') throw new Error(done.error || 'analysis failed');
       state.rawVisData = null;
+      state.graphPayload = null;
+      state.graphMode = null;
       state.graphLoaded = false;
       state.branchDiff = null;
       state.branchDiffBase = null;
@@ -1333,20 +1343,27 @@
     // 409 show the prepare gate (which wipes the panel — restore on success).
     var panel = panelTemplate('graph');
     restorePanel('graph');
-    var probe;
-    try {
-      probe = await webView(id, 'graph');
-    } catch (e) {
-      probe = { ok: false, status: 0, body: { error: e.message } };
+    if (!state.graphPayload) {
+      var probe;
+      try {
+        probe = await webView(id, 'graph');
+      } catch (e) {
+        probe = { ok: false, status: 0, body: { error: e.message } };
+      }
+      if (!probe.ok) {
+        if (probe.status === 409) { renderNotPrepared(panel, id, 'Graph'); return; }
+        restorePanel('graph');
+        document.getElementById('graph-loading').textContent =
+          'Error loading graph: ' + (probe.body.error || 'error');
+        return;
+      }
+      state.graphPayload = probe.data;
     }
-    if (!probe.ok) {
-      if (probe.status === 409) { renderNotPrepared(panel, id, 'Graph'); return; }
-      restorePanel('graph');
-      document.getElementById('graph-loading').textContent =
-        'Error loading graph: ' + (probe.body.error || 'error');
-      return;
-    }
-    state.rawVisData = probe.data;
+    var payload = state.graphPayload;
+    if (!state.graphMode) state.graphMode = payload.defaultView || 'function';
+    state.rawVisData = payload.views && payload.views[state.graphMode]
+      ? payload.views[state.graphMode]
+      : payload;
 
     var loadEl = document.getElementById('graph-loading');
     loadEl.style.display = '';
@@ -1359,6 +1376,19 @@
     document.getElementById('graph-legend-groups').innerHTML = '';
     var gf = document.getElementById('graph-group-filter');
     while (gf.options.length > 1) gf.remove(1);
+
+    var functionMode = document.getElementById('graph-view-function');
+    var classMode = document.getElementById('graph-view-class');
+    functionMode.classList.toggle('btn-primary', state.graphMode === 'function');
+    classMode.classList.toggle('btn-primary', state.graphMode === 'class');
+    functionMode.onclick = function () {
+      if (state.graphMode === 'function') return;
+      state.graphMode = 'function'; state.graphLoaded = false; loadGraph(id);
+    };
+    classMode.onclick = function () {
+      if (state.graphMode === 'class') return;
+      state.graphMode = 'class'; state.graphLoaded = false; loadGraph(id);
+    };
 
     // Reset the branch-diff base selector (repopulated lazily when toggled on).
     var bdBaseEl = document.getElementById('bd-base');
@@ -1433,6 +1463,8 @@
         ['Name', m.name], ['Kind', m.kind], ['File', m.file], ['Line', m.line],
         ['Domain', m.domain || '—'], ['Coupling', m.coupling],
         ['Fan-in', m.fanIn], ['Fan-out', m.fanOut], ['Cyclomatic', m.cyclomatic],
+        ['Members', m.memberCount || 1],
+        ['Lifecycle', m.lifecycleEvents && m.lifecycleEvents.length ? m.lifecycleEvents.join(', ') : (m.lifecycle || '—')],
         ['Dom. overlap', m.domainOverlap], ['Cross-dom. depth', m.crossDomainDepth],
       ];
       phEl.style.display = 'none';
@@ -1455,9 +1487,16 @@
     function diffSets() {
       var bd = state.branchDiff;
       if (!bdToggle.checked || !bd || !bd.available) return null;
+      var addedAnchors = {}, changedAnchors = {};
+      bd.anchors.added.forEach(function (a) { addedAnchors[a] = 1; });
+      bd.anchors.changed.forEach(function (a) { changedAnchors[a] = 1; });
       var added = {}, changed = {}, all = {};
-      bd.anchors.added.forEach(function (a) { added[a] = 1; all[a] = 1; });
-      bd.anchors.changed.forEach(function (a) { changed[a] = 1; all[a] = 1; });
+      (state.rawVisData ? state.rawVisData.nodes : []).forEach(function (n) {
+        var members = n._meta && n._meta.memberAnchors ? n._meta.memberAnchors : [n.id];
+        if (members.some(function (a) { return addedAnchors[a]; })) added[n.id] = 1;
+        if (members.some(function (a) { return changedAnchors[a]; })) changed[n.id] = 1;
+        if (added[n.id] || changed[n.id]) all[n.id] = 1;
+      });
       var visible = all;
       if (bdNeighbors.checked) {
         visible = {};

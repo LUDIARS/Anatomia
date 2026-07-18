@@ -101,3 +101,33 @@ describe("buildReview", () => {
     expect(text).toContain("Dependency cycles");
   });
 });
+
+describe("buildReview Unity lifecycle", () => {
+  it("does not report engine-invoked MonoBehaviour callbacks as orphans", async () => {
+    const unity = await mkdtemp(join(tmpdir(), "anatomia-review-unity-"));
+    try {
+      await mkdir(join(unity, "Assets"), { recursive: true });
+      await mkdir(join(unity, "ProjectSettings"), { recursive: true });
+      await writeFile(
+        join(unity, "ProjectSettings", "ProjectVersion.txt"),
+        "m_EditorVersion: 2021.3.0f1\n",
+      );
+      await writeFile(
+        join(unity, "Assets", "Player.cs"),
+        [
+          "class BaseBehaviour : MonoBehaviour {}",
+          "class Player : BaseBehaviour {",
+          "  void Update() {}",
+          "  void Helper() {}",
+          "}",
+        ].join("\n"),
+      );
+      const unityCtx = await analyze(unity, { quiet: true });
+      const review = await buildReview(unityCtx);
+      expect(review.orphans.map((entry) => entry.name)).toContain("Helper");
+      expect(review.orphans.map((entry) => entry.name)).not.toContain("Update");
+    } finally {
+      await rm(unity, { recursive: true, force: true });
+    }
+  });
+});

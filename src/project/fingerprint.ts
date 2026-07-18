@@ -28,7 +28,9 @@ import { stat, readFile } from "node:fs/promises";
 import { collectFilesByExt, readGitignoreDirs, EXCLUDE_DIRS } from "../fs/walk.js";
 
 /** Source extensions whose content defines a project's fingerprint. */
-const SOURCE_EXTS = new Set([".cpp", ".h", ".cs", ".ts", ".tsx", ".md"]);
+const SOURCE_EXTS = new Set([
+  ".cpp", ".h", ".cs", ".ts", ".tsx", ".java", ".go", ".md", ".txt",
+]);
 
 /**
  * Extensions stamped from a project's *config* dirs (ontologyDir / specDirs).

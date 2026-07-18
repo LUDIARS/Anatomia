@@ -28,6 +28,7 @@ import type { AnalysisContext } from "../core.js";
 import type { AnchorId, ViolationSeverity } from "../types.js";
 import { computeMetrics } from "../supply/metrics.js";
 import { evaluatePredicate } from "../domains/engine.js";
+import { resolveUnityLifecycleFunctions } from "../frameworks/unity/lifecycle.js";
 
 export interface ReviewLocation {
   anchor: AnchorId;
@@ -151,6 +152,7 @@ export async function buildReview(
   const membershipMap = new Map<string, AnchorId[]>();
   for (const d of ctx.domains ?? []) membershipMap.set(d.domain, d.implementors);
   const metrics = await computeMetrics(ctx.graph, membershipMap);
+  const unityLifecycle = resolveUnityLifecycleFunctions(ctx);
 
   const hotspots: ReviewHotspot[] = [...metrics]
     .filter((m) => m.coupling > 0)
@@ -159,7 +161,7 @@ export async function buildReview(
     .map((m) => ({ ...locOf(m.anchor), fanIn: m.fanIn, fanOut: m.fanOut, coupling: m.coupling, cyclomatic: m.cyclomatic }));
 
   const orphansAll = metrics
-    .filter((m) => m.fanIn === 0)
+    .filter((m) => m.fanIn === 0 && !unityLifecycle.has(m.anchor))
     .map((m) => locOf(m.anchor))
     .filter((l) => l.name !== "main")
     .sort(sortLocs);

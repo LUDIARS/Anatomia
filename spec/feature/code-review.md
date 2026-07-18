@@ -21,7 +21,12 @@
 | `cycles` | calls graph の `NoCycle` 違反グループ |
 | `structuralDup` | path を除いた structural hash が同じ named function の複製 |
 | `domainCoupling` | 異なる primary domain 間を跨ぐ edge 数 |
-| `orphans` | static caller が無い（`fanIn === 0`）関数。`main` は除外 |
+| `orphans` | static caller が無い（`fanIn === 0`）関数。`main` と、Unityプロジェクト内の `MonoBehaviour` ライフサイクル関数は除外 |
+
+Unity補正は `Assets/` と `ProjectSettings/ProjectVersion.txt` が揃うプロジェクトだけで有効。
+対象関数のクラスが直接または継承鎖経由で `MonoBehaviour` を継承し、Unity 2021.3 の
+イベント関数名に一致した場合、エンジン所有のライフサイクル接続として解決する。
+静的な疑似 call edge は追加せず、グラフ表示メタデータへ lifecycle ラベルを付与する。
 | `specGaps` | spec が存在するプロジェクトで、どの spec clause にも link されない source file |
 
 `summary` は cap 前の真の件数を返す。`hotspots` は既定 20 件、`orphans` と `specGaps` の
