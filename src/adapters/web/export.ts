@@ -93,7 +93,7 @@ export async function exportGraphHtml(
     #header h1 { font-size: 1rem; white-space: nowrap; }
     #summary { font-size: 0.75rem; color: #8b949e; }
     #filter-wrap { margin-left: auto; display: flex; align-items: center; gap: 8px; }
-    #group-filter { background: #21262d; color: #e1e4e8; border: 1px solid #30363d;
+    #group-filter, #view-mode { background: #21262d; color: #e1e4e8; border: 1px solid #30363d;
                     border-radius: 4px; padding: 3px 8px; font-size: 0.78rem; }
 
     /* Main area */
@@ -138,6 +138,8 @@ export async function exportGraphHtml(
     <h1>Anatomia Graph &mdash; ${escHtml(title)}</h1>
     <div id="summary"></div>
     <div id="filter-wrap">
+      <label for="view-mode" style="font-size:0.75rem;color:#8b949e;">View:</label>
+      <select id="view-mode"><option value="function">関数</option><option value="class">クラス</option></select>
       <label for="group-filter" style="font-size:0.75rem;color:#8b949e;">Group:</label>
       <select id="group-filter"><option value="">All groups</option></select>
     </div>
@@ -170,7 +172,21 @@ export async function exportGraphHtml(
 
   <script>
   (function() {
-    var DATA = ${dataJson};
+    var PAYLOAD = ${dataJson};
+    var requestedMode = window.location.hash.slice(1);
+    var activeMode = requestedMode === 'class' || requestedMode === 'function'
+      ? requestedMode
+      : (PAYLOAD.defaultView || 'function');
+    var DATA = PAYLOAD.views && PAYLOAD.views[activeMode]
+      ? PAYLOAD.views[activeMode]
+      : PAYLOAD;
+
+    var viewMode = document.getElementById('view-mode');
+    viewMode.value = activeMode;
+    viewMode.addEventListener('change', function() {
+      window.location.hash = viewMode.value;
+      window.location.reload();
+    });
 
     // --- Populate summary ---
     var s = DATA.summary;

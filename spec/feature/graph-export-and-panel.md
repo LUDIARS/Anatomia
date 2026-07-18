@@ -27,6 +27,9 @@ per-edit / per-prompt フック（`/api/verify` / `/api/context`）に sub-secon
 ダッシュボードは `Graph` / `Domain View` / `Hotspots` / `Domains` / `Spec Links` のタブを持つ。
 
 - **Graph**: 全グラフ。グループ絞り込みに加え、**ブランチ差分オーバーレイ**（[feature/branch-diff.md](./branch-diff.md)）
+  と「関数 / クラス」トグルを持つ。関数ビューは完全な関数・メンバ関数エッジを表示し、
+  クラスビューはメンバ関数を所有クラスへ畳み、メンバ間 edge をクラス間 edge に集約する。
+  C++ / C# / Java はクラス、TypeScript / Go は関数を初期値とする。
   を持つ。「Branch diff only」で `/api/projects/:id/branch-diff` の追加/変更 anchor だけに絞り、
   追加=緑/変更=橙の枠で色付けする。「+1-hop」で 1 ホップ隣接も表示。
 - **Domain View**: ドメイン別フォーカスの専用ビュー（[feature/domain-view.md](./domain-view.md)）。
