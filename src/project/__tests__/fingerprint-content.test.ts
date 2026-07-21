@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, writeFile, rm, utimes } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile, rm, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { computeFingerprint, resetFingerprintMemo } from "../fingerprint.js";
@@ -53,5 +53,26 @@ describe("computeFingerprint content-addressing", () => {
     resetFingerprintMemo();
     const b = await computeFingerprint(root);
     expect(a).toBe(b);
+  });
+
+  it("ignores arbitrary text assets outside the canonical Unity marker", async () => {
+    await writeFile(join(root, "large-generated-asset.txt"), "first asset contents\n");
+    const before = await computeFingerprint(root);
+    await writeFile(join(root, "large-generated-asset.txt"), "different asset contents\n");
+    resetFingerprintMemo();
+
+    expect(await computeFingerprint(root)).toBe(before);
+  });
+
+  it("includes the canonical Unity project-version text marker", async () => {
+    const settings = join(root, "ProjectSettings");
+    const marker = join(settings, "ProjectVersion.txt");
+    await mkdir(settings);
+    await writeFile(marker, "m_EditorVersion: 2021.3.0f1\n");
+    const before = await computeFingerprint(root);
+    await writeFile(marker, "m_EditorVersion: 2021.3.1f1\n");
+    resetFingerprintMemo();
+
+    expect(await computeFingerprint(root)).not.toBe(before);
   });
 });

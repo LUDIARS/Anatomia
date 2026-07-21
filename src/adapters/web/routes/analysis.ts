@@ -141,7 +141,9 @@ export function mountAnalysisRoutes(app: Hono, source: WebContextSource): void {
       // unchanged — a cold (just-restarted) server answers from disk without
       // re-analyzing the repo, which is what kept the graph view from toppling
       // the panel on large C++ projects. buildVisData runs only on a miss.
-      const data = await source.cachedArtifact(id, "vis-data", async (ctx) =>
+      // v2 removes the duplicate views.function graph from the serialized shape;
+      // use a new cache key so persisted v1 payloads cannot reintroduce it.
+      const data = await source.cachedArtifact(id, "vis-data-v2", async (ctx) =>
         buildVisData(ctx, undefined, {
           moduleResolver: await loadTaxonomyResolver(ctx.repoPath),
         }),

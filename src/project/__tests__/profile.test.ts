@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { defaultGraphViewForPaths, detectProjectKind } from "../profile.js";
@@ -28,5 +28,17 @@ describe("project profile", () => {
     expect(await detectProjectKind(join(root, "Assets"))).toBe("unity");
     await mkdir(join(root, "Assets", "Scripts"));
     expect(await detectProjectKind(join(root, "Assets", "Scripts"))).toBe("unity");
+  });
+
+  it.each(["EACCES", "EIO"])("propagates %s while probing Unity markers", async (code) => {
+    const root = await mkdtemp(join(tmpdir(), "anatomia-profile-error-"));
+    roots.push(root);
+    const assets = join(root, "Assets");
+    const failure = Object.assign(new Error(`marker probe failed: ${code}`), { code });
+
+    await expect(detectProjectKind(root, async (path) => {
+      if (path === assets) throw failure;
+      return stat(path);
+    })).rejects.toBe(failure);
   });
 });

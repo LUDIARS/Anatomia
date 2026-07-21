@@ -17,6 +17,9 @@ export interface ProjectProfile {
   defaultGraphView: GraphViewMode;
 }
 
+type StatResult = Pick<Awaited<ReturnType<typeof stat>>, "isDirectory" | "isFile">;
+type StatPath = (path: string) => Promise<StatResult>;
+
 const CLASS_CENTRIC_EXTS = new Set([
   ".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx",
   ".cs", ".java",
@@ -35,24 +38,35 @@ export function defaultGraphViewForPaths(paths: readonly string[]): GraphViewMod
   return classCentric > 0 && classCentric >= functionCentric ? "class" : "function";
 }
 
-async function isDirectory(path: string): Promise<boolean> {
+function isMissingPathError(error: unknown): boolean {
+  if (!(error instanceof Error) || !("code" in error)) return false;
+  const code = (error as NodeJS.ErrnoException).code;
+  return code === "ENOENT" || code === "ENOTDIR";
+}
+
+async function isDirectory(path: string, statPath: StatPath): Promise<boolean> {
   try {
-    return (await stat(path)).isDirectory();
-  } catch {
-    return false;
+    return (await statPath(path)).isDirectory();
+  } catch (error) {
+    if (isMissingPathError(error)) return false;
+    throw error;
   }
 }
 
-async function isFile(path: string): Promise<boolean> {
+async function isFile(path: string, statPath: StatPath): Promise<boolean> {
   try {
-    return (await stat(path)).isFile();
-  } catch {
-    return false;
+    return (await statPath(path)).isFile();
+  } catch (error) {
+    if (isMissingPathError(error)) return false;
+    throw error;
   }
 }
 
 /** Require both canonical markers before enabling Unity-only analysis. */
-export async function detectProjectKind(repoPath: string): Promise<ProjectKind> {
+export async function detectProjectKind(
+  repoPath: string,
+  statPath: StatPath = stat,
+): Promise<ProjectKind> {
   const root = resolve(repoPath);
   const candidates: string[] = [];
   let candidate = root;
@@ -65,8 +79,8 @@ export async function detectProjectKind(repoPath: string): Promise<ProjectKind> 
 
   for (const candidate of candidates) {
     const [hasAssets, hasProjectVersion] = await Promise.all([
-      isDirectory(join(candidate, "Assets")),
-      isFile(join(candidate, "ProjectSettings", "ProjectVersion.txt")),
+      isDirectory(join(candidate, "Assets"), statPath),
+      isFile(join(candidate, "ProjectSettings", "ProjectVersion.txt"), statPath),
     ]);
     if (hasAssets && hasProjectVersion) return "unity";
   }
