@@ -5,12 +5,13 @@
  * edges into class-to-class edges. The original function graph remains intact.
  */
 
-import { relative } from "node:path";
+import { extname, relative } from "node:path";
 import type { AnchorId, EdgeKind, FileNode, FunctionNode, SourceRange, TypeDecl } from "../types.js";
 
 export interface ClassViewNode {
   id: string;
   name: string;
+  kind: "class" | "function";
   sourceRange: SourceRange;
   memberAnchors: AnchorId[];
 }
@@ -35,15 +36,26 @@ function normalizedRelative(repoPath: string, path: string): string {
   }
 }
 
-function classId(repoPath: string, type: TypeDecl): string {
+function fileScopedClassId(repoPath: string, type: TypeDecl): string {
   return `class:${normalizedRelative(repoPath, type.filePath)}:${type.name}`;
+}
+
+function classId(
+  repoPath: string,
+  type: TypeDecl,
+  multiFileCSharpTypes: ReadonlySet<string>,
+): string {
+  if (extname(type.filePath).toLowerCase() === ".cs" && multiFileCSharpTypes.has(type.name)) {
+    return `class:csharp:${type.name}`;
+  }
+  return fileScopedClassId(repoPath, type);
 }
 
 function fallbackRange(filePath: string): SourceRange {
   return { filePath, start: { line: 0, column: 0 }, end: { line: 0, column: 0 } };
 }
 
-/** Collapse only member-to-member edges; free functions stay in function view. */
+/** Collapse methods to owning classes while preserving free functions as nodes. */
 export function projectClassView(
   repoPath: string,
   files: readonly FileNode[],
@@ -57,30 +69,61 @@ export function projectClassView(
     if (list) list.push(decl);
     else declsByName.set(decl.name, [decl]);
   }
+  const multiFileCSharpTypes = new Set(
+    [...declsByName.entries()]
+      .filter(([, decls]) => {
+        const csharpFiles = new Set(
+          decls
+            .filter((decl) => extname(decl.filePath).toLowerCase() === ".cs")
+            .map((decl) => decl.filePath),
+        );
+        return csharpFiles.size > 1;
+      })
+      .map(([name]) => name),
+  );
 
   const nodesById = new Map<string, ClassViewNode>();
   const ownerByAnchor = new Map<AnchorId, string>();
   for (const decl of declarations) {
-    const id = classId(repoPath, decl);
+    const id = classId(repoPath, decl, multiFileCSharpTypes);
+    if (nodesById.has(id)) continue;
     nodesById.set(id, {
       id,
       name: decl.name,
+      kind: "class",
       sourceRange: decl.sourceRange ?? fallbackRange(decl.filePath),
       memberAnchors: [],
     });
   }
 
   for (const fn of functions) {
-    if (!fn.id || !fn.enclosingType) continue;
+    if (!fn.id) continue;
+    if (!fn.enclosingType) {
+      nodesById.set(fn.id, {
+        id: fn.id,
+        name: fn.name,
+        kind: "function",
+        sourceRange: fn.sourceRange,
+        memberAnchors: [fn.id],
+      });
+      ownerByAnchor.set(fn.id, fn.id);
+      continue;
+    }
     const candidates = declsByName.get(fn.enclosingType) ?? [];
     const sameFile = candidates.find((decl) => decl.filePath === fn.sourceRange.filePath);
     const ownerDecl = sameFile ?? (candidates.length === 1 ? candidates[0] : undefined);
     const id = ownerDecl
-      ? classId(repoPath, ownerDecl)
+      ? classId(repoPath, ownerDecl, multiFileCSharpTypes)
       : `class:${normalizedRelative(repoPath, fn.sourceRange.filePath)}:${fn.enclosingType}`;
     let node = nodesById.get(id);
     if (!node) {
-      node = { id, name: fn.enclosingType, sourceRange: fn.sourceRange, memberAnchors: [] };
+      node = {
+        id,
+        name: fn.enclosingType,
+        kind: "class",
+        sourceRange: fn.sourceRange,
+        memberAnchors: [],
+      };
       nodesById.set(id, node);
     }
     node.memberAnchors.push(fn.id);
