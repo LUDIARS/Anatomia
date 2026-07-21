@@ -32,11 +32,13 @@ describe("buildVisData graph views", () => {
     const data = await buildVisData(ctx);
 
     expect(data.defaultView).toBe("class");
+    // Top-level IS the function view (single canonical copy); `views` carries
+    // only the class projection.
     expect(data.nodes.map((node) => node.label).sort()).toEqual(["Tick", "Update"]);
-    expect(data.views.function.edges.some((edge) => edge.label === "calls")).toBe(true);
+    expect(data.edges.some((edge) => edge.label === "calls")).toBe(true);
     expect(data.views.class.nodes.map((node) => node.label).sort()).toEqual(["A", "B"]);
     expect(data.views.class.edges.some((edge) => edge.label === "calls")).toBe(true);
-    expect(data.views.function.nodes.find((node) => node.label === "Update")?._meta.lifecycle)
+    expect(data.nodes.find((node) => node.label === "Update")?._meta.lifecycle)
       .toBe("Update");
   });
 });

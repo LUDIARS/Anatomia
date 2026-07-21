@@ -2,10 +2,13 @@
  * Class-level projection of the function graph.
  *
  * SRP: collapse member functions to owning class nodes and aggregate member
- * edges into class-to-class edges. The original function graph remains intact.
+ * edges into class-to-class edges. Free (ownerless) functions collapse into a
+ * synthetic per-file "file-scope" node so class-centric languages that lean on
+ * free functions (C++) still yield a populated view. The original function
+ * graph remains intact.
  */
 
-import { relative } from "node:path";
+import { basename, relative } from "node:path";
 import type { AnchorId, EdgeKind, FileNode, FunctionNode, SourceRange, TypeDecl } from "../types.js";
 
 export interface ClassViewNode {
@@ -39,11 +42,20 @@ function classId(repoPath: string, type: TypeDecl): string {
   return `class:${normalizedRelative(repoPath, type.filePath)}:${type.name}`;
 }
 
+/** Node id for the synthetic "file-scope" bucket that owns a file's free functions. */
+function fileScopeId(repoPath: string, filePath: string): string {
+  return `file:${normalizedRelative(repoPath, filePath)}`;
+}
+
 function fallbackRange(filePath: string): SourceRange {
   return { filePath, start: { line: 0, column: 0 }, end: { line: 0, column: 0 } };
 }
 
-/** Collapse only member-to-member edges; free functions stay in function view. */
+/**
+ * Collapse member functions onto their owning class nodes and free functions
+ * onto a per-file "file-scope" node, then aggregate the member edges between
+ * those nodes.
+ */
 export function projectClassView(
   repoPath: string,
   files: readonly FileNode[],
@@ -71,16 +83,27 @@ export function projectClassView(
   }
 
   for (const fn of functions) {
-    if (!fn.id || !fn.enclosingType) continue;
-    const candidates = declsByName.get(fn.enclosingType) ?? [];
-    const sameFile = candidates.find((decl) => decl.filePath === fn.sourceRange.filePath);
-    const ownerDecl = sameFile ?? (candidates.length === 1 ? candidates[0] : undefined);
-    const id = ownerDecl
-      ? classId(repoPath, ownerDecl)
-      : `class:${normalizedRelative(repoPath, fn.sourceRange.filePath)}:${fn.enclosingType}`;
+    if (!fn.id) continue;
+    let id: string;
+    let name: string;
+    if (fn.enclosingType) {
+      const candidates = declsByName.get(fn.enclosingType) ?? [];
+      const sameFile = candidates.find((decl) => decl.filePath === fn.sourceRange.filePath);
+      const ownerDecl = sameFile ?? (candidates.length === 1 ? candidates[0] : undefined);
+      id = ownerDecl
+        ? classId(repoPath, ownerDecl)
+        : `class:${normalizedRelative(repoPath, fn.sourceRange.filePath)}:${fn.enclosingType}`;
+      name = fn.enclosingType;
+    } else {
+      // Free function: bucket it under a per-file "file-scope" node so the class
+      // view still represents ownerless functions (common in C++) instead of
+      // silently dropping them and returning an empty/partial graph.
+      id = fileScopeId(repoPath, fn.sourceRange.filePath);
+      name = basename(fn.sourceRange.filePath);
+    }
     let node = nodesById.get(id);
     if (!node) {
-      node = { id, name: fn.enclosingType, sourceRange: fn.sourceRange, memberAnchors: [] };
+      node = { id, name, sourceRange: fn.sourceRange, memberAnchors: [] };
       nodesById.set(id, node);
     }
     node.memberAnchors.push(fn.id);

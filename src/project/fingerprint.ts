@@ -27,9 +27,16 @@ import { createHash } from "node:crypto";
 import { stat, readFile } from "node:fs/promises";
 import { collectFilesByExt, readGitignoreDirs, EXCLUDE_DIRS } from "../fs/walk.js";
 
-/** Source extensions whose content defines a project's fingerprint. */
+/**
+ * Source extensions whose content defines a project's fingerprint. Limited to
+ * files the analysis actually consumes: parsed source languages plus `.md`
+ * (specs/docs feed spec-linking). A blanket `.txt` was intentionally left out —
+ * it names no source language and has no analysis consumer, so including it only
+ * forced large unrelated text assets (logs, data dumps) to be read in full on
+ * every fingerprint pass.
+ */
 const SOURCE_EXTS = new Set([
-  ".cpp", ".h", ".cs", ".ts", ".tsx", ".java", ".go", ".md", ".txt",
+  ".cpp", ".h", ".cs", ".ts", ".tsx", ".java", ".go", ".md",
 ]);
 
 /**

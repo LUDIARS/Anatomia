@@ -35,10 +35,27 @@ export function defaultGraphViewForPaths(paths: readonly string[]): GraphViewMod
   return classCentric > 0 && classCentric >= functionCentric ? "class" : "function";
 }
 
+/**
+ * ENOENT/ENOTDIR mean the marker genuinely isn't there; any other errno
+ * (EACCES/EIO/ELOOP/EMFILE/…) is a real filesystem fault that must NOT be
+ * silently read as "marker absent" — otherwise a permission/IO error on a real
+ * Unity tree would misclassify it as generic. On such a fault we surface a
+ * warning (matching the analyze/spec-link convention of warn-and-continue) so
+ * the failed probe is visible instead of swallowed, and still report "absent"
+ * for this marker (detectProjectKind's return type has no inconclusive state).
+ */
+function isMissingError(err: unknown): boolean {
+  const code = (err as NodeJS.ErrnoException).code;
+  return code === "ENOENT" || code === "ENOTDIR";
+}
+
 async function isDirectory(path: string): Promise<boolean> {
   try {
     return (await stat(path)).isDirectory();
-  } catch {
+  } catch (err) {
+    if (!isMissingError(err)) {
+      console.warn(`[anatomia/project] Unity marker probe failed for ${path}: ${String(err)}`);
+    }
     return false;
   }
 }
@@ -46,7 +63,10 @@ async function isDirectory(path: string): Promise<boolean> {
 async function isFile(path: string): Promise<boolean> {
   try {
     return (await stat(path)).isFile();
-  } catch {
+  } catch (err) {
+    if (!isMissingError(err)) {
+      console.warn(`[anatomia/project] Unity marker probe failed for ${path}: ${String(err)}`);
+    }
     return false;
   }
 }

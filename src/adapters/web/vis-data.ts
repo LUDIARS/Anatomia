@@ -97,10 +97,17 @@ export interface VisGraphView {
 }
 
 export interface VisData extends VisGraphView {
-  /** Legacy top-level data remains the full function graph. */
+  /**
+   * The top-level fields (from `extends VisGraphView`) ARE the function graph and
+   * are its single canonical copy — read in-process by the domain-view builder
+   * and served as the "function" view by the panel/export. To avoid serializing
+   * that graph twice, `views` carries only the OTHER projections (the class
+   * view); a consumer selecting the function view falls back to the top level
+   * when `views[mode]` is absent (see export.ts / public panel).
+   */
   unresolved: UnresolvedCall[];
   defaultView: GraphViewMode;
-  views: Record<GraphViewMode, VisGraphView>;
+  views: { class: VisGraphView } & Partial<Record<GraphViewMode, VisGraphView>>;
 }
 
 export function buildGroupColorMap(groups: string[]): Record<string, string> {
@@ -363,9 +370,12 @@ export async function buildVisData(
   const defaultView = ctx.projectProfile?.defaultGraphView
     ?? defaultGraphViewForPaths(ctx.files.map((file) => file.path));
   return {
+    // Top-level = the function graph (single copy). `views` holds only the class
+    // projection; the function view is served from the top level, so it is not
+    // duplicated here (which would double the serialized payload on large repos).
     ...functionView,
     unresolved,
     defaultView,
-    views: { function: functionView, class: classView },
+    views: { class: classView },
   };
 }
