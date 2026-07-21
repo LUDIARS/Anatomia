@@ -97,10 +97,11 @@ export interface VisGraphView {
 }
 
 export interface VisData extends VisGraphView {
-  /** Legacy top-level data remains the full function graph. */
+  /** Legacy top-level data is the full function graph and is serialized once. */
   unresolved: UnresolvedCall[];
   defaultView: GraphViewMode;
-  views: Record<GraphViewMode, VisGraphView>;
+  /** Class is the alternate view; function mode falls back to the top level. */
+  views: Partial<Record<GraphViewMode, VisGraphView>> & { class: VisGraphView };
 }
 
 export function buildGroupColorMap(groups: string[]): Record<string, string> {
@@ -319,7 +320,7 @@ export async function buildVisData(
       id: node.id,
       label: node.name,
       title: [
-        node.name, `${file}:${node.sourceRange.start.line}`, "kind: class",
+        node.name, `${file}:${node.sourceRange.start.line}`, `kind: ${node.kind}`,
         `members: ${node.memberAnchors.length}`, `coupling: ${coupling}`,
         `fan-in: ${fanIn}`, `fan-out: ${fanOut}`,
         lifecycleEvents.length ? `Unity lifecycle: ${lifecycleEvents.join(", ")}` : null,
@@ -334,7 +335,7 @@ export async function buildVisData(
       size: sizeForCyclomatic(cyclomatic),
       font: { color: "#e1e4e8", size: 10 },
       _meta: {
-        name: node.name, kind: "class", file, line: node.sourceRange.start.line,
+        name: node.name, kind: node.kind, file, line: node.sourceRange.start.line,
         domain: domains[0] ?? null, coupling, cyclomatic, fanIn, fanOut,
         domainOverlap: Math.max(0, domains.length - 1), crossDomainDepth: 0,
         memberAnchors: node.memberAnchors, memberCount: node.memberAnchors.length,
@@ -366,6 +367,6 @@ export async function buildVisData(
     ...functionView,
     unresolved,
     defaultView,
-    views: { function: functionView, class: classView },
+    views: { class: classView },
   };
 }
