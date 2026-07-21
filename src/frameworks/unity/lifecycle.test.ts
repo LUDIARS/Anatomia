@@ -2,14 +2,20 @@ import { describe, expect, it } from "vitest";
 import type { AnchorId, FileNode, FunctionNode } from "../../types.js";
 import { resolveUnityLifecycleFunctions } from "./lifecycle.js";
 
-function fn(id: string, name: string, enclosingType: string): FunctionNode {
+function fn(
+  id: string,
+  name: string,
+  enclosingType: string,
+  opts: { signature?: string; filePath?: string } = {},
+): FunctionNode {
+  const filePath = opts.filePath ?? "/repo/Assets/Test.cs";
   return {
     id: id as AnchorId,
     name,
     enclosingType,
-    signature: `void ${name}()`,
+    signature: opts.signature ?? `void ${name}()`,
     sourceRange: {
-      filePath: "/repo/Assets/Test.cs",
+      filePath,
       start: { line: 0, column: 0 },
       end: { line: 0, column: 1 },
     },
@@ -51,5 +57,62 @@ describe("Unity lifecycle map", () => {
       functions: [update],
     });
     expect(matches.size).toBe(0);
+  });
+
+  it("excludes same-named overloads and static methods by signature/modifier", () => {
+    const callback = fn("cb", "Update", "Player"); // void Update()
+    const overload = fn("ovl", "Update", "Player", { signature: "void Update(float dt)" });
+    const staticFn = fn("stat", "Update", "Player", { signature: "static void Update()" });
+    const matches = resolveUnityLifecycleFunctions({
+      projectProfile: { kind: "unity", defaultGraphView: "class" },
+      files,
+      functions: [callback, overload, staticFn],
+    });
+    expect(matches.has(callback.id!)).toBe(true);
+    expect(matches.has(overload.id!)).toBe(false);
+    expect(matches.has(staticFn.id!)).toBe(false);
+  });
+
+  it("accepts the documented arity for parameterised messages", () => {
+    const trigger = fn("t", "OnTriggerEnter", "Player", { signature: "void OnTriggerEnter(Collider c)" });
+    const badTrigger = fn("bt", "OnTriggerEnter", "Player", { signature: "void OnTriggerEnter()" });
+    const matches = resolveUnityLifecycleFunctions({
+      projectProfile: { kind: "unity", defaultGraphView: "class" },
+      files,
+      functions: [trigger, badTrigger],
+    });
+    expect(matches.get(trigger.id!)?.phase).toBe("physics");
+    expect(matches.has(badTrigger.id!)).toBe(false);
+  });
+
+  it("does not merge same-named classes across files when resolving MonoBehaviour", () => {
+    // Two unrelated classes both named `Widget`: one derives MonoBehaviour, the
+    // other is a plain POCO in a different file. The plain one's Update() must NOT
+    // be tagged as a lifecycle callback via the other's base list.
+    const unityFile = "/repo/Assets/UnityWidget.cs";
+    const plainFile = "/repo/Assets/PlainWidget.cs";
+    const twoFiles: FileNode[] = [
+      {
+        path: unityFile,
+        hash: null,
+        functions: [],
+        types: [{ name: "Widget", bases: ["MonoBehaviour"], filePath: unityFile }],
+      },
+      {
+        path: plainFile,
+        hash: null,
+        functions: [],
+        types: [{ name: "Widget", bases: [], filePath: plainFile }],
+      },
+    ];
+    const unityUpdate = fn("uu", "Update", "Widget", { filePath: unityFile });
+    const plainUpdate = fn("pu", "Update", "Widget", { filePath: plainFile });
+    const matches = resolveUnityLifecycleFunctions({
+      projectProfile: { kind: "unity", defaultGraphView: "class" },
+      files: twoFiles,
+      functions: [unityUpdate, plainUpdate],
+    });
+    expect(matches.has(unityUpdate.id!)).toBe(true);
+    expect(matches.has(plainUpdate.id!)).toBe(false);
   });
 });

@@ -54,4 +54,13 @@ describe("computeFingerprint content-addressing", () => {
     const b = await computeFingerprint(root);
     expect(a).toBe(b);
   });
+
+  it("ignores .txt assets so bulk unrelated text does not bust the cache", async () => {
+    const before = await computeFingerprint(root);
+    // A large unrelated text asset must not change the source fingerprint.
+    await writeFile(join(root, "dictionary.txt"), "word\n".repeat(1000));
+    resetFingerprintMemo();
+    const after = await computeFingerprint(root);
+    expect(after).toBe(before);
+  });
 });

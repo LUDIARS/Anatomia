@@ -35,19 +35,34 @@ export function defaultGraphViewForPaths(paths: readonly string[]): GraphViewMod
   return classCentric > 0 && classCentric >= functionCentric ? "class" : "function";
 }
 
+/**
+ * Errors that genuinely mean "this marker is absent": the path (or a parent
+ * component) does not exist. Anything else — EACCES/EPERM (unreadable),
+ * EIO/EBUSY (a failing/mounted filesystem) — is NOT evidence of absence, and
+ * swallowing it would misclassify the project (e.g. an unreadable Unity marker
+ * would fall through to the `generic` profile and "succeed" with the wrong
+ * framework analysis). Those are re-thrown so the caller surfaces them.
+ */
+function isAbsentError(err: unknown): boolean {
+  const code = (err as NodeJS.ErrnoException | null)?.code;
+  return code === "ENOENT" || code === "ENOTDIR";
+}
+
 async function isDirectory(path: string): Promise<boolean> {
   try {
     return (await stat(path)).isDirectory();
-  } catch {
-    return false;
+  } catch (err) {
+    if (isAbsentError(err)) return false;
+    throw err;
   }
 }
 
 async function isFile(path: string): Promise<boolean> {
   try {
     return (await stat(path)).isFile();
-  } catch {
-    return false;
+  } catch (err) {
+    if (isAbsentError(err)) return false;
+    throw err;
   }
 }
 

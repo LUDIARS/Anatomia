@@ -27,9 +27,16 @@ import { createHash } from "node:crypto";
 import { stat, readFile } from "node:fs/promises";
 import { collectFilesByExt, readGitignoreDirs, EXCLUDE_DIRS } from "../fs/walk.js";
 
-/** Source extensions whose content defines a project's fingerprint. */
+/**
+ * Source extensions whose content defines a project's fingerprint.
+ *
+ * `.txt` is deliberately excluded: it is unbounded and typically names bulk
+ * data assets (dictionaries, dumps, exported tables, license text) rather than
+ * source, so folding it in would make the fingerprint scan read huge unrelated
+ * files on every re-analyze. Config-adjacent text lives under CONFIG_EXTS.
+ */
 const SOURCE_EXTS = new Set([
-  ".cpp", ".h", ".cs", ".ts", ".tsx", ".java", ".go", ".md", ".txt",
+  ".cpp", ".h", ".cs", ".ts", ".tsx", ".java", ".go", ".md",
 ]);
 
 /**

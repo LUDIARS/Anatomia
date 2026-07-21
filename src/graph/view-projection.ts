@@ -5,8 +5,7 @@
  * edges into class-to-class edges. The original function graph remains intact.
  */
 
-import { relative } from "node:path";
-import type { AnchorId, EdgeKind, FileNode, FunctionNode, SourceRange, TypeDecl } from "../types.js";
+import type { AnchorId, EdgeKind, FileNode, FunctionNode, SourceRange } from "../types.js";
 
 export interface ClassViewNode {
   id: string;
@@ -27,23 +26,39 @@ export interface ClassViewProjection {
   edges: ClassViewEdge[];
 }
 
-function normalizedRelative(repoPath: string, path: string): string {
-  try {
-    return relative(repoPath, path).replace(/\\/g, "/");
-  } catch {
-    return path.replace(/\\/g, "/");
-  }
+/**
+ * Class nodes are keyed by class name ALONE (not name+file). A C# `partial`
+ * class is declared across several files under one name; keying by file would
+ * split it into a node per file and surface its intra-class calls as false
+ * cross-class edges. Keying by name collapses the partials into one node.
+ *
+ * Trade-off: two unrelated classes sharing a simple name (distinct namespaces)
+ * also merge here. That is acceptable for a display projection — TypeDecl does
+ * not carry namespace/qualified-name data to disambiguate them.
+ */
+function classId(name: string): string {
+  return `class:${name}`;
 }
 
-function classId(repoPath: string, type: TypeDecl): string {
-  return `class:${normalizedRelative(repoPath, type.filePath)}:${type.name}`;
+/**
+ * A free function (no enclosing class) becomes its own node in the class view.
+ * Dropping them left class-centric C++ repos — where much of the code is free
+ * functions — with a near-empty class graph. Keyed by the function's own anchor
+ * so overloads stay distinct and edges resolve exactly.
+ */
+function freeFunctionId(anchor: AnchorId): string {
+  return `free:${anchor}`;
 }
 
 function fallbackRange(filePath: string): SourceRange {
   return { filePath, start: { line: 0, column: 0 }, end: { line: 0, column: 0 } };
 }
 
-/** Collapse only member-to-member edges; free functions stay in function view. */
+/**
+ * Collapse member-to-member edges into class-to-class edges; free functions are
+ * kept as their own nodes so the class view is not empty for free-function-heavy
+ * (typically C++) repositories.
+ */
 export function projectClassView(
   repoPath: string,
   files: readonly FileNode[],
@@ -51,17 +66,19 @@ export function projectClassView(
   edges: readonly { from: AnchorId; to: AnchorId; kind: EdgeKind }[],
 ): ClassViewProjection {
   const declarations = files.flatMap((file) => file.types ?? []);
-  const declsByName = new Map<string, TypeDecl[]>();
-  for (const decl of declarations) {
-    const list = declsByName.get(decl.name);
-    if (list) list.push(decl);
-    else declsByName.set(decl.name, [decl]);
-  }
 
   const nodesById = new Map<string, ClassViewNode>();
   const ownerByAnchor = new Map<AnchorId, string>();
   for (const decl of declarations) {
-    const id = classId(repoPath, decl);
+    const id = classId(decl.name);
+    // Partial classes share an id; keep the first declaration's range.
+    const existing = nodesById.get(id);
+    if (existing) {
+      if (decl.sourceRange && existing.sourceRange.start.line === 0) {
+        existing.sourceRange = decl.sourceRange;
+      }
+      continue;
+    }
     nodesById.set(id, {
       id,
       name: decl.name,
@@ -71,16 +88,16 @@ export function projectClassView(
   }
 
   for (const fn of functions) {
-    if (!fn.id || !fn.enclosingType) continue;
-    const candidates = declsByName.get(fn.enclosingType) ?? [];
-    const sameFile = candidates.find((decl) => decl.filePath === fn.sourceRange.filePath);
-    const ownerDecl = sameFile ?? (candidates.length === 1 ? candidates[0] : undefined);
-    const id = ownerDecl
-      ? classId(repoPath, ownerDecl)
-      : `class:${normalizedRelative(repoPath, fn.sourceRange.filePath)}:${fn.enclosingType}`;
+    if (!fn.id) continue;
+    const id = fn.enclosingType ? classId(fn.enclosingType) : freeFunctionId(fn.id);
     let node = nodesById.get(id);
     if (!node) {
-      node = { id, name: fn.enclosingType, sourceRange: fn.sourceRange, memberAnchors: [] };
+      node = {
+        id,
+        name: fn.enclosingType ?? fn.name,
+        sourceRange: fn.sourceRange,
+        memberAnchors: [],
+      };
       nodesById.set(id, node);
     }
     node.memberAnchors.push(fn.id);
