@@ -81,7 +81,7 @@ echo $?    # 0=PASS / 1=block ゲート失敗
 
 生成前に文脈を supply、生成後に verify する「重心」ループを AI ホストから回す経路は 2 つ。
 
-- **MCP（常駐サーバ）**: `.mcp.json` に `bin/anatomia-mcp.mjs` を登録し 7 ツールを公開
+- **MCP（常駐サーバ）**: `.mcp.json` に `bin/anatomia-mcp.mjs` を登録し 11 ツールを公開
   （→ [interface/mcp.md](../interface/mcp.md)、設定は `docs/mcp-setup.md`）。
 - **Skill（MCP 不要・CLI ラッパ）**: Claude Code のスキル `anatomia-analyze` から CLI を直接叩く。
   常駐プロセス不要・設定ゼロ。
