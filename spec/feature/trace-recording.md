@@ -12,9 +12,14 @@ scene 層([[integral-search]] の第3層)は「トレースがあれば流れる
 計装(マーカー注入) → 実行 → JSONL 録画 → ingest → decode → stitch → scene → integral
 ```
 
-1. **マーカー注入** (`dynamic/inject-cpp.ts`, 既存 + runtime emit 実装):
-   - `generateCppHeader(true)` = ヘッダオンリーの JSONL レコーダ。`ANATOMIA_MEASUREMENT_BUILD`
-     でのみ有効、出力先は env `ANATOMIA_TRACE_FILE`(未設定なら記録 no-op)。
+1. **マーカー注入** (`dynamic/inject-cpp.ts` / `dynamic/inject-csharp.ts`):
+   - レコーダ本体は**コミット済みランタイムライブラリが正本**:
+     `runtime/cpp/anatomia_trace.hpp`(C++ ヘッダオンリー)と
+     `runtime/csharp/AnatomiaTrace.cs`(C#, .NET Standard 2.0 / Unity 対応)。
+     `trace plan` はこのファイルをそのまま埋め込む(テストで generator と一致を固定)。
+   - どちらも `ANATOMIA_MEASUREMENT_BUILD` でのみ有効、出力先は env
+     `ANATOMIA_TRACE_FILE`(未設定なら記録 no-op)。`ANATOMIA_TRACE_FLUSH=1` で
+     行ごと flush(near-live tail 用、遅くなる)。
    - `ANATOMIA_ZONE(name, anchorId)` = RAII で zone_enter/exit を emit。**anchorId は注入時に
      焼き込む**ので ingest 側で name→anchor 解決が要らない。
    - `ANATOMIA_FRAME_BEGIN/END(id)` = メインループに手で置く(Anatomia は loop を自動特定できない)。
@@ -28,7 +33,10 @@ scene 層([[integral-search]] の第3層)は「トレースがあれば流れる
 
 ## 取得面
 
-- CLI: `anatomia trace plan --project <id> [--out <dir>]` = ヘッダ + patch 一覧を生成。
+- CLI: `anatomia trace plan --project <id> [--out <dir>] [--lang cpp|csharp]` =
+  ランタイム(anatomia_zones.h / AnatomiaTrace.cs) + patch 一覧を生成(既定 cpp)。
+  C# の zone patch は `using var _anatomiaZone = new Anatomia.Zone("name","anchorId");`、
+  frame マーカーは `Anatomia.Trace.FrameBegin/FrameEnd(id)` を手置きする。
   `anatomia trace ingest --project <id> --file <trace.jsonl> [--entry <ref> --scope ...]`
   = 録画 → scene 一覧(+ `--entry` で scene 付き integral)。
 - HTTP(warm): `POST /api/integral` が `ANATOMIA_TRACE_FILE` 設定時に実 scene を返す。

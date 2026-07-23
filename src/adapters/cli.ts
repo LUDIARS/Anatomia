@@ -97,6 +97,7 @@ import {
   type DomainDraft,
 } from "../domains/authoring/index.js";
 import { generateCppHeader, generateCppPatches, type DomainEntryPoint } from "../dynamic/inject-cpp.js";
+import { generateCSharpStub, generateCSharpPatches } from "../dynamic/inject-csharp.js";
 import { sceneModelFromTraceFile } from "../dynamic/record/ingest.js";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -196,6 +197,8 @@ export interface CliArgs {
   traceOut?: string;
   /** For trace ingest: recorded JSONL trace file path. */
   traceFile?: string;
+  /** For trace plan: instrumentation language (default cpp). */
+  traceLang?: "cpp" | "csharp";
   /** For review: path to baseline JSON; acknowledged findings are suppressed. */
   baselinePath?: string;
   /** For review: write the current report as a new baseline file (no output). */
@@ -498,6 +501,7 @@ function parseTraceArgs(args: string[]): CliArgs {
   let entry: string | undefined;
   let scope: CliArgs["scope"] = "function";
   let json = false;
+  let traceLang: CliArgs["traceLang"];
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === "--repo" || a === "-r") repoPath = args[++i] ?? repoPath;
@@ -506,9 +510,15 @@ function parseTraceArgs(args: string[]): CliArgs {
     else if (a === "--file" || a === "-f") traceFile = args[++i];
     else if (a === "--entry" || a === "-e") entry = args[++i];
     else if (a === "--scope" || a === "-s") scope = args[++i] as CliArgs["scope"];
-    else if (a === "--json" || a === "-j") json = true;
+    else if (a === "--lang") {
+      const value = args[++i];
+      if (value !== "cpp" && value !== "csharp") {
+        throw new Error(`Invalid --lang "${value ?? ""}". Expected: cpp | csharp`);
+      }
+      traceLang = value;
+    } else if (a === "--json" || a === "-j") json = true;
   }
-  return { subcommand: "trace", repoPath, project, traceAction: action, traceOut, traceFile, entry, scope, json };
+  return { subcommand: "trace", repoPath, project, traceAction: action, traceOut, traceFile, entry, scope, json, traceLang };
 }
 
 function parseLinksArgs(args: string[]): CliArgs {
@@ -1235,26 +1245,33 @@ async function runTrace(args: CliArgs): Promise<{ exitCode: number; output: stri
         });
       }
     }
-    const header = generateCppHeader(true);
-    const patches = generateCppPatches(entryPoints);
+    // The recorder is the committed runtime library (runtime/cpp | runtime/csharp);
+    // the plan embeds it verbatim plus the project-specific zone patches.
+    const lang = args.traceLang ?? "cpp";
+    const runtimeName = lang === "csharp" ? "AnatomiaTrace.cs" : "anatomia_zones.h";
+    const runtime = lang === "csharp" ? generateCSharpStub(true) : generateCppHeader(true);
+    const patches = lang === "csharp" ? generateCSharpPatches(entryPoints) : generateCppPatches(entryPoints);
     if (args.traceOut) {
       await mkdir(args.traceOut, { recursive: true });
-      const headerPath = join(args.traceOut, "anatomia_zones.h");
-      await writeFile(headerPath, header, "utf8");
+      await writeFile(join(args.traceOut, runtimeName), runtime, "utf8");
       await writeFile(join(args.traceOut, "anatomia_zones.patches.json"), JSON.stringify(patches, null, 2), "utf8");
     }
     if (args.json) {
-      return { exitCode: 0, output: JSON.stringify({ entryPoints: entryPoints.length, patches, out: args.traceOut ?? null }, null, 2) };
+      return { exitCode: 0, output: JSON.stringify({ lang, entryPoints: entryPoints.length, patches, out: args.traceOut ?? null }, null, 2) };
     }
+    const buildHint = lang === "csharp"
+      ? "  define ANATOMIA_MEASUREMENT_BUILD (Unity: Scripting Define Symbols) and set ANATOMIA_TRACE_FILE to record\n" +
+        "  (call Anatomia.Trace.FrameBegin/FrameEnd around the main-loop frame)."
+      : "  build the game with -DANATOMIA_MEASUREMENT_BUILD and set ANATOMIA_TRACE_FILE to record\n" +
+        "  (add ANATOMIA_FRAME_BEGIN/END around the main-loop frame).";
     return {
       exitCode: 0,
       output:
-        `trace plan — ${domains.length} domains, ${entryPoints.length} zone markers\n` +
+        `trace plan (${lang}) — ${domains.length} domains, ${entryPoints.length} zone markers\n` +
         (args.traceOut
-          ? `  wrote ${join(args.traceOut, "anatomia_zones.h")} + patches.json\n`
-          : "  (pass --out <dir> to write the header + patch list)\n") +
-        "  build the game with -DANATOMIA_MEASUREMENT_BUILD and set ANATOMIA_TRACE_FILE to record\n" +
-        "  (add ANATOMIA_FRAME_BEGIN/END around the main-loop frame).",
+          ? `  wrote ${join(args.traceOut, runtimeName)} + patches.json\n`
+          : "  (pass --out <dir> to write the runtime + patch list)\n") +
+        buildHint,
     };
   }
 

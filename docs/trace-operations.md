@@ -25,6 +25,20 @@
   GPU 無しの手書き検証も同仕様書 §A にある。
 - anchorId は**注入時に焼き込み済み**なので、ingest 側での名前解決は不要。
 
+### レコーダライブラリ（コミット済み・正本）
+
+ゲーム側に入れるトレースレコーダは `runtime/` にコミットされている:
+
+| ファイル | 対象 | 使い方 |
+|---|---|---|
+| `runtime/cpp/anatomia_trace.hpp` | C++ (ヘッダオンリー・依存ゼロ) | `-DANATOMIA_MEASUREMENT_BUILD` + `#include` → `ANATOMIA_ZONE` / `ANATOMIA_FRAME_BEGIN/END` |
+| `runtime/csharp/AnatomiaTrace.cs` | C# (.NET Standard 2.0 / Unity) | Scripting Define Symbols に `ANATOMIA_MEASUREMENT_BUILD` → `using (new Anatomia.Zone(...))` / `Anatomia.Trace.FrameBegin/FrameEnd` |
+
+`anatomia trace plan --lang cpp|csharp --out <dir>` が同ファイル + zone patch 一覧を書き出す
+（ファイルを直接 vendoring しても同じ。generator との一致はテストで固定済み）。
+共通 env: `ANATOMIA_TRACE_FILE`（出力先、未設定で記録 off）、
+`ANATOMIA_TRACE_FLUSH=1`（行ごと flush = 経路 A の near-live tail が安定する。遅くなるので計測性能を見るときは外す）。
+
 ## 1. 日常オペ A: CLI ingest ループ（推奨・near-live）
 
 ゲームが `ANATOMIA_TRACE_FILE=<path>` で JSONL を書いている（または書き終えた）状態で:
