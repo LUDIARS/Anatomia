@@ -86,32 +86,52 @@ function isEditableDef(x: unknown): x is EditableDomainDef {
 }
 
 /** Load every editable domain def from a dir (missing dir → []). */
-export async function loadEditableDomains(dir: string): Promise<EditableDomainDef[]> {
+export async function editableDomainDocumentPaths(dir: string): Promise<string[]> {
   let entries: string[];
   try {
     entries = await readdir(dir);
-  } catch {
-    return [];
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
   }
-  const defs: EditableDomainDef[] = [];
-  for (const entry of entries.sort()) {
-    if (extname(entry).toLowerCase() !== ".json") continue;
-    const raw = await readFile(join(dir, entry), "utf8");
+  return entries
+    .filter((entry) => extname(entry).toLowerCase() === ".json")
+    .sort()
+    .map((entry) => join(dir, entry));
+}
+
+interface EditableDomainDocument {
+  path: string;
+  wasArray: boolean;
+  definitions: EditableDomainDef[];
+}
+
+async function loadEditableDomainDocuments(dir: string): Promise<EditableDomainDocument[]> {
+  const documents: EditableDomainDocument[] = [];
+  for (const path of await editableDomainDocumentPaths(dir)) {
+    const raw = await readFile(path, "utf8");
     let parsed: unknown;
     try {
       parsed = JSON.parse(raw);
     } catch {
-      throw new Error(`invalid JSON in ${join(dir, entry)}`);
+      throw new Error(`invalid JSON in ${path}`);
     }
     const list = Array.isArray(parsed) ? parsed : [parsed];
+    const definitions: EditableDomainDef[] = [];
     for (const d of list) {
-      if (!isEditableDef(d)) throw new Error(`invalid domain def in ${join(dir, entry)}`);
+      if (!isEditableDef(d)) throw new Error(`invalid domain def in ${path}`);
       // Default provenance for hand-written files without a `source`.
       if (!("source" in (d as object))) (d as EditableDomainDef).source = "manual";
-      defs.push(d as EditableDomainDef);
+      definitions.push(d as EditableDomainDef);
     }
+    documents.push({ path, wasArray: Array.isArray(parsed), definitions });
   }
-  return defs;
+  return documents;
+}
+
+/** Load every editable domain def from a dir (missing dir → []). */
+export async function loadEditableDomains(dir: string): Promise<EditableDomainDef[]> {
+  return (await loadEditableDomainDocuments(dir)).flatMap((document) => document.definitions);
 }
 
 /** Persist a single editable def to `<dir>/<slug>.json` (creates dir). */
@@ -126,13 +146,46 @@ export async function saveEditableDomain(
   return path;
 }
 
-/** Persist a whole set of editable defs (one file each). */
+/**
+ * Persist a whole set while preserving the source JSON document for existing
+ * names (including retune/hand-written filenames and array documents).
+ */
 export async function saveEditableDomains(
   dir: string,
   defs: EditableDomainDef[],
 ): Promise<string[]> {
+  const byName = new Map<string, EditableDomainDef>();
+  for (const def of defs) {
+    if (byName.has(def.name)) throw new Error(`duplicate domain definition "${def.name}"`);
+    byName.set(def.name, def);
+  }
+
+  const documents = await loadEditableDomainDocuments(dir);
   const paths: string[] = [];
-  for (const def of defs) paths.push(await saveEditableDomain(dir, def));
+  const handled = new Set<string>();
+  const stamp = (def: EditableDomainDef): EditableDomainDef => ({
+    ...def,
+    updatedAt: new Date().toISOString(),
+  });
+  for (const document of documents) {
+    let changed = false;
+    const definitions = document.definitions.map((existing) => {
+      const replacement = byName.get(existing.name);
+      if (!replacement) return existing;
+      changed = true;
+      handled.add(existing.name);
+      return replacement;
+    });
+    if (!changed) continue;
+    const payload = document.wasArray
+      ? definitions.map(stamp)
+      : stamp(definitions[0]!);
+    await writeFile(document.path, JSON.stringify(payload, null, 2) + "\n", "utf8");
+    paths.push(document.path);
+  }
+  for (const def of defs) {
+    if (!handled.has(def.name)) paths.push(await saveEditableDomain(dir, def));
+  }
   return paths;
 }
 
@@ -144,5 +197,6 @@ export function toDomainDef(def: EditableDomainDef): DomainDef {
     presetRules: def.presetRules,
     templateRules: def.templateRules,
     cardTemplate: def.cardTemplate,
+    membership: def.membership,
   };
 }

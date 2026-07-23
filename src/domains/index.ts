@@ -79,3 +79,7 @@ export type {
 
 // Domain organization (human-authored taxonomy + implementation hints)
 export * from "./organize/index.js";
+
+// Human-gated discovery: deterministic orphan evidence + LLM/spec proposals.
+export * from "./discovery/index.js";
+export * from "./workflow/index.js";

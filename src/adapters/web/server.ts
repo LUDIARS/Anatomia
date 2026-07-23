@@ -32,7 +32,11 @@
  *   GET /api/projects/:id/access-patterns heuristic singleton/locator/facade + accessor domains
  *
  * 学習フロー routes (domain authoring via HTTP):
- *   POST /api/projects/:id/flow/draft  run domains draft (spec → LLM → reconcile → save)
+ *   POST /api/projects/:id/flow/draft  propose domains (spec → LLM; read-only)
+ *   POST /api/projects/:id/flow/apply  Gate A (confirmed proposal → save → orphan scan)
+ *   GET  /api/projects/:id/flow/orphans inspect unassigned functions (file:line)
+ *   POST /api/projects/:id/flow/orphan-proposals  LLM detail + spec drafts (read-only)
+ *   POST /api/projects/:id/flow/orphan-apply Gate B (confirmed specs → save → residual scan)
  *   GET  /api/projects/:id/flow/drafts list current editable domains for a project
  *   POST /api/flow/draft               repo-path or spec-file based draft (no project)
  *   GET  /api/flow/drafts              list drafts from an explicit dir (?dir=)
@@ -84,6 +88,7 @@ import { generateCard } from "../../domains/card.js";
 import type { DomainCard } from "../../domains/card.js";
 import type { CachedIntegral } from "../../integral/cache.js";
 import type { DomainDraft } from "../../domains/authoring/index.js";
+import type { OrphanDomainProposal } from "../../domains/workflow/index.js";
 import { resolveCacheStore } from "../../cache/resolve.js";
 import { instrumentStore } from "../../cache/instrumented.js";
 import { resolveTranscript } from "../../cache/transcript.js";
@@ -263,6 +268,7 @@ export function createApp(
     draftLlm: aux.retuneLlm,
     draftModelId: aux.retuneModelId,
     draftCache: resolveCacheStore<DomainDraft[]>(),
+    orphanProposalCache: resolveCacheStore<OrphanDomainProposal>(),
   });
 
   // ── Global LLM-cache stats route (A-3 measurement) ───────────────────────

@@ -68,3 +68,12 @@ LLM は providers（[providers](../../src/providers/index.ts)）の既定（`cla
 
 - 検出: [domain-detection.md](./domain-detection.md) / ビュー: [domain-view.md](./domain-view.md)
 - 実行: `npm run retune`（[scripts/retune.mjs](../../scripts/retune.mjs)）
+
+## 人間承認付き発見フローとの境界
+
+本 retune は、利用者が明示的に実行する **taxonomy 全体の再生成・登録操作**であり、step 3 の
+leftover を網羅的に module 化して step 4 で直ちに committed artifact を更新する。この性質は、
+「大きい未所属群だけを候補にし、小群・却下群を残余として保持する」発見フローとは異なる。
+
+通常の spec 起点発見には [domain-discovery-workflow.md](./domain-discovery-workflow.md) を使う。
+同フローは retune を内部呼び出しせず、Gate A / Gate B の前に ontology / spec を書かない。

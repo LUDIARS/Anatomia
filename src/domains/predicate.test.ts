@@ -1,7 +1,6 @@
 /**
- * Tests for NodeFilter matching (predicate.ts), focused on `pathPattern` — the
- * source-path matcher that lets directory-structured codebases express layer
- * rules by location instead of by name.
+ * Tests for NodeFilter matching (predicate.ts), focused on path and stable
+ * function-signature evidence.
  */
 
 import { describe, it, expect } from "vitest";
@@ -41,6 +40,20 @@ describe("matchesFilter pathPattern", () => {
     expect(matchesFilter(enemy, { pathPattern: "/enemy/", namePattern: "^draw$" })).toBe(false);
     // Same name in the wrong directory fails on the path leg.
     expect(matchesFilter(render, { pathPattern: "/enemy/", namePattern: "^update$" })).toBe(false);
+  });
+
+  it("matches normalized signature shapes and fails closed when facts are absent", () => {
+    const filter = { signatureShapePattern: "^\\(sig Enemy::update int\\)$" };
+    expect(matchesFilter({ ...enemy, signatureShape: "(sig Enemy::update int)" }, filter)).toBe(true);
+    expect(matchesFilter({ ...enemy, signatureShape: "(sig Enemy::update double)" }, filter)).toBe(false);
+    expect(matchesFilter(enemy, filter)).toBe(false);
+  });
+
+  it("distinguishes qualified methods and free functions through the shape", () => {
+    const filter = { signatureShapePattern: "Enemy::update" };
+    expect(matchesFilter({ ...enemy, signatureShape: "(sig Enemy::update int)" }, filter)).toBe(true);
+    expect(matchesFilter({ ...enemy, signatureShape: "(sig Renderer::update int)" }, filter)).toBe(false);
+    expect(matchesFilter({ ...enemy, signatureShape: "(sig update int)" }, filter)).toBe(false);
   });
 
   it("an empty filter still matches every node", () => {

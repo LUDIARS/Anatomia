@@ -9,7 +9,12 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SpecClause } from "../../../types.js";
-import { draftToEditableDef, loadEditableDomains, saveEditableDomains } from "../store.js";
+import {
+  draftToEditableDef,
+  loadEditableDomains,
+  saveEditableDomains,
+  toDomainDef,
+} from "../store.js";
 import { reconcileDrafts } from "../reconcile.js";
 import { seedDraftsFromStructure } from "../draft.js";
 import type { DomainDraft, EditableDomainDef } from "../types.js";
@@ -47,6 +52,14 @@ describe("draftToEditableDef", () => {
 });
 
 describe("store roundtrip", () => {
+  it("keeps exact membership when stripping authoring metadata", () => {
+    const editable = {
+      ...draftToEditableDef(draft()),
+      membership: [{ signatureShapePattern: "^\\(sig resolve\\)$" }],
+    };
+    expect(toDomainDef(editable).membership).toEqual(editable.membership);
+  });
+
   it("saves and reloads editable defs", async () => {
     const dir = await tempDir();
     const def = draftToEditableDef(draft());
@@ -95,6 +108,22 @@ describe("reconcileDrafts — non-destructive reconstruction", () => {
     expect(merged.presetRules.length).toBe(1); // unlocked → refreshed from draft
     expect(r.updated).toEqual(["combat"]);
     expect(merged.source).toBe("reconstructed");
+  });
+
+  it("preserves exact membership when that field is locked", () => {
+    const membership = [{ signatureShapePattern: "^\\(sig resolve\\)$" }];
+    const existing: EditableDomainDef = {
+      name: "combat",
+      description: "combat",
+      presetRules: [],
+      templateRules: [],
+      membership,
+      source: "spec-draft",
+      lockedFields: ["membership"],
+    };
+    const reconciled = reconcileDrafts([existing], [draft()]);
+    expect(reconciled.merged[0]!.membership).toEqual(membership);
+    expect(reconciled.merged[0]!.presetRules).toHaveLength(1);
   });
 
   it("preserves a fully-manual def untouched", () => {

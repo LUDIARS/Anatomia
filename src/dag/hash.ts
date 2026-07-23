@@ -33,6 +33,7 @@ export function hashFunction(normalized: string): AnchorId {
  */
 export function assignAnchorId(fn: FunctionNode, normalized: string): AnchorId {
   const sigShape = normalizeSignatureShape(fn.bodyAst);
+  fn.signatureShape = sigShape;
   // Path-independent structural hash: same body+signature → same hash regardless
   // of file. Identifies structural clones (the file is added below for `id`).
   fn.structuralHash = hashFunction(normalized + "|sig|" + sigShape);
