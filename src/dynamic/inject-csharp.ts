@@ -1,64 +1,40 @@
 /**
  * T35 — C# scope marker codegen.
+ *
+ * The recorder itself is a committed, reusable library — runtime/csharp/
+ * AnatomiaTrace.cs is the single source of truth (usable in Unity / .NET
+ * directly). `trace plan --lang csharp` embeds that exact file; this module
+ * only resolves it and produces the per-project zone patches.
  */
-import type { AnchorId } from '../types.js';
+import { readFileSync } from 'node:fs';
 import type { DomainEntryPoint, InjectionPatch } from './inject-cpp.js';
 
 export type { DomainEntryPoint, InjectionPatch };
 
-export function generateCSharpStub(enabled: boolean): string {
-  if (enabled) {
-    return `#if ANATOMIA_MEASUREMENT_BUILD
-using System;
-
-namespace Anatomia
-{
-    /// <summary>
-    /// Scoped zone marker for Anatomia runtime measurement.
-    /// Use with a <c>using</c> statement: <c>using var _ = new AnatomiaZone("name", "anchorId");</c>
-    /// </summary>
-    public struct AnatomiaZone : IDisposable
-    {
-        private readonly string _name;
-        private readonly string _anchorId;
-
-        public AnatomiaZone(string name, string anchorId)
-        {
-            _name = name;
-            _anchorId = anchorId;
-            // zone_enter event emitted here in real runtime
-        }
-
-        public void Dispose()
-        {
-            // zone_exit event emitted here in real runtime
-        }
-    }
+// Read once per process; src/dynamic and dist/dynamic sit at the same depth,
+// so one relative URL serves both (same pattern as inject-cpp.ts).
+let cachedCsRuntime: string | undefined;
+function csRuntimeLibrary(): string {
+  cachedCsRuntime ??= readFileSync(
+    new URL('../../runtime/csharp/AnatomiaTrace.cs', import.meta.url),
+    'utf8',
+  );
+  return cachedCsRuntime;
 }
-#endif
-`;
-  } else {
-    return `#if ANATOMIA_MEASUREMENT_BUILD
-// Full AnatomiaZone implementation compiled in measurement builds.
-#else
-namespace Anatomia
-{
-    /// <summary>No-op AnatomiaZone for non-measurement builds.</summary>
-    public struct AnatomiaZone : System.IDisposable
-    {
-        public AnatomiaZone(string name, string anchorId) { }
-        public void Dispose() { }
-    }
-}
-#endif
-`;
-  }
+
+/**
+ * The C# trace runtime source. `enabled` is kept for API compatibility with
+ * generateCppHeader: the library self-gates on ANATOMIA_MEASUREMENT_BUILD
+ * (#if / #else no-op), so both variants return the same file.
+ */
+export function generateCSharpStub(_enabled: boolean): string {
+  return csRuntimeLibrary();
 }
 
 export function generateCSharpPatches(entryPoints: DomainEntryPoint[]): InjectionPatch[] {
   return entryPoints.map((ep) => ({
     filePath: ep.filePath,
     line: ep.line,
-    code: `using var _anatomiaZone = new Anatomia.AnatomiaZone("${ep.name}", "${ep.anchorId}");`,
+    code: `using var _anatomiaZone = new Anatomia.Zone("${ep.name}", "${ep.anchorId}");`,
   }));
 }

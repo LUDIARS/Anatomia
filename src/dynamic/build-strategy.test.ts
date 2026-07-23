@@ -21,14 +21,14 @@ describe('createBuildStrategy', () => {
     const stub = strategy.generateCSharpStub();
     // Has the #else branch with no-op body
     expect(stub).toContain('#else');
-    expect(stub).toContain('AnatomiaZone');
+    expect(stub).toContain('struct Zone');
   });
 
   it('enabled=true produces IDisposable C# output', () => {
     const strategy = createBuildStrategy({ enabled: true });
     const stub = strategy.generateCSharpStub();
     expect(stub).toContain('IDisposable');
-    expect(stub).toContain('AnatomiaZone');
+    expect(stub).toContain('struct Zone');
   });
 
   it('fills in default flag names', () => {
