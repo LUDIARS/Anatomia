@@ -80,7 +80,12 @@ function collectParamNames(funcNode: AstNode, params: Map<string, string>): void
     funcNode.descendantsOfType("parameter_list")[0] ??
     funcNode.descendantsOfType("formal_parameters")[0] ??
     null;
-  if (!paramList) return;
+  if (!paramList) {
+    const single = funcNode.childForFieldName("parameter");
+    const name = single ? findBoundIdentifier(single) : null;
+    if (name) params.set(name, "$p0");
+    return;
+  }
   for (const p of paramList.namedChildren) {
     if (!p) continue;
     // TypeScript: required_parameter / optional_parameter have a `pattern` field
@@ -97,25 +102,29 @@ function collectParamNames(funcNode: AstNode, params: Map<string, string>): void
  * declarator chain to the innermost plain `identifier`.
  */
 function findBoundIdentifier(node: AstNode): string | null {
+  return findBoundIdentifierNode(node)?.text ?? null;
+}
+
+function findBoundIdentifierNode(node: AstNode): AstNode | null {
   // C# parameter / variable_declarator expose `name`.
   const nameField = node.childForFieldName("name");
-  if (nameField && nameField.type === "identifier") return nameField.text;
+  if (nameField && nameField.type === "identifier") return nameField;
 
   // TypeScript: required_parameter / optional_parameter expose a `pattern` field
   // (which is an `identifier` for simple params).
   const patternField = node.childForFieldName("pattern");
-  if (patternField && patternField.type === "identifier") return patternField.text;
+  if (patternField && patternField.type === "identifier") return patternField;
 
   // C++ declarator chain.
   const declarator = node.childForFieldName("declarator");
   if (declarator) {
-    const inner = findBoundIdentifier(declarator);
+    const inner = findBoundIdentifierNode(declarator);
     if (inner) return inner;
   }
-  if (node.type === "identifier") return node.text;
+  if (node.type === "identifier") return node;
   for (const child of node.namedChildren) {
     if (!child) continue;
-    if (child.type === "identifier") return child.text;
+    if (child.type === "identifier") return child;
   }
   return null;
 }
@@ -225,15 +234,16 @@ export function normalize(node: AstNode, _source?: string): string {
 /**
  * Normalize the *signature shape* of the function that owns `bodyNode`.
  *
- * Returns a canonical string encoding the return type and each parameter's
- * *type* (not name) so that:
+ * Returns a canonical AST string for the complete declaration (body excluded),
+ * with parameter binding names alpha-renamed. This preserves every overload-
+ * relevant declarator token (pointer/reference/array/function declarators,
+ * C# ref/out/in, trailing const/ref/noexcept qualifiers, generic constraints)
+ * while ensuring that:
  *   - parameter *renames*  (int a → int b)  → SAME string (names ignored)
  *   - parameter *type* changes (int → float) → DIFFERENT string
  *   - return-type changes                    → DIFFERENT string
  *
- * Types are kept verbatim (public symbols), only collapsing internal
- * whitespace. Falls back to "(sig)" if the AST offers no type info
- * (e.g. no parent node), ensuring graceful degradation.
+ * Falls back to "(sig)" if the AST offers no owning function node.
  *
  * The result is NOT a complete type system; it is a best-effort canonical
  * shape string derived directly from tree-sitter text fields.
@@ -243,65 +253,74 @@ export function normalizeSignatureShape(bodyNode: AstNode): string {
   if (!fn) return "(sig)";
 
   const scope = enclosingScope(fn);
-  const fnName = functionName(fn);
-
-  // ── Return type ────────────────────────────────────────────────────────────
-  // C++/C#: `type` field. TypeScript uses a `type_annotation` node (`: T`)
-  // or `return_type` field in some grammar versions. We try both.
-  const retNode =
-    fn.childForFieldName("return_type") ??
-    fn.childForFieldName("type") ??
-    fn.childForFieldName("type_annotation") ??
-    null;
-  const retText = retNode ? retNode.text.replace(/:\s*/, "").replace(/\s+/g, " ").trim() : "";
-
-  // ── Parameter list ─────────────────────────────────────────────────────────
-  // C++/C#: field name "parameters" → parameter_list / parameter_declaration.
-  // TypeScript: field name "parameters" → formal_parameters / required_parameter /
-  //   optional_parameter. Type annotation sits in a `type` field (`: T`).
-  const paramList =
+  const parameterRoot =
     fn.childForFieldName("parameters") ??
     fn.descendantsOfType("parameter_list")[0] ??
     fn.descendantsOfType("formal_parameters")[0] ??
+    fn.childForFieldName("parameter") ??
     null;
+  const parameterBindings = collectParameterBindings(parameterRoot);
+  const declaration = emitSignatureDeclaration(
+    fn,
+    bodyNode,
+    parameterRoot,
+    parameterBindings,
+    false,
+  );
+  return `(sig (scope ${scope}) ${declaration})`;
+}
 
-  const paramTypes: string[] = [];
-  if (paramList) {
-    for (const p of paramList.namedChildren) {
-      if (!p) continue;
-      // C++: parameter_declaration has a `type` field.
-      // C#:  parameter has a `type` field too.
-      // TypeScript required_parameter / optional_parameter: `type` field is the
-      //   type annotation node (text includes leading `:` in some grammar versions).
-      const typeField = p.childForFieldName("type");
-      if (typeField) {
-        // Strip the leading `: ` in TypeScript type annotations if present.
-        paramTypes.push(typeField.text.replace(/^:\s*/, "").replace(/\s+/g, " ").trim());
-      } else if (p.type === "variadic_parameter") {
-        // Keep the full node text for variadic params (no name).
-        paramTypes.push(p.text.replace(/\s+/g, " ").trim());
-      } else if (p.type === "optional_parameter") {
-        // C++ optional_parameter (variadic-style) — no type field, use node text.
-        paramTypes.push(p.text.replace(/\s+/g, " ").trim());
-      }
-      // Nodes with no type field (e.g. `this` pseudo-param in C#, or comment
-      // extras, or TS untyped params) are simply skipped — they carry no type
-      // information relevant to the signature shape.
+function collectParameterBindings(parameterRoot: AstNode | null): ReadonlyMap<AstNode, string> {
+  const bindings = new Map<AstNode, string>();
+  if (!parameterRoot) return bindings;
+  const candidates =
+    parameterRoot.type === "parameter_list" || parameterRoot.type === "formal_parameters"
+      ? parameterRoot.namedChildren
+      : [parameterRoot];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const binding = findBoundIdentifierNode(candidate);
+    if (binding) bindings.set(binding, `$p${bindings.size}`);
+  }
+  return bindings;
+}
+
+function emitSignatureDeclaration(
+  node: AstNode,
+  bodyNode: AstNode,
+  parameterRoot: AstNode | null,
+  parameterBindings: ReadonlyMap<AstNode, string>,
+  insideParameters: boolean,
+): string {
+  if (node === bodyNode || node.isExtra || node.type === "comment") return "";
+  const inParams = insideParameters || node === parameterRoot;
+  const children: string[] = [];
+  for (const child of node.children) {
+    if (!child || child === bodyNode || child.isExtra || child.type === "comment") continue;
+    if (child.isNamed) {
+      const rendered = emitSignatureDeclaration(
+        child,
+        bodyNode,
+        parameterRoot,
+        parameterBindings,
+        inParams,
+      );
+      if (rendered) children.push(rendered);
+      continue;
     }
+    const token = child.text.replace(/\s+/g, " ").trim();
+    if (token) children.push(`(t ${token})`);
   }
 
-  const parts = paramTypes.map((t) => "(param " + t + ")").join(" ");
-  return (
-    "(sig (scope " +
-    scope +
-    ") (name " +
-    fnName +
-    ") (ret " +
-    retText +
-    ")" +
-    (parts ? " " + parts : "") +
-    ")"
-  );
+  const text = node.text.replace(/\s+/g, " ").trim();
+  if (children.length === 0) {
+    if (inParams) {
+      const replacement = parameterBindings.get(node);
+      if (replacement) return `(param-name ${replacement})`;
+    }
+    return text ? `(${node.type} ${text})` : `(${node.type})`;
+  }
+  return `(${node.type} ${children.join(" ")})`;
 }
 
 const TYPE_SCOPE_NODE_TYPES = new Set<string>([
@@ -316,6 +335,17 @@ const TYPE_SCOPE_NODE_TYPES = new Set<string>([
   "interface_body",
 ]);
 
+const NAMED_FUNCTION_SCOPE_NODE_TYPES = new Set<string>([
+  "function_definition",
+  "method_declaration",
+  "constructor_declaration",
+  "destructor_declaration",
+  "operator_declaration",
+  "local_function_statement",
+  "function_declaration",
+  "method_definition",
+]);
+
 function enclosingScope(fn: AstNode): string {
   const names: string[] = [];
   let current = fn.parent;
@@ -323,6 +353,9 @@ function enclosingScope(fn: AstNode): string {
     if (TYPE_SCOPE_NODE_TYPES.has(current.type)) {
       const name = current.childForFieldName("name");
       if (name) names.push(name.text.replace(/\s+/g, " ").trim());
+    } else if (NAMED_FUNCTION_SCOPE_NODE_TYPES.has(current.type)) {
+      const name = functionName(current);
+      if (name) names.push(name);
     }
     current = current.parent;
   }

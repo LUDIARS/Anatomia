@@ -842,6 +842,7 @@
     sceneModules: null,
     sceneFilter: null,
     adjustModel: null,
+    domainFlow: { proposal: null, orphans: null, orphanProposals: null, gateAResult: null, gateANext: '', status: '' },
     augurPlan: null,
     prepareJobs: {},
   };
@@ -888,6 +889,7 @@
     state.sceneModules = null;
     state.sceneFilter = null;
     state.adjustModel = null;
+    state.domainFlow = { proposal: null, orphans: null, orphanProposals: null, gateAResult: null, gateANext: '', status: '' };
     state.augurPlan = null;
     if (state.network) { state.network.destroy(); state.network = null; }
     if (state.domainNetwork) { state.domainNetwork.destroy(); state.domainNetwork = null; }
@@ -2343,6 +2345,87 @@
     return b;
   }
 
+  async function domainFlowPost(id, action, payload) {
+    var res = await fetch('/api/projects/' + encodeURIComponent(id) + '/flow/' + action, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload || {}),
+    });
+    var body = await res.json().catch(function () { return {}; });
+    if (!res.ok) throw new Error(body.detail || body.error || res.statusText);
+    return body;
+  }
+
+  function renderDomainFlow() {
+    var flow = state.domainFlow || {};
+    var proposal = flow.proposal;
+    var investigation = flow.orphans;
+    var candidates = (investigation && investigation.candidateGroups) || [];
+    var proposalJson = proposal ? JSON.stringify(proposal.drafts || [], null, 2) : '';
+    var overrideCandidates = (proposal && proposal.overrideCandidates) || [];
+    var overrideControls = overrideCandidates.length
+      ? '<div class="adj-desc">既存の lock 済み domain を変更する場合だけ、対象ごとに明示 override を選択してください。</div>' +
+        overrideCandidates.map(function (name) {
+          return '<label style="display:inline-flex;align-items:center;gap:5px;margin:0 12px 8px 0">' +
+            '<input type="checkbox" data-flow-override-name value="' + esc(name) + '">' +
+            '<span>' + esc(name) + ' の lock を上書き</span></label>';
+        }).join('')
+      : '';
+    var gateAResult = flow.gateAResult;
+    var gateADiff = gateAResult
+      ? '<div class="adj-desc" style="margin-top:8px">直近の Gate A 差分' +
+        (flow.gateANext && flow.gateANext !== 'orphan-review' ? '（ワークフロー未完了）' : '') +
+        ': accepted [' + esc((gateAResult.accepted || []).join(', ') || 'なし') + ']' +
+        ' / preserved [' + esc((gateAResult.preserved || []).join(', ') || 'なし') + ']' +
+        ' / overridden [' + esc((gateAResult.overridden || []).join(', ') || 'なし') + ']</div>'
+      : '';
+    var orphanJson = flow.orphanProposals
+      ? JSON.stringify(flow.orphanProposals.map(function (item) {
+          var copy = Object.assign({}, item);
+          if (typeof copy.humanSupplement !== 'string') copy.humanSupplement = '';
+          return copy;
+        }), null, 2)
+      : '';
+    var orphanSummary = '';
+    if (investigation) {
+      var allFunctions = (investigation.functions || []).map(function (fn) {
+        return fn.file + ':' + fn.line + ' ' + fn.name;
+      }).join('\n');
+      orphanSummary = '<div class="adj-desc">未所属 ' + (investigation.functions || []).length +
+        ' functions · 大群候補 ' + candidates.length + ' · 閾値未満 ' +
+        (investigation.remainingFunctions || []).length + '</div>' +
+        '<details><summary>未所属関数の全 file:line 一覧</summary>' +
+        '<pre style="max-height:260px;overflow:auto;white-space:pre-wrap">' + esc(allFunctions) + '</pre></details>' +
+        candidates.map(function (group) {
+          var examples = (group.functions || []).slice(0, 4)
+            .map(function (fn) { return fn.file + ':' + fn.line + ' ' + fn.name; }).join(' / ');
+          return '<div class="adj-mod"><span class="adj-mod-name">' + esc(group.label) +
+            '</span><span class="adj-mod-paths">' + group.functionCount +
+            ' fn · cohesion ' + Number(group.cohesion || 0).toFixed(2) + ' · ' +
+            esc(examples) + '</span></div>';
+        }).join('');
+    }
+    return '<h3>Domain discovery (人間承認付き)</h3>' +
+      '<div class="adj-desc">spec 候補は保存せず表示します。編集後の Gate A、孤立群 spec の補足後の Gate B だけが書き込みます。</div>' +
+      '<div class="adj-form-row">' +
+        '<button class="btn btn-sm" id="adj-flow-propose">1. spec から候補提案 (LLM)</button>' +
+        '<button class="btn btn-sm" id="adj-flow-orphans">3. 未所属を再調査</button>' +
+      '</div>' +
+      (proposal ?
+        '<textarea id="adj-flow-drafts" rows="12" style="width:100%;font-family:monospace">' + esc(proposalJson) + '</textarea>' +
+        overrideControls +
+        '<div class="adj-form-row"><button class="btn btn-primary btn-sm" id="adj-flow-apply">2. 編集内容を確認して Gate A</button>' +
+        '<span style="color:#8b949e;font-size:0.74rem">snapshot ' + esc((proposal.snapshotId || '').slice(0, 12)) + '</span></div>' : '') +
+      gateADiff +
+      orphanSummary +
+      (candidates.length ? '<div class="adj-form-row"><button class="btn btn-sm" id="adj-flow-orphan-propose">4. 大群を詳細調査して spec 候補化 (LLM)</button></div>' : '') +
+      (flow.orphanProposals ?
+        '<textarea id="adj-flow-orphan-proposals" rows="16" style="width:100%;font-family:monospace">' + esc(orphanJson) + '</textarea>' +
+        '<div class="adj-desc">各 proposal の humanSupplement を記入し、不要な候補は配列から削除してください。</div>' +
+        '<div class="adj-form-row"><button class="btn btn-primary btn-sm" id="adj-flow-orphan-apply">5. 補足済み spec を確認して Gate B</button></div>' : '') +
+      '<div id="adj-flow-status" style="white-space:pre-wrap;color:#8b949e;margin-bottom:14px">' + esc(flow.status || '') + '</div>';
+  }
+
   function renderAdjust(id) {
     var body = document.getElementById('adjust-body');
     var model = state.adjustModel || {};
@@ -2391,6 +2474,7 @@
     }).join('');
 
     body.innerHTML =
+      renderDomainFlow() +
       '<h3>Taxonomy (ドメイン / モジュール)</h3>' +
       (domainsHtml || '<div class="empty-msg">ドメインがありません。</div>') +
       '<div class="adj-form-row">' +
@@ -2427,6 +2511,172 @@
         if (markStale) adjustStale();
       } catch (e) { alert('再読込に失敗: ' + e.message); }
     }
+
+    function flowStatus(message) {
+      state.domainFlow.status = message;
+      var status = document.getElementById('adj-flow-status');
+      if (status) status.textContent = message;
+    }
+
+    var propose = document.getElementById('adj-flow-propose');
+    if (propose) propose.onclick = async function () {
+      propose.disabled = true;
+      flowStatus('spec からドメイン候補を検索中…');
+      try {
+        var result = await domainFlowPost(id, 'draft', {});
+        state.domainFlow.proposal = result;
+        state.domainFlow.orphans = null;
+        state.domainFlow.orphanProposals = null;
+        state.domainFlow.gateAResult = null;
+        state.domainFlow.gateANext = '';
+        state.domainFlow.status = '候補 ' + (result.drafts || []).length + ' 件。JSON を編集して Gate A へ進んでください。';
+        renderAdjust(id);
+      } catch (e) { flowStatus('候補検索に失敗: ' + e.message); }
+      finally { propose.disabled = false; }
+    };
+
+    var applyDomains = document.getElementById('adj-flow-apply');
+    if (applyDomains) applyDomains.onclick = async function () {
+      var editor = document.getElementById('adj-flow-drafts');
+      var drafts;
+      try { drafts = JSON.parse(editor.value); }
+      catch (e) { alert('候補 JSON が不正です: ' + e.message); return; }
+      var overrideNames = Array.prototype.slice.call(
+        body.querySelectorAll('[data-flow-override-name]:checked')
+      ).map(function (input) { return input.value; });
+      if (!confirm('編集済みドメインを Gate A で確定し、未所属関数の調査へ進みますか?')) return;
+      applyDomains.disabled = true;
+      flowStatus('Gate A を適用して未所属を調査中…');
+      try {
+        var applied = await domainFlowPost(id, 'apply', {
+          confirmApply: true,
+          snapshotId: state.domainFlow.proposal.snapshotId,
+          drafts: drafts,
+          overrideNames: overrideNames,
+        });
+        state.domainFlow.gateAResult = applied.applied || null;
+        state.domainFlow.gateANext = applied.next || '';
+        if (applied.next === 'registry-sync-required') {
+          state.domainFlow.proposal = null;
+          state.domainFlow.orphans = null;
+          state.domainFlow.status = 'Gate A と domain 保存は完了しましたが project 登録の永続化が未完了です。再起動前に登録を同期し、手順3で未所属を再調査してください。' +
+            (applied.warning ? ' ' + applied.warning : '');
+          await refresh(true);
+          return;
+        }
+        if (applied.next === 'orphan-reinspection-required') {
+          state.domainFlow.proposal = null;
+          state.domainFlow.orphans = null;
+          state.domainFlow.status = 'Gate A は完了しました。手順3の「未所属を再調査」を実行してください。' +
+            (applied.warning ? ' ' + applied.warning : '');
+          await refresh(true);
+          return;
+        }
+        if (applied.next !== 'orphan-review' || !applied.orphans) {
+          state.domainFlow.status = 'Gate A の状態を確認できません。候補を再取得してください。' +
+            (applied.warning ? ' ' + applied.warning : '');
+          await refresh(true);
+          return;
+        }
+        state.domainFlow.proposal = null;
+        state.domainFlow.orphans = applied.orphans;
+        state.domainFlow.orphanProposals = null;
+        state.domainFlow.status = 'Gate A 完了。accepted ' +
+          (((applied.applied || {}).accepted || []).length) + ' / preserved ' +
+          (((applied.applied || {}).preserved || []).length) + ' / overridden ' +
+          (((applied.applied || {}).overridden || []).length) + '。未所属 ' +
+          ((applied.orphans.functions || []).length) + ' functions。';
+        await refresh(true);
+      } catch (e) { flowStatus('Gate A に失敗: ' + e.message); }
+      finally { applyDomains.disabled = false; }
+    };
+
+    var inspectOrphans = document.getElementById('adj-flow-orphans');
+    if (inspectOrphans) inspectOrphans.onclick = async function () {
+      inspectOrphans.disabled = true;
+      flowStatus('承認済みドメインに未所属の関数を調査中…');
+      try {
+        var result = await apiFetch('/api/projects/' + encodeURIComponent(id) + '/flow/orphans');
+        state.domainFlow.orphans = result.investigation;
+        state.domainFlow.orphanProposals = null;
+        state.domainFlow.status = '未所属調査を更新しました。';
+        renderAdjust(id);
+      } catch (e) { flowStatus('未所属調査に失敗: ' + e.message); }
+      finally { inspectOrphans.disabled = false; }
+    };
+
+    var proposeOrphans = document.getElementById('adj-flow-orphan-propose');
+    if (proposeOrphans) proposeOrphans.onclick = async function () {
+      var investigation = state.domainFlow.orphans;
+      proposeOrphans.disabled = true;
+      flowStatus('大きい孤立機能を LLM で詳細調査中…');
+      try {
+        var result = await domainFlowPost(id, 'orphan-proposals', {
+          snapshotId: investigation.snapshotId,
+          groupIds: (investigation.candidateGroups || []).map(function (group) { return group.groupId; }),
+        });
+        state.domainFlow.orphanProposals = (result.proposals || []).map(function (item) {
+          return Object.assign({}, item, { humanSupplement: '' });
+        });
+        state.domainFlow.status = '孤立群候補 ' + state.domainFlow.orphanProposals.length + ' 件。humanSupplement を記入してください。';
+        renderAdjust(id);
+      } catch (e) { flowStatus('孤立群の詳細調査に失敗: ' + e.message); }
+      finally { proposeOrphans.disabled = false; }
+    };
+
+    var applyOrphans = document.getElementById('adj-flow-orphan-apply');
+    if (applyOrphans) applyOrphans.onclick = async function () {
+      var editor = document.getElementById('adj-flow-orphan-proposals');
+      var proposals;
+      try { proposals = JSON.parse(editor.value); }
+      catch (e) { alert('孤立群 proposal JSON が不正です: ' + e.message); return; }
+      if (!Array.isArray(proposals) || proposals.some(function (item) {
+        return !item || typeof item.humanSupplement !== 'string' || !item.humanSupplement.trim();
+      })) {
+        alert('採用する全 proposal に humanSupplement を記入してください。不要な候補は配列から削除できます。');
+        return;
+      }
+      if (!confirm('補足済み domain spec を Gate B で確定し、残余未所属を再解析しますか?')) return;
+      applyOrphans.disabled = true;
+      flowStatus('Gate B を適用して残余未所属を再解析中…');
+      try {
+        var investigation = state.domainFlow.orphans;
+        var applied = await domainFlowPost(id, 'orphan-apply', {
+          confirmApply: true,
+          snapshotId: investigation.snapshotId,
+          proposals: proposals,
+        });
+        if (applied.next === 'registry-sync-required') {
+          state.domainFlow.orphans = null;
+          state.domainFlow.orphanProposals = null;
+          state.domainFlow.status = 'Gate B、domain/spec、Gate marker は保存済みですが project 登録の永続化が未完了です。再起動前に登録を同期し、orphan を再調査してください。' +
+            (applied.warning ? ' ' + applied.warning : '');
+          await refresh(true);
+          return;
+        }
+        if (applied.next === 'orphan-reinspection-required') {
+          state.domainFlow.orphans = null;
+          state.domainFlow.orphanProposals = null;
+          state.domainFlow.status = 'Gate B と Gate A 更新は完了しました。orphan を再調査してください。' +
+            (applied.warning ? ' ' + applied.warning : '');
+          await refresh(true);
+          return;
+        }
+        if (!applied.residual) {
+          state.domainFlow.orphanProposals = null;
+          state.domainFlow.status = 'Gate B は完了していません。' +
+            (applied.warning ? ' ' + applied.warning : '状態を確認して再実行してください。');
+          await refresh(true);
+          return;
+        }
+        state.domainFlow.orphans = applied.residual;
+        state.domainFlow.orphanProposals = null;
+        state.domainFlow.status = 'Gate B 完了。spec ' + (applied.writtenSpecs || []).length +
+          ' 件を作成。残余未所属 ' + ((applied.residual.functions || []).length) + ' functions。';
+        await refresh(true);
+      } catch (e) { flowStatus('Gate B に失敗: ' + e.message); }
+      finally { applyOrphans.disabled = false; }
+    };
 
     body.querySelectorAll('[data-act]').forEach(function (el) {
       var act = el.getAttribute('data-act');

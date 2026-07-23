@@ -11,7 +11,8 @@
  * An EditableDomainDef is a superset of DomainDef: the extra fields are ignored
  * by the detection pipeline (which validates only name/description/presetRules/
  * templateRules), so an editable def stored in a project's ontology dir is loaded
- * and detected with no pipeline changes.
+ * templateRules/membership), so an editable def stored in a project's ontology
+ * dir is loaded and detected with no separate conversion step.
  *
  * SRP: type definitions only.
  */
@@ -19,13 +20,19 @@
 import type { DomainDef } from "../ontology.js";
 
 /** DomainDef fields a human may lock against reconstruction. */
-export type LockableField = "description" | "presetRules" | "templateRules" | "cardTemplate";
+export type LockableField =
+  | "description"
+  | "presetRules"
+  | "templateRules"
+  | "cardTemplate"
+  | "membership";
 
 export const LOCKABLE_FIELDS: LockableField[] = [
   "description",
   "presetRules",
   "templateRules",
   "cardTemplate",
+  "membership",
 ];
 
 /** How a domain def came to exist. */
