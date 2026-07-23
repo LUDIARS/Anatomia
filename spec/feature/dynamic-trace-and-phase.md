@@ -7,9 +7,12 @@
 
 ## 状態
 
-**現状はライブラリ API のみ（CLI 未配線）。** 実ゲームのトレース録画経路
-（マーカー注入 → ringbuffer → `RecordedTraceSource`）は未配線で、`RecordedTraceSource` に
-frame を流すプログラム/テスト利用に限られる（DESIGN §5.5 / G10）。
+**録画経路は CLI まで配線済み**: `anatomia trace plan`（マーカー注入計画）/
+`anatomia trace ingest`（録画 JSONL → scene 化）が使える
+（→ [trace-recording.md](./trace-recording.md)、運用手順は `docs/trace-operations.md`）。
+warm サーバは `ANATOMIA_TRACE_FILE`（起動時 1 回読み）で scene 層を点灯できる。
+**ライブストリーム（socket/UDP）は未配線**: `LiveTraceSource` / `createTraceReceiver` は
+部品のみで、production に source factory が存在しない。
 
 ## 流れ（`src/dynamic/`）
 
