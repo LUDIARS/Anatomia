@@ -48,6 +48,7 @@ export type { RelevanceOptions } from "./relevance.js";
 
 // T29 — verify + gates
 export { verify, buildDefaultGates } from "./verify.js";
+export { membershipOf, verifyThresholds, selectSiblings } from "./verify-inputs.js";
 export type { VerifyOptions } from "./verify.js";
 export {
   changedAnchors,

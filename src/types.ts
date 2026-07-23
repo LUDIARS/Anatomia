@@ -160,6 +160,8 @@ export interface TypeDecl {
   fields?: FieldInfo[];
   /** Absolute path of the declaring file (diagnostics only). */
   filePath: string;
+  /** Source range of the declaration, used by class-level graph views. */
+  sourceRange?: SourceRange;
 }
 
 /** A data member: field name + simple type (and container element type). */

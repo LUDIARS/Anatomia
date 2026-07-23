@@ -25,10 +25,14 @@
 
 import { createHash } from "node:crypto";
 import { stat, readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { collectFilesByExt, readGitignoreDirs, EXCLUDE_DIRS } from "../fs/walk.js";
 
 /** Source extensions whose content defines a project's fingerprint. */
-const SOURCE_EXTS = new Set([".cpp", ".h", ".cs", ".ts", ".tsx", ".md"]);
+const SOURCE_EXTS = new Set([
+  ".cpp", ".h", ".cs", ".ts", ".tsx", ".java", ".go", ".md",
+]);
+const UNITY_PROJECT_VERSION = ["ProjectSettings", "ProjectVersion.txt"] as const;
 
 /**
  * Extensions stamped from a project's *config* dirs (ontologyDir / specDirs).
@@ -84,6 +88,8 @@ export async function computeFingerprint(
   opts: { configDirs?: string[] } = {},
 ): Promise<string> {
   const stamps = await collectStamps(rootPath, SOURCE_EXTS);
+  const unityProjectVersion = await collectFileStamp(join(rootPath, ...UNITY_PROJECT_VERSION));
+  if (unityProjectVersion) stamps.push(unityProjectVersion);
   // Config dirs (ontologyDir / specDirs) outside the code root: stamp their
   // .md/.mjs/.js/.json so config changes invalidate the cached analysis.
   for (const dir of opts.configDirs ?? []) {
@@ -115,12 +121,18 @@ async function collectStamps(root: string, exts: Set<string>): Promise<FileStamp
   const gitDirs = await readGitignoreDirs(root);
   const paths = await collectFilesByExt(root, exts, new Set([...EXCLUDE_DIRS, ...gitDirs]));
   for (const full of paths) {
-    try {
-      const st = await stat(full);
-      out.push({ path: full, hash: await contentHash(full, st.size, st.mtimeMs) });
-    } catch {
-      // file vanished between walk and stat/read — ignore.
-    }
+    const stamp = await collectFileStamp(full);
+    if (stamp) out.push(stamp);
   }
   return out;
+}
+
+async function collectFileStamp(full: string): Promise<FileStamp | null> {
+  try {
+    const st = await stat(full);
+    return { path: full, hash: await contentHash(full, st.size, st.mtimeMs) };
+  } catch {
+    // The file can disappear between discovery and stat/read; the next run sees it.
+    return null;
+  }
 }

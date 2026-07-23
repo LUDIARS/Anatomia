@@ -458,7 +458,13 @@ export function extractTypeDecls(tree: Tree, filePath = "<memory>"): TypeDecl[] 
       const name = typeContainerName(node);
       if (name) {
         const fields = extractFields(node);
-        out.push({ name, bases: extractBases(node), filePath, ...(fields.length > 0 ? { fields } : {}) });
+        out.push({
+          name,
+          bases: extractBases(node),
+          filePath,
+          sourceRange: toRange(node, filePath),
+          ...(fields.length > 0 ? { fields } : {}),
+        });
       }
     }
     for (const child of node.namedChildren) if (child) visit(child);

@@ -55,4 +55,3 @@ anatomia callees <name-or-anchor> [--limit <n>]
 - [静的解析](./static-analysis.md)
 - [グラフ export と panel](./graph-export-and-panel.md)
 - [context supply](./context-supply.md)
-

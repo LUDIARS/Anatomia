@@ -11,7 +11,7 @@ branch / domain-view）。
 
 | メソッド | パス | 返り |
 |---|---|---|
-| GET | `/api/graph` | `{ nodes: CodeNode[], edges: Edge[] }`（`?project=<id>`） |
+| GET | `/api/graph` | 関数グラフ互換 payload + `defaultView` + `views.function` / `views.class`（`?project=<id>`） |
 | GET | `/api/metrics` | `NodeMetrics[]`（`?project=<id>`） |
 | GET | `/api/domains` | `{ domains: string[], cards: [] }`（`?project=<id>`） |
 | GET | `/` | 管理パネル SPA（index.html） |
@@ -37,6 +37,7 @@ branch / domain-view）。
 | GET | `/api/projects/:id/branch-diff` | ブランチ差分の関数 delta（`?base=<ref>`、→ feature/branch-diff.md） |
 | GET | `/api/projects/:id/branches` | base セレクタ用の ref 一覧 `{ current, autoBase, candidates[] }` |
 | GET | `/api/projects/:id/domain-view` | ドメイン別フォーカス + spec 由来の日本語説明（→ feature/domain-view.md） |
+| POST | `/api/projects/:id/test-suggestions` | Augur の通常提案。`focusedTesting.domains` 指定時は Anatomia 解析に基づく集中的テスト提案（→ feature/focused-testing.md） |
 | GET | `/api/projects/:id/access-patterns` | singleton/Service Locator/Facade のヒューリスティック検出 + アクセス元ドメイン（→ feature/access-patterns.md） |
 
 ## 人間承認付きドメイン発見
