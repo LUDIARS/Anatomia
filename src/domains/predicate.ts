@@ -5,10 +5,12 @@
  * exposes small set helpers over node collections. Predicate *evaluation*
  * lives in engine.ts; the Predicate ADT itself lives in types.ts.
  *
- * A NodeFilter matches by kind / namePattern (regex) / pathPattern (regex over
- * the source file path) / tags. All present fields are ANDed; an empty filter
- * matches every node. A node matches the `tags` field only when it carries ALL
- * listed tags.
+ * A NodeFilter matches by kind / namePattern (regex) /
+ * signatureShapePattern (regex over FunctionNode.signatureShape) / pathPattern
+ * (regex over the source file path) / tags. All present fields are ANDed; an
+ * empty filter matches every node. A node matches the `tags` field only when it
+ * carries ALL listed tags. Function-identity matching fails closed when the
+ * caller has not enriched the CodeNode with a signature shape.
  *
  * `pathPattern` is tested against the node's source file path normalised to
  * forward slashes (so ontology patterns like `/enemy/` are OS-independent). It
@@ -38,6 +40,12 @@ export function matchesFilter(node: CodeNode, filter: NodeFilter): boolean {
     if (!re.test(node.name)) return false;
   }
 
+  if (filter.signatureShapePattern !== undefined) {
+    if (node.signatureShape === undefined) return false;
+    const re = compileRegex(filter.signatureShapePattern);
+    if (!re.test(node.signatureShape)) return false;
+  }
+
   if (filter.pathPattern !== undefined) {
     const re = compileRegex(filter.pathPattern);
     const path = node.sourceRange.filePath.replace(/\\/g, "/");
@@ -56,5 +64,5 @@ export function matchesFilter(node: CodeNode, filter: NodeFilter): boolean {
 
 /** Return the subset of `nodes` that match the filter. */
 export function selectNodes(nodes: CodeNode[], filter: NodeFilter): CodeNode[] {
-  return nodes.filter((n) => matchesFilter(n, filter));
+  return nodes.filter((node) => matchesFilter(node, filter));
 }

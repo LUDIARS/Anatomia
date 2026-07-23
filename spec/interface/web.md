@@ -40,6 +40,27 @@ branch / domain-view）。
 | POST | `/api/projects/:id/test-suggestions` | Augur の通常提案。`focusedTesting.domains` 指定時は Anatomia 解析に基づく集中的テスト提案（→ feature/focused-testing.md） |
 | GET | `/api/projects/:id/access-patterns` | singleton/Service Locator/Facade のヒューリスティック検出 + アクセス元ドメイン（→ feature/access-patterns.md） |
 
+## 人間承認付きドメイン発見
+
+正本は [feature/domain-discovery-workflow.md](../feature/domain-discovery-workflow.md)。
+proposal / inspect は read-only、apply は人間確認と解析 snapshot の一致が必須。
+
+| メソッド | パス | 内容 |
+|---|---|---|
+| POST | `/api/projects/:id/flow/draft` | spec→LLM ドメイン候補 + reconcile preview（保存しない） |
+| POST | `/api/projects/:id/flow/apply` | Gate A。編集済み候補を `confirmApply` + `snapshotId` で適用し孤立調査へ進む |
+| GET | `/api/projects/:id/flow/orphans` | 未所属関数の全 `file:line`、module group、大群候補、閾値未満残余 |
+| POST | `/api/projects/:id/flow/orphan-proposals` | 選択した大群を LLM で詳細調査し、domain + feature spec draft を返す（保存しない） |
+| POST | `/api/projects/:id/flow/orphan-apply` | Gate B。人間補足済み候補だけを保存し、再解析した残余未所属一覧を返す |
+| GET | `/api/projects/:id/flow/drafts` | 現在保存されている editable domain definitions |
+
+`minGroupFunctions` は正の整数（既定 3）。`snapshotId` が現在解析と異なる場合は
+`409 stale_*`。Gate A / B で `confirmApply:true` が無ければ `409 human_confirmation_required`。
+生成 spec は既存 `spec/feature/domain-<slug>.md` を暗黙に上書きしない。
+Gate A の承認 marker が無い、または承認後に ontology が変わった状態で step 3 以降を呼ぶと
+`409 gate_a_required|gate_a_stale`。ファイル適用後の registry 同期・再解析だけが失敗した場合は、
+適用済み path と再解析要求を含む `202` を返し、適用そのものを失敗扱いに偽装しない。
+
 ## warm harness（per-edit / per-prompt フック）
 
 常駐ゆえ解析済みプロジェクトを warm 保持し sub-second で応答する。フックは server 不在なら

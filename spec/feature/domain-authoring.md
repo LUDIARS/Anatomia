@@ -6,8 +6,12 @@
 ドメインを起こせなかった。これを **仕様 + ユーザ補助入力** で補間する:
 
 1. **仕様からドメイン定義を抜粋し雑に作る** (LLM が下書き)。
-2. **人間が調整する** (`.anatomia/domains/*.json` を直接編集)。
-3. **再構成してもよい** が、人の編集を壊さない(ロック保全)。
+2. **候補として表示し、権威データはまだ変更しない**。
+3. **人間が追加・削除・調整し、明示的に承認する**。
+4. **承認後にだけ保存する**。再構成しても人の編集を壊さない(ロック保全)。
+
+提案・承認・孤立調査を含む全体順序の正本は
+[domain-discovery-workflow.md](./domain-discovery-workflow.md)。
 
 ドメインの作りは人により異なる(メカニクスを含んでも含めなくてもよい)ので、
 明確なルールは決めない。シーンステートはドメインに含めない(一致ケースは注記)。
@@ -44,6 +48,8 @@ analyze → specClauses + module map
 - `--force` でロックも上書き。
 
 `lockedFields: ["*"]` は全ロック。source=`manual` は既定で全ロック扱い。
+Web の proposal 経路では reconcile は preview にだけ使い、Gate A までは
+`saveEditableDomains` を呼ばない。
 
 ## LLM 非依存の宣言的代替
 
@@ -56,8 +62,10 @@ analyze → specClauses + module map
 
 ## 取得面
 
-- CLI: `anatomia domains <draft|list|reconstruct> --project <id>
+- CLI: `anatomia domains <suggest|draft|list|reconstruct> --project <id>
   [--no-llm] [--only a,b] [--force] [--dir <path>] [--json]`
+- `suggest` は read-only。`draft` / `reconstruct` は人間が明示して実行する legacy apply
+  操作であり、対話フローでは Web の Gate A API を使う。
 - 保存先 = `<repoRoot>/.anatomia/domains/`(= ontology pluginDir)。draft 時に
   project.ontologyDir 未設定なら自動で配線。ファイル名は名前ハッシュ付きで衝突回避。
 
@@ -92,9 +100,10 @@ reconcile→disk roundtrip) で固定。
 mode) で利用可能。
 
 ```
-POST /api/projects/:id/flow/draft   -- 登録プロジェクトで draft 合成 (specClauses + filePaths)
+POST /api/projects/:id/flow/draft   -- 登録プロジェクトで proposal 合成（保存しない）
+POST /api/projects/:id/flow/apply   -- Gate A（confirmApply + snapshot 必須）
 GET  /api/projects/:id/flow/drafts  -- 現在の editable domains を一覧
-POST /api/flow/draft                -- repoPath または specPath から直接 draft 合成
+POST /api/flow/draft                -- repoPath または specPath から proposal 合成（保存しない）
 GET  /api/flow/drafts               -- 任意 dir のドメインを一覧 (?dir=<path>)
 ```
 
@@ -103,8 +112,13 @@ GET  /api/flow/drafts               -- 任意 dir のドメインを一覧 (?dir
 - `specPath`: 単一 spec Markdown ファイルのパスを読んでパース → specClauses (filePaths=[])
 - `project`: 登録済みプロジェクト ID → `manager.getContext()` で解析済み結果を取得
 
-**オプション**: `noLlm` (決定的 seed)、`only` (ドメイン名フィルタ)、`force` (ロック上書き)、
-`dir` (出力先 dir)。draft 後に project.ontologyDir を自動配線。
+**proposal オプション**: `noLlm` (決定的 seed)、`only` (ドメイン名フィルタ)。legacy CLI の
+`draft` / `reconstruct` だけが `force` / `dir` を持つ。登録 project の Web Gate A は client の
+`dir` と global `force` を受け付けず、project の ontologyDir（未設定なら既定 dir）だけへ保存する。
+proposal 時は filesystem / project registry を変更せず、Gate A 後にだけ project.ontologyDir を配線する。
+Gate A で人間が確認した定義は既定で `source=manual` + 全 lock とし、次回の自動 draft が
+説明・membership・card template を戻さない。再調整時は `overrideNames` で対象 domain だけを
+一時的に unlock し、適用直後に再び全 lock する。
 
 実走確認手順は runbook (3) を参照。URL フェッチ経路 (specUrl) は未実装。
 

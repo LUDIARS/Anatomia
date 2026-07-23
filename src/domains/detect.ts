@@ -106,9 +106,26 @@ export async function detectDomain(
   for (const m of def.membership ?? []) filters.push(m);
 
   const allNodes = await graph.allNodes();
+  const functionByAnchor = new Map(
+    functions.flatMap((fn) => (fn.id ? [[fn.id, fn] as const] : [])),
+  );
   const implementorSet = new Set<AnchorId>();
   for (const node of allNodes) {
-    if (filters.some((f) => isMeaningfulFilter(f) && matchesFilter(node, f))) {
+    const fn = functionByAnchor.get(node.id);
+    const filterNode = fn
+      ? {
+          ...node,
+          ...(fn.signatureShape !== undefined
+            ? { signatureShape: fn.signatureShape }
+            : {}),
+        }
+      : node;
+    if (
+      filters.some(
+        (filter) =>
+          isMeaningfulFilter(filter) && matchesFilter(filterNode, filter),
+      )
+    ) {
       implementorSet.add(node.id);
     }
   }
@@ -144,7 +161,10 @@ function isMeaningfulFilter(f: NodeFilter): boolean {
   }
   if (f.namePattern !== undefined) {
     // ".*" and "" match everything -> not meaningful for implementor scoping.
-    return f.namePattern !== ".*" && f.namePattern !== "";
+    if (f.namePattern !== ".*" && f.namePattern !== "") return true;
+  }
+  if (f.signatureShapePattern !== undefined) {
+    return f.signatureShapePattern !== ".*" && f.signatureShapePattern !== "";
   }
   return false;
 }
