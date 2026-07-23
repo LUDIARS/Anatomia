@@ -105,3 +105,18 @@ npm run build → project add → project analyze → git diff | verify
 ```
 
 これが Anatomia の「解析して使う」中核ループ。
+
+## ドメインを発見・承認する
+
+プロジェクト固有 ontology を作るときは、LLM draft や retune をそのまま権威データへ
+流さず、[人間承認付きドメイン発見ワークフロー](./domain-discovery-workflow.md)を使う。
+
+```text
+spec proposal → 人間編集 → Gate A → 未所属 function/module 調査
+              → 大きい孤立群 proposal + spec draft → 人間補足 → Gate B
+              → 再解析 → 残余未所属関数 file:line
+```
+
+proposal / inspect は read-only。apply は `confirmApply` と提案時 `snapshotId` が必要で、
+解析対象が変わっていれば stale として再提案する。孤立とは「承認済みドメインに未所属」を
+指し、unresolved call / unreachable code とは別に表示する。

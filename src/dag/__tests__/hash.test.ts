@@ -31,6 +31,7 @@ describe("T06 hashFunction", () => {
     } as unknown as FunctionNode;
     const id = assignAnchorId(fn, "(compound_statement)");
     expect(fn.id).toBe(id);
+    expect(fn.signatureShape).toBe("(sig)");
     expect(id).toMatch(/^[0-9a-f]{16}$/);
   });
 });
@@ -79,6 +80,18 @@ describe("T06-sig: parameter types and return type folded into AnchorId", () => 
     expect(await anchorOf(a)).not.toBe(await anchorOf(b));
   });
 
+  it("pointer vs reference declarators produce different signature shapes", async () => {
+    const pointer = "void foo(int* value) { bar(value); }";
+    const reference = "void foo(int& value) { bar(value); }";
+    expect(await anchorOf(pointer)).not.toBe(await anchorOf(reference));
+  });
+
+  it("trailing method qualifiers produce different signature shapes", async () => {
+    const mutableMethod = "struct Value { int get() { return value_; } };";
+    const constMethod = "struct Value { int get() const { return value_; } };";
+    expect(await anchorOf(mutableMethod)).not.toBe(await anchorOf(constMethod));
+  });
+
   // ── Return type change → DIFFERENT hash ──────────────────────────────────
   it("return type change (int → float) DOES change the hash", async () => {
     const a = "int  get() { return val_; }";
@@ -118,5 +131,26 @@ describe("T06-sig: parameter types and return type folded into AnchorId", () => 
       "  return false;\n" +
       "}";
     expect(await anchorOf(effectReplace)).not.toBe(await anchorOf(gradeReplace));
+  });
+
+  it("qualifies same-signature local functions by their outer function", async () => {
+    const source = `
+class Worker {
+  int First() { int Local(int value) { return value; } return Local(1); }
+  int Second() { int Local(int value) { return value; } return Local(2); }
+}`;
+    const tree = await parse(source, "c_sharp");
+    try {
+      const locals = extractFunctions(tree, source, "/worker.cs").filter(
+        (fn) => fn.name === "Local",
+      );
+      for (const fn of locals) assignAnchorId(fn, normalize(fn.bodyAst));
+      expect(locals).toHaveLength(2);
+      expect(locals[0]!.signatureShape).toContain("Worker::First");
+      expect(locals[1]!.signatureShape).toContain("Worker::Second");
+      expect(locals[0]!.id).not.toBe(locals[1]!.id);
+    } finally {
+      tree.delete();
+    }
   });
 });

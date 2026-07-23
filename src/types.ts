@@ -110,6 +110,11 @@ export interface FunctionNode {
    * clones. Filled alongside `id` by assignAnchorId.
    */
   structuralHash?: string;
+  /**
+   * Body-independent, whitespace/parameter-name-normalized qualified signature
+   * shape. Filled with the Anchor ID and suitable for durable symbol ownership.
+   */
+  signatureShape?: string;
   name: string;
   /** Full signature text (return type + params). */
   signature: string;
@@ -209,6 +214,11 @@ export type NodeKind = "function" | "method" | "class" | "module" | "file";
 export interface CodeNode {
   id: AnchorId;
   name: string;
+  /**
+   * Body-independent qualified signature shape, when a caller enriches graph
+   * nodes from FunctionNode metadata for durable symbol-identity filtering.
+   */
+  signatureShape?: string;
   kind: NodeKind;
   sourceRange: SourceRange;
   /**
@@ -278,14 +288,21 @@ export type ViolationSeverity = "error" | "warning" | "info";
 // ── Predicate ADT (T14) ────────────────────────────────────────────────────
 
 /**
- * A NodeFilter matches CodeNodes by kind, name (regex), source-path (regex)
- * and/or tags. All present fields are ANDed. An empty filter matches every node.
+ * A NodeFilter matches CodeNodes by kind, name (regex), source-path (regex),
+ * normalized qualified signature shape (regex) and/or tags. All present fields
+ * are ANDed. An empty filter matches every node.
  */
 export interface NodeFilter {
   /** Match nodes of this kind. */
   kind?: NodeKind;
   /** Match nodes whose name matches this regex (JS RegExp source). */
   namePattern?: string;
+  /**
+   * Match a function's body-independent normalized qualified signature shape
+   * (JS RegExp source). The detector resolves this from FunctionNode;
+   * non-function nodes and callers without signature facts fail closed.
+   */
+  signatureShapePattern?: string;
   /**
    * Match nodes whose source file path matches this regex (JS RegExp source).
    * Tested against the path normalised to forward slashes, so a pattern like
