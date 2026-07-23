@@ -95,8 +95,11 @@ node scripts/self-analyze.mjs   # 自分の src/ を解析（→ docs/self-analy
 
 ## 6. 動的解析（実行トレース → 局面）
 
-動的層（`src/dynamic/`）は現状ライブラリ API のみ（CLI 未配線）。詳細は
+録画経路は CLI 配線済み: `trace plan`（マーカー注入計画）→ 計測ビルド・実走（ユーザ側）→
+`trace ingest`（JSONL → scene 化）。日常運用の手順は `docs/trace-operations.md`、
+仕様は [feature/trace-recording.md](./trace-recording.md) /
 [feature/dynamic-trace-and-phase.md](./dynamic-trace-and-phase.md)。
+ライブストリーム（socket 直結）は未配線で、録画ファイルの読み直しが現実解。
 
 ## 最短ループ
 
