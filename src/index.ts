@@ -44,7 +44,7 @@ export type {
   BundleRequest,
 } from "./core.js";
 
-// Sub-module placeholders (implementations added by later tasks)
+// Sub-module re-exports
 export * from "./cache/index.js";
 export * from "./dag/index.js";
 export * from "./graph/index.js";

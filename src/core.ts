@@ -96,6 +96,37 @@ export interface AnalysisContext {
    * skip is a capability absence, and this flag is what makes it observable.
    */
   semanticLinked?: boolean;
+  /**
+   * Present iff this context came from a partial / staged analyze(): a path
+   * scope was applied and/or a phase was skipped. Consumers that need the FULL
+   * picture (verify, supply, snapshot persistence) must treat such a context
+   * as non-canonical — absence of a domain/link here does not mean absence in
+   * the repo.
+   */
+  partial?: AnalysisScope;
+}
+
+/**
+ * Scope of a partial / staged analysis. All fields optional; an empty object
+ * means "full" (and analyze() then omits the `partial` marker entirely).
+ */
+export interface AnalysisScope {
+  /**
+   * Repo-relative forward-slashed path prefixes. When set, only source files
+   * under one of these prefixes are parsed/analyzed. Spec-clause discovery is
+   * NOT filtered (clauses are cheap and linkers only link the scoped sources).
+   */
+  paths?: string[];
+  /** Run Phase 4 (domain detection). Default true. */
+  domains?: boolean;
+  /** Run Phase 5 (spec linking). Default true. */
+  spec?: boolean;
+}
+
+/** True when the scope restricts anything (→ the result is non-canonical). */
+export function isPartialScope(scope: AnalysisScope | undefined): boolean {
+  if (!scope) return false;
+  return (scope.paths?.length ?? 0) > 0 || scope.domains === false || scope.spec === false;
 }
 
 export interface BundleRequest {
@@ -171,6 +202,15 @@ export interface AnalyzeOptions {
    */
   transcript?: CacheTranscript;
   session?: string;
+  /**
+   * Partial / staged execution: restrict the source-file set to path prefixes
+   * and/or skip the domain-detection or spec-linking phase. The returned
+   * context then carries a `partial` marker so callers cannot mistake it for a
+   * canonical full analysis (ProjectManager refuses to snapshot such results).
+   * Phase 1-3 (parse → graph) always run — they are the foundation every
+   * later phase and every consumer requires.
+   */
+  scope?: AnalysisScope;
 }
 
 // ---------------------------------------------------------------------------
@@ -304,11 +344,24 @@ export async function analyze(
   const projectProfile = await buildProjectProfile(repoPath, discoveredFilePaths);
   const rawFilePaths = discoveredFilePaths.filter((path) => SOURCE_EXTS.has(extname(path).toLowerCase()));
   // For TypeScript files, skip *.d.ts and files under node_modules/dist.
-  const filePaths = rawFilePaths.filter((fp) => {
+  const unscopedFilePaths = rawFilePaths.filter((fp) => {
     const ext = extname(fp).toLowerCase();
     if (ext === ".ts" || ext === ".tsx") return !shouldSkipTsPath(fp);
     return true;
   });
+  // Partial scope: keep only sources under one of the requested repo-relative
+  // prefixes. Applied after the standard skips so a scoped run sees exactly
+  // the subset a full run would have seen for those paths.
+  const scopePaths = options.scope?.paths ?? [];
+  const filePaths = scopePaths.length === 0
+    ? unscopedFilePaths
+    : unscopedFilePaths.filter((fp) => {
+        const rel = relative(repoPath, fp).replace(/\\/g, "/");
+        return scopePaths.some((p) => {
+          const prefix = p.replace(/\\/g, "/").replace(/\/+$/, "");
+          return rel === prefix || rel.startsWith(prefix + "/");
+        });
+      });
   vgWrite("info", "anatomia analyze files discovered", {
     repo: repoName,
     raw_files: rawFilePaths.length,
@@ -452,9 +505,12 @@ export async function analyze(
   const graph = new InMemoryCodeGraph(codeGraph);
 
   // Phase 4 — domain detection (G3). Builtin ontology + optional plugins.
+  // Staged execution: scope.domains === false skips the whole phase (the
+  // context then carries the `partial` marker).
+  const runDomains = options.scope?.domains !== false;
   let domains: DetectionResult[] = [];
   let rules: Rule[] = [];
-  try {
+  if (runDomains) try {
     const ontology = await loadOntology(options.pluginDir);
     // Detection is O(domains × functions). Reuse the prior result when the code
     // identity (file paths + structural hashes) and ontology are unchanged — the
@@ -495,10 +551,12 @@ export async function analyze(
 
   // Phase 5 — spec linking (G4). Parse markdown, then explicit + structural
   // (+ semantic when an embedder capability is present) links.
+  // Staged execution: scope.spec === false skips the whole phase.
+  const runSpec = options.scope?.spec !== false;
   let specClauses: SpecClause[] = [];
   let links: Link[] = [];
   let semanticLinked = false;
-  try {
+  if (runSpec) try {
     // Scan the code root plus any extra spec dirs (e.g. a sibling spec/ when the
     // code root is <repo>/src). De-dupe so an overlapping dir is not parsed twice.
     const specRoots = [repoPath, ...(options.specDirs ?? [])];
@@ -598,6 +656,16 @@ export async function analyze(
     rules,
     skipped,
     semanticLinked,
+    // Mark scoped/staged results so no consumer mistakes them for canonical.
+    ...(isPartialScope(options.scope)
+      ? {
+          partial: {
+            ...(scopePaths.length > 0 ? { paths: [...scopePaths] } : {}),
+            ...(runDomains ? {} : { domains: false }),
+            ...(runSpec ? {} : { spec: false }),
+          },
+        }
+      : {}),
   };
 }
 
