@@ -39,6 +39,8 @@ branch / domain-view）。
 | GET | `/api/projects/:id/domain-view` | ドメイン別フォーカス + spec 由来の日本語説明（→ feature/domain-view.md） |
 | POST | `/api/projects/:id/test-suggestions` | Augur の通常提案。`focusedTesting.domains` 指定時は Anatomia 解析に基づく集中的テスト提案（→ feature/focused-testing.md） |
 | GET | `/api/projects/:id/access-patterns` | singleton/Service Locator/Facade のヒューリスティック検出 + アクセス元ドメイン（→ feature/access-patterns.md） |
+| GET | `/api/projects/:id/screens` | 静的画面構成 ScreenGraph（→ feature/screen-composition.md） |
+| GET | `/api/projects/:id/scenes` | `{ derived, manual, merged }` — 呼び出し閉包で導出したシーン層（fingerprint キー付き artifact = シーンキャッシュ）+ 手動シーンのマージ（→ feature/scene-derivation.md） |
 
 ## warm harness（per-edit / per-prompt フック）
 

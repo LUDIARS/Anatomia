@@ -32,7 +32,7 @@ import { WEB_VIEWS } from "../../../web-cache/types.js";
 import type { WebViewName, SearchCorpus } from "../../../web-cache/types.js";
 import { searchCorpus } from "../../../web-cache/search.js";
 import { loadScenes, mergeSceneModel } from "../../../scenes/store.js";
-import { scenesFromScreenGraph } from "../../../scenes/from-screens.js";
+import { deriveScenes } from "../../../scenes/derive.js";
 import { detectScreens } from "../../../screens/index.js";
 import { sceneModelFromTraceFile } from "../../../dynamic/record/ingest.js";
 import { sceneModelFromTrace, type SceneModel, type SceneRef } from "../../../integral/scene.js";
@@ -66,7 +66,10 @@ async function resolveSceneModel(
     loadScenes(repoPath, project),
     detectScreens(ctx),
   ]);
-  const screenScenes = scenesFromScreenGraph(screenGraph);
+  // Reachability derivation (scenes/derive.ts): each screen scene carries the
+  // domains of its whole call closure, not just its own file — so the
+  // scene-modules view lines up with what the scene actually activates.
+  const screenScenes = (await deriveScenes(ctx, screenGraph)).scenes;
   let traceScenes: SceneRef[] = [];
   if (deps.traceJsonl) {
     traceScenes = sceneModelFromTraceFile(deps.traceJsonl, ctx.domains ?? []).scenes();

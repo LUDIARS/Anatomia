@@ -41,6 +41,25 @@ node bin/anatomia.mjs project analyze adventure   # → "N files, M functions (c
 
 以後 `--project adventure` を各サブコマンドに付けると、登録 root を解析対象にする。
 
+### 部分実行 / 段階実行（partial / staged analyze）
+
+フル解析（G1→G5 一気通貫）に加え、`project analyze` はスコープ付き実行を受ける：
+
+```sh
+node bin/anatomia.mjs project analyze adventure --path src/combat        # パス限定
+node bin/anatomia.mjs project analyze adventure --no-spec                # Phase 5 スキップ
+node bin/anatomia.mjs project analyze adventure --no-domains --no-spec   # G1-G2 (parse+graph) のみ
+```
+
+- Phase 1-3（parse → graph）は常に走る（後続全フェーズと全コンシューマの土台）。
+- スコープ付き結果は `AnalysisContext.partial` マーカーを持ち、プロジェクトの正準
+  スナップショットには**保存しない**（部分ビューでフルキャッシュを汚染しない）。
+- フルキャッシュが fingerprint 一致で新鮮なら、その superset が部分要求にもそのまま
+  返る（部分実行のほうが遅くなることはない）。
+- 増分の主役はあくまで Merkle / content-keyed キャッシュ（perfile / graph / detection /
+  spec-link）。部分実行は「大リポで一部だけ素早く見たい」「LLM/embedder を伴う
+  Phase を意図的に避けたい」ときの明示的なスコープ制御。
+
 ## 2. サブコマンド別の用途
 
 サブコマンドの一覧・フラグ・終了コードは [interface/cli.md](../interface/cli.md)。
