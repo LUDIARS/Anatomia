@@ -10,8 +10,8 @@
  * expensive parse/hash/graph work is skipped — assertable via `cache.hits`.
  */
 
-import { analyze } from "../core.js";
-import type { AnalysisContext, AnalyzeOptions } from "../core.js";
+import { analyze, isPartialScope } from "../core.js";
+import type { AnalysisContext, AnalysisScope, AnalyzeOptions } from "../core.js";
 import { ProjectRegistry } from "./registry.js";
 import { AnalysisCache, computeFingerprint, summarize } from "./cache.js";
 import type { SummaryCounts } from "./cache.js";
@@ -160,15 +160,28 @@ export class ProjectManager {
   /**
    * Analyze a project, reusing the incremental cache when the source tree is
    * unchanged (fingerprint match → analyze() is skipped). Returns the context.
+   *
+   * `opts.scope` runs a partial / staged analysis (path subset and/or skipped
+   * phases). A fresh FULL cache still short-circuits it (a canonical superset
+   * answers any scoped question), but a scoped RESULT is never persisted as
+   * the project snapshot and never feeds link-stability — it is returned to
+   * the caller only.
    */
-  async analyzeProject(id?: string): Promise<AnalysisContext> {
+  async analyzeProject(
+    id?: string,
+    opts: { scope?: AnalysisScope } = {},
+  ): Promise<AnalysisContext> {
     const projectId = this.resolveId(id);
     const project = this.registry.get(projectId)!;
-    vgWrite("info", "project analyze requested", { project: projectId, name: project.name });
+    vgWrite("info", "project analyze requested", {
+      project: projectId,
+      name: project.name,
+      partial: isPartialScope(opts.scope),
+    });
     const fingerprint = await computeFingerprint(project.rootPath, {
       configDirs: configDirsOf(project),
     });
-    return this.analyzeWith(projectId, project, fingerprint);
+    return this.analyzeWith(projectId, project, fingerprint, opts.scope);
   }
 
   /** Resolve a context for a project whose fingerprint is already computed. */
@@ -176,6 +189,7 @@ export class ProjectManager {
     projectId: string,
     project: Project,
     fingerprint: string,
+    scope?: AnalysisScope,
   ): Promise<AnalysisContext> {
     const cached = this.cache.getIfFresh(projectId, fingerprint);
     if (cached) {
@@ -183,6 +197,7 @@ export class ProjectManager {
       return cached;
     }
     vgWrite("info", "project analysis cache miss", { project: projectId });
+    const partial = isPartialScope(scope);
 
     const opts: AnalyzeOptions = {
       ...this.analyzeOptions,
@@ -202,11 +217,19 @@ export class ProjectManager {
       // Per-file reuse hit/miss → transcript (ns "perfile").
       transcript: this.transcript,
       session: this.session,
+      ...(partial ? { scope } : {}),
     };
     const ctx = await withVgSpan("project.analyze", {
       project: projectId,
       name: project.name,
     }, () => analyze(project.rootPath, opts));
+    if (partial) {
+      // A scoped/staged result is non-canonical: persisting it would poison
+      // the snapshot (and link-stability streaks) with a partial view. The
+      // phase-level content caches above still made it cheap; just return it.
+      vgWrite("info", "project analysis partial (not cached)", { project: projectId });
+      return ctx;
+    }
     await this.cache.put(projectId, fingerprint, ctx);
     // Fold this analysis into the link-stability streaks (.anatomia/, local
     // state) so long-lived heuristic links surface as promotion candidates.

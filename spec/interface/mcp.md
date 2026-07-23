@@ -1,4 +1,4 @@
-# interface: MCP サーバ（7 ツール）
+# interface: MCP サーバ（11 ツール）
 
 `bin/anatomia-mcp.mjs` → `src/adapters/mcp.ts`。stdio transport の MCP サーバ。
 AI ホスト（Claude Code / Famulus / Concordia）から supply / verify / project を直接呼ぶ。
@@ -10,8 +10,8 @@ AI ホスト（Claude Code / Famulus / Concordia）から supply / verify / proj
 
 ## ツール一覧
 
-サーバ名 `anatomia`（version `0.1.0`）。コア 4 + プロジェクト管理 3 = **7 ツール**。
-コア 4 は任意の `project`（id）引数を取り、ProjectManager 配線時はそのプロジェクト
+サーバ名 `anatomia`（version `0.1.0`）。コア 8 + プロジェクト管理 3 = **11 ツール**。
+コアツールは任意の `project`（id）引数を取り、ProjectManager 配線時はそのプロジェクト
 （既定は selected）に作用する。
 
 | ツール | 入力（zod） | 返り |
@@ -19,7 +19,11 @@ AI ホスト（Claude Code / Famulus / Concordia）から supply / verify / proj
 | `anatomia.context` | `task: string`, `project?: string` | `ContextBundle`（JSON text） |
 | `anatomia.verify` | `diff: string`, `project?: string` | `Verdict`（5 ゲート、→ feature/verify-gates.md） |
 | `anatomia.where` | `task: string`, `project?: string` | `{ landings: Landing[] }` |
+| `anatomia.find` | `name: string`, `mode?`, `limit?`, `project?` | シンボル検索ヒット（→ feature/symbol-navigation.md） |
+| `anatomia.callers` | `name: string`, `limit?`, `project?` | 直接 caller 一覧 |
+| `anatomia.callees` | `name: string`, `limit?`, `project?` | 直接 callee 一覧 |
 | `anatomia.impact` | `anchor: string`, `project?: string` | `{ anchors: string[] }`（BFS 到達 anchor） |
+| `anatomia.domains.suggest` | `project?` ほか | ドメイン候補（read-only、→ feature/domain-authoring.md） |
 | `anatomia.projects.list` | （なし） | `{ projects: Project[], selected: string\|null }` |
 | `anatomia.projects.add` | `name: string`, `rootPath: string` | `{ project: Project }` |
 | `anatomia.projects.analyze` | `project?: string` | `{ project, files, functions, cacheHit }` |

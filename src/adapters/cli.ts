@@ -38,7 +38,7 @@
  */
 
 import { readFile, writeFile } from "node:fs/promises";
-import { resolve as resolvePath } from "node:path";
+import { basename, resolve as resolvePath } from "node:path";
 import {
   analyze,
   buildContextBundle,
@@ -74,6 +74,8 @@ import { computeFingerprint } from "../project/cache.js";
 import { reviewSpec, formatSpecReview } from "../spec-review/index.js";
 import { detectScreens } from "../screens/index.js";
 import type { ScreenGraph } from "../screens/index.js";
+import { deriveScenes, type DerivedSceneGraph } from "../scenes/derive.js";
+import { loadScenes, mergeSceneModel } from "../scenes/store.js";
 import { ProjectManager } from "../project/manager.js";
 import { exportGraphHtml } from "./web/export.js";
 import { startServer } from "./web/server.js";
@@ -138,6 +140,7 @@ export interface CliArgs {
     | "domains"
     | "trace"
     | "screens"
+    | "scenes"
     | "links";
   repoPath: string;
   /** For cache-stats: path to the JSONL transcript (defaults to ANATOMIA_CACHE_LOG). */
@@ -203,6 +206,14 @@ export interface CliArgs {
   linkFrom?: string;
   /** For links ratify: spec clause id (`to` side). */
   linkTo?: string;
+  /** For project analyze: repo-relative path prefixes for a partial run. */
+  scopePaths?: string[];
+  /** For project analyze: skip Phase 4 (domain detection). */
+  noDomains?: boolean;
+  /** For project analyze: skip Phase 5 (spec linking). */
+  noSpec?: boolean;
+  /** For scenes: reachability depth cap over `calls` edges. */
+  sceneMaxDepth?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -231,10 +242,11 @@ export function parseArgs(argv: string[]): CliArgs {
     subcommand !== "domains" &&
     subcommand !== "trace" &&
     subcommand !== "screens" &&
+    subcommand !== "scenes" &&
     subcommand !== "links"
   ) {
     throw new Error(
-      `Unknown subcommand "${subcommand ?? ""}". Expected: verify | context | where | find | callers | callees | review | spec-review | domain-review | project | export-graph | web | cache-stats | integral | domains | trace | screens | links`,
+      `Unknown subcommand "${subcommand ?? ""}". Expected: verify | context | where | find | callers | callees | review | spec-review | domain-review | project | export-graph | web | cache-stats | integral | domains | trace | screens | scenes | links`,
     );
   }
 
@@ -281,6 +293,7 @@ export function parseArgs(argv: string[]): CliArgs {
   let output: string | undefined;
   let baselinePath: string | undefined;
   let writeBaseline: string | undefined;
+  let sceneMaxDepth: number | undefined;
 
   for (let i = 0; i < args.length; i++) {
     const flag = args[i];
@@ -300,6 +313,11 @@ export function parseArgs(argv: string[]): CliArgs {
       mode = value;
     } else if (flag === "--limit") {
       limit = parseInt(args[++i] ?? "", 10);
+    } else if (flag === "--max-depth") {
+      sceneMaxDepth = parseInt(args[++i] ?? "", 10);
+      if (!Number.isFinite(sceneMaxDepth) || sceneMaxDepth < 1) {
+        throw new Error("--max-depth expects a positive integer");
+      }
     } else if (flag === "--json" || flag === "-j") {
       json = true;
     } else if (flag === "--project" || flag === "-p") {
@@ -328,7 +346,7 @@ export function parseArgs(argv: string[]): CliArgs {
     }
   }
 
-  return { subcommand, repoPath, diff, file, task, symbol, mode, limit, json, project, output, baselinePath, writeBaseline };
+  return { subcommand, repoPath, diff, file, task, symbol, mode, limit, json, project, output, baselinePath, writeBaseline, sceneMaxDepth };
 }
 
 /**
@@ -387,11 +405,23 @@ function parseProjectArgs(args: string[]): CliArgs {
   }
 
   let json = false;
+  let noDomains = false;
+  let noSpec = false;
+  const scopePaths: string[] = [];
   const positionals: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === "--json" || a === "-j") json = true;
+    else if (a === "--path") {
+      const p = args[++i];
+      if (!p) throw new Error("--path expects a repo-relative path prefix");
+      scopePaths.push(p);
+    } else if (a === "--no-domains") noDomains = true;
+    else if (a === "--no-spec") noSpec = true;
     else positionals.push(a);
+  }
+  if ((scopePaths.length > 0 || noDomains || noSpec) && action !== "analyze") {
+    throw new Error("--path / --no-domains / --no-spec only apply to `project analyze`");
   }
 
   return {
@@ -400,6 +430,9 @@ function parseProjectArgs(args: string[]): CliArgs {
     json,
     projectAction: action,
     projectArgs: positionals,
+    ...(scopePaths.length > 0 ? { scopePaths } : {}),
+    ...(noDomains ? { noDomains } : {}),
+    ...(noSpec ? { noSpec } : {}),
   };
 }
 
@@ -564,6 +597,10 @@ export async function runCli(
     return runDomainReview(args);
   }
 
+  if (args.subcommand === "scenes") {
+    return runScenes(args);
+  }
+
   const ctx = await resolveContext(args);
 
   if (args.subcommand === "find") {
@@ -706,6 +743,56 @@ async function runDomainReview(
   return { exitCode: 0, output: formatDomainReview(report) };
 }
 
+/**
+ * scenes subcommand — derive the scene layer (call-graph reachability from each
+ * screen) and merge manually-curated scenes over it. With --project the derived
+ * part is served from the fingerprint-keyed artifact cache (the scene cache);
+ * manual scenes are merged at read time so editing spec/data/<p>.scenes.json is
+ * visible without a re-analysis.
+ */
+async function runScenes(args: CliArgs): Promise<{ exitCode: number; output: string }> {
+  let repoPath: string;
+  let projectName: string;
+  let derived: DerivedSceneGraph;
+  if (args.project) {
+    const mgr = await ProjectManager.load();
+    const projectId = mgr.resolveId(args.project);
+    const project = mgr.get(projectId)!;
+    repoPath = project.rootPath;
+    projectName = project.name;
+    // Fold a custom depth cap into the artifact name so capped and full
+    // derivations never cross-serve from the same cache slot.
+    const artifactName = args.sceneMaxDepth ? `scenes-derived-d${args.sceneMaxDepth}` : "scenes-derived";
+    derived = await mgr.cachedArtifact(projectId, artifactName, async (ctx) =>
+      deriveScenes(ctx, await detectScreens(ctx), { maxDepth: args.sceneMaxDepth }),
+    );
+  } else {
+    const ctx = await analyze(args.repoPath);
+    repoPath = args.repoPath;
+    projectName = basename(args.repoPath);
+    derived = await deriveScenes(ctx, await detectScreens(ctx), { maxDepth: args.sceneMaxDepth });
+  }
+  const manual = await loadScenes(repoPath, projectName);
+  const merged = mergeSceneModel(manual, derived.scenes).scenes();
+  if (args.json) {
+    return { exitCode: 0, output: JSON.stringify({ derived, manual, merged }, null, 2) };
+  }
+  const lines: string[] = [];
+  lines.push(
+    `シーン: ${merged.length} scenes (derived ${derived.summary.total}, manual ${manual.length}) — ` +
+      `${derived.summary.transitions} transitions, ${derived.summary.domainsCovered} domains covered`,
+  );
+  for (const scene of derived.scenes) {
+    const extras = [
+      scene.domains.length ? `domains: ${scene.domains.join(", ")}` : "domains: -",
+      scene.transitions.length ? `→ ${scene.transitions.join(", ")}` : "",
+      `fns ${scene.entryFunctions}/${scene.reachedFunctions}`,
+    ].filter(Boolean);
+    lines.push(`  [${scene.kind}] ${scene.id}  ${extras.join("  ")}`);
+  }
+  return { exitCode: 0, output: lines.join("\n") };
+}
+
 /** Human-readable summary of a detected screen composition. */
 function formatScreens(graph: ScreenGraph): string {
   const lines: string[] = [];
@@ -824,19 +911,32 @@ async function runProject(
       } catch (err) {
         return { exitCode: 1, output: err instanceof Error ? err.message : String(err) };
       }
+      const scope = {
+        ...(args.scopePaths ? { paths: args.scopePaths } : {}),
+        ...(args.noDomains ? { domains: false as const } : {}),
+        ...(args.noSpec ? { spec: false as const } : {}),
+      };
       const before = mgr.cache.hits;
-      const ctx = await mgr.analyzeProject(targetId);
+      const ctx = await mgr.analyzeProject(targetId, { scope });
       const cacheHit = mgr.cache.hits > before;
       const result = {
         project: targetId,
         files: ctx.files.length,
         functions: ctx.functions.length,
         cacheHit,
+        ...(ctx.partial ? { partial: ctx.partial } : {}),
       };
       if (args.json) return { exitCode: 0, output: JSON.stringify(result, null, 2) };
+      const partialNote = ctx.partial
+        ? ` [partial: ${[
+            ...(ctx.partial.paths ? [`paths=${ctx.partial.paths.join(",")}`] : []),
+            ...(ctx.partial.domains === false ? ["no-domains"] : []),
+            ...(ctx.partial.spec === false ? ["no-spec"] : []),
+          ].join(" ")}]`
+        : "";
       return {
         exitCode: 0,
-        output: `analyzed "${targetId}": ${result.files} files, ${result.functions} functions${cacheHit ? " (cache hit)" : ""}`,
+        output: `analyzed "${targetId}": ${result.files} files, ${result.functions} functions${cacheHit ? " (cache hit)" : ""}${partialNote}`,
       };
     }
 

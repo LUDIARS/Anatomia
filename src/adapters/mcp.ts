@@ -13,7 +13,7 @@
  *   anatomia.projects.add     -- register a project (name + rootPath)
  *   anatomia.projects.analyze -- analyze a project (cache-aware) and report stats
  *
- * Project-awareness: the original 4 tools take an optional `project` (id) arg.
+ * Project-awareness: the core (non-projects.*) tools take an optional `project` (id) arg.
  * When a ProjectManager is wired, the tool operates on that project context
  * (defaulting to the selected project). When constructed with a bare
  * AnalysisContext (legacy / single-project), the `project` arg is ignored and

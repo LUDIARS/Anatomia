@@ -7,7 +7,8 @@
 ## サブコマンド
 
 ```
-anatomia <verify|context|where|project|export-graph|web|cache-stats> [flags]
+anatomia <verify|context|where|find|callers|callees|review|spec-review|domain-review|
+          project|export-graph|web|cache-stats|integral|domains|trace|screens|scenes|links> [flags]
 ```
 
 | サブコマンド | 何をする | 出力 / 終了コード |
@@ -15,10 +16,43 @@ anatomia <verify|context|where|project|export-graph|web|cache-stats> [flags]
 | `verify` | diff を 5 ゲート検証（→ feature/verify-gates.md） | block 失敗で **exit 1**、PASS は 0 |
 | `context --task <t>` | タスク用 ContextBundle を組む | JSON / 0 |
 | `where --task <t>` | 着地点（landing）を解決 | `{ landings }` JSON / 0 |
+| `find <name>` | シンボル検索（→ feature/symbol-navigation.md） | ヒット一覧 / 0 |
+| `callers <name>` / `callees <name>` | 直接 caller / callee | ヒット一覧 / 0 |
+| `review` | コード構造レビュー（→ feature/code-review.md） | レポート / 0 |
+| `spec-review` | spec/ の AIFormat 監査（→ feature/spec-review.md） | レポート / 0 |
+| `domain-review` | ドメイン健全性レビュー（→ feature/domain-review.md） | レポート / 0 |
 | `export-graph -o <f>` | 自己完結インタラクティブ HTML グラフ | `exported graph to …` / 0 |
 | `web --port <n>` | 複数プロジェクト管理パネル（HTTP 常駐） | サーバ（exit しない） |
 | `project <add\|list\|remove\|analyze>` | レジストリ管理（→ data/project-cache.md） | 下記 |
 | `cache-stats` | A-3 cache transcript を hit 率レポートに集計 | レポート / JSON |
+| `integral --entry <ref>` | 3 層スコープド検索（→ feature/integral-search.md） | レポート / 0 |
+| `domains <draft\|list\|reconstruct\|suggest>` | ドメイン authoring（→ feature/domain-authoring.md） | 下記 |
+| `trace <plan\|ingest>` | 動的トレース準備 / 取り込み（→ feature/trace-recording.md） | 下記 |
+| `screens` | 静的画面構成の検出（→ feature/screen-composition.md） | 一覧 / 0 |
+| `scenes` | シーン導出 + シーンキャッシュ（→ feature/scene-derivation.md） | 一覧 / 0 |
+| `links <list\|ratify\|candidates>` | コード↔仕様リンクの硬化（→ feature/spec-linkage.md） | 下記 |
+
+### project analyze の部分実行フラグ
+
+`project analyze <id>` は段階的 / 部分的解析を受ける（→ feature/analysis-procedure.md §部分実行）:
+
+| フラグ | 意味 |
+|---|---|
+| `--path <prefix>`（複数可） | repo 相対 prefix 配下のソースだけ解析する |
+| `--no-domains` | Phase 4（ドメイン検出）をスキップ |
+| `--no-spec` | Phase 5（仕様リンク）をスキップ |
+
+いずれかを指定した結果は `partial` マーカー付きで返り、プロジェクトの正準スナップ
+ショットには**保存されない**（フル解析キャッシュを汚さない）。フルキャッシュが新鮮な
+場合はその superset がそのまま返る。
+
+### scenes のフラグ
+
+| フラグ | 意味 |
+|---|---|
+| `--project <id>` / `--repo <path>` | 対象（--project は fingerprint キー付きシーンキャッシュを使う） |
+| `--max-depth <n>` | 呼び出し閉包の深さ上限（既定: 無制限） |
+| `--json` | `{ derived, manual, merged }` を JSON で出力 |
 
 ## 共通フラグ
 
