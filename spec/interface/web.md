@@ -41,6 +41,8 @@ branch / domain-view）。
 | GET | `/api/projects/:id/access-patterns` | singleton/Service Locator/Facade のヒューリスティック検出 + アクセス元ドメイン（→ feature/access-patterns.md） |
 | GET | `/api/projects/:id/screens` | 静的画面構成 ScreenGraph（→ feature/screen-composition.md） |
 | GET | `/api/projects/:id/scenes` | `{ derived, manual, merged }` — 呼び出し閉包で導出したシーン層（fingerprint キー付き artifact = シーンキャッシュ）+ 手動シーンのマージ（→ feature/scene-derivation.md） |
+| GET | `/api/projects/:id/spec-config` | spec 正本の解決結果 `{ source: configured\|auto\|root\|missing, dirs? }`（→ feature/spec-source-config.md） |
+| PUT | `/api/projects/:id/spec-config` | `{ specDirs: string[] }` で設定 / `{ specDirs: null }` でクリア（自動検出に戻す）。mutation なので ANATOMIA_WEB_TOKEN ゲート対象 |
 
 ## 人間承認付きドメイン発見
 
