@@ -972,6 +972,7 @@
           '<button class="btn btn-sm btn-open" data-id="' + esc(p.id) + '"' +
             ' data-name="' + esc(p.name) + '" data-path="' + esc(p.rootPath) + '">Open</button>' +
           '<button class="btn btn-sm btn-reanalyze" data-id="' + esc(p.id) + '">Re-analyze</button>' +
+          '<button class="btn btn-sm btn-spec" data-id="' + esc(p.id) + '" title="spec 正本パス設定">Spec</button>' +
           '<button class="btn btn-sm btn-prepare" data-id="' + esc(p.id) + '">キャッシュ生成</button>' +
           '<button class="btn btn-sm btn-danger btn-remove" data-id="' + esc(p.id) + '">Remove</button>' +
         '</div></td>';
@@ -1075,8 +1076,44 @@
       prepareFromList(id, t);
     } else if (t.classList.contains('btn-remove')) {
       removeProject(id);
+    } else if (t.classList.contains('btn-spec')) {
+      editSpecConfig(id);
     }
   });
+
+  // Spec-source config: show the current resolution (configured / auto / root /
+  // missing) and let the user set or clear the spec dirs. Prompt-based on
+  // purpose: one path per line, blank input clears back to auto-detect.
+  async function editSpecConfig(id) {
+    var status;
+    try {
+      var res = await fetch('/api/projects/' + encodeURIComponent(id) + '/spec-config');
+      if (!res.ok) { var b = await res.json(); throw new Error(b.error); }
+      status = await res.json();
+    } catch (e) { alert('spec-config の取得に失敗: ' + e.message); return; }
+
+    var lines = 'spec source: ' + status.source +
+      (status.dirs && status.dirs.length ? '\n' + status.dirs.join('\n') : '');
+    var help = '\n\nspec 正本ディレクトリを 1 行 1 パスで入力 (絶対パス)。' +
+      '\n空のまま OK でクリア (自動検出に戻す)。キャンセルで変更なし。';
+    var input = prompt(lines + help, (status.dirs || []).join('\n'));
+    if (input === null) return; // cancelled
+    var dirs = input.split('\n').map(function (s) { return s.trim(); }).filter(Boolean);
+    try {
+      var put = await fetch('/api/projects/' + encodeURIComponent(id) + '/spec-config', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ specDirs: dirs.length ? dirs : null }),
+      });
+      var body = await put.json();
+      if (!put.ok) throw new Error(body.error);
+      alert('spec source: ' + body.source +
+        (body.dirs && body.dirs.length ? '\n' + body.dirs.join('\n') : '') +
+        (body.source === 'missing'
+          ? '\n\nspec が見つかりません。プロジェクト root に markdown が無く、近傍にも spec/docs 候補がありません。'
+          : ''));
+    } catch (e) { alert('spec-config の保存に失敗: ' + e.message); }
+  }
 
   async function removeProject(id) {
     if (!confirm('Remove project "' + id + '"?')) return;

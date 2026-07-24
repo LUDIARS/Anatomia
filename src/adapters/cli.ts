@@ -117,7 +117,7 @@ import {
 // Types
 // ---------------------------------------------------------------------------
 
-export type ProjectAction = "add" | "list" | "remove" | "analyze";
+export type ProjectAction = "add" | "list" | "remove" | "analyze" | "spec";
 export type DomainsAction = "draft" | "list" | "reconstruct" | "suggest";
 export type TraceAction = "plan" | "ingest";
 export type LinksAction = "list" | "ratify" | "candidates";
@@ -217,6 +217,10 @@ export interface CliArgs {
   noSpec?: boolean;
   /** For scenes: reachability depth cap over `calls` edges. */
   sceneMaxDepth?: number;
+  /** For project spec: dirs to set as the spec source (repeatable --set). */
+  specSetDirs?: string[];
+  /** For project spec: clear the config (back to auto-detect default). */
+  specClear?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -401,16 +405,21 @@ function parseCacheStatsArgs(args: string[]): CliArgs {
 
 function parseProjectArgs(args: string[]): CliArgs {
   const action = args.shift();
-  if (action !== "add" && action !== "list" && action !== "remove" && action !== "analyze") {
+  if (
+    action !== "add" && action !== "list" && action !== "remove" &&
+    action !== "analyze" && action !== "spec"
+  ) {
     throw new Error(
-      `Unknown project action "${action ?? ""}". Expected: add | list | remove | analyze`,
+      `Unknown project action "${action ?? ""}". Expected: add | list | remove | analyze | spec`,
     );
   }
 
   let json = false;
   let noDomains = false;
   let noSpec = false;
+  let specClear = false;
   const scopePaths: string[] = [];
+  const specSetDirs: string[] = [];
   const positionals: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
@@ -421,10 +430,21 @@ function parseProjectArgs(args: string[]): CliArgs {
       scopePaths.push(p);
     } else if (a === "--no-domains") noDomains = true;
     else if (a === "--no-spec") noSpec = true;
+    else if (a === "--set") {
+      const d = args[++i];
+      if (!d) throw new Error("--set expects a spec dir path");
+      specSetDirs.push(d);
+    } else if (a === "--clear") specClear = true;
     else positionals.push(a);
   }
   if ((scopePaths.length > 0 || noDomains || noSpec) && action !== "analyze") {
     throw new Error("--path / --no-domains / --no-spec only apply to `project analyze`");
+  }
+  if ((specSetDirs.length > 0 || specClear) && action !== "spec") {
+    throw new Error("--set / --clear only apply to `project spec`");
+  }
+  if (specSetDirs.length > 0 && specClear) {
+    throw new Error("--set and --clear are mutually exclusive");
   }
 
   return {
@@ -436,6 +456,8 @@ function parseProjectArgs(args: string[]): CliArgs {
     ...(scopePaths.length > 0 ? { scopePaths } : {}),
     ...(noDomains ? { noDomains } : {}),
     ...(noSpec ? { noSpec } : {}),
+    ...(specSetDirs.length > 0 ? { specSetDirs } : {}),
+    ...(specClear ? { specClear } : {}),
   };
 }
 
@@ -929,11 +951,13 @@ async function runProject(
       const before = mgr.cache.hits;
       const ctx = await mgr.analyzeProject(targetId, { scope });
       const cacheHit = mgr.cache.hits > before;
+      const specConfig = await mgr.ensureSpecConfig(targetId);
       const result = {
         project: targetId,
         files: ctx.files.length,
         functions: ctx.functions.length,
         cacheHit,
+        specConfig,
         ...(ctx.partial ? { partial: ctx.partial } : {}),
       };
       if (args.json) return { exitCode: 0, output: JSON.stringify(result, null, 2) };
@@ -944,15 +968,65 @@ async function runProject(
             ...(ctx.partial.spec === false ? ["no-spec"] : []),
           ].join(" ")}]`
         : "";
+      const specNote = formatSpecConfigNote(specConfig);
       return {
         exitCode: 0,
-        output: `analyzed "${targetId}": ${result.files} files, ${result.functions} functions${cacheHit ? " (cache hit)" : ""}${partialNote}`,
+        output:
+          `analyzed "${targetId}": ${result.files} files, ${result.functions} functions${cacheHit ? " (cache hit)" : ""}${partialNote}` +
+          (specNote ? `\n${specNote}` : ""),
       };
+    }
+
+    case "spec": {
+      const [id] = pos;
+      let targetId: string;
+      try {
+        targetId = mgr.resolveId(id);
+      } catch (err) {
+        return { exitCode: 1, output: err instanceof Error ? err.message : String(err) };
+      }
+      if (args.specSetDirs || args.specClear) {
+        // Relative --set paths resolve against the project root (the natural
+        // frame for "spec is at ../spec" / "docs/spec").
+        const root = mgr.get(targetId)!.rootPath;
+        const dirs = args.specSetDirs?.map((d) => resolvePath(root, d)) ?? null;
+        try {
+          await mgr.updateSpecDirs(targetId, dirs);
+        } catch (err) {
+          return { exitCode: 1, output: err instanceof Error ? err.message : String(err) };
+        }
+      }
+      const status = await mgr.ensureSpecConfig(targetId);
+      if (args.json) {
+        return { exitCode: 0, output: JSON.stringify({ project: targetId, ...status }, null, 2) };
+      }
+      const lines = [`spec source for "${targetId}": ${status.source}`];
+      for (const d of status.dirs ?? []) lines.push(`  ${d}`);
+      const note = formatSpecConfigNote(status);
+      if (note) lines.push(note);
+      lines.push(
+        "  (set: anatomia project spec <id> --set <dir> [--set <dir>...] / clear: --clear)",
+      );
+      return { exitCode: 0, output: lines.join("\n") };
     }
 
     default:
       return { exitCode: 1, output: "Unknown project action" };
   }
+}
+
+/** Human-readable one-liner for a non-default spec-source resolution. */
+function formatSpecConfigNote(status: { source: string; dirs?: string[] }): string {
+  if (status.source === "auto") {
+    return `  spec: auto-detected -> ${(status.dirs ?? []).join(", ")}`;
+  }
+  if (status.source === "missing") {
+    return (
+      "  spec: NOT FOUND — no markdown under the project root and no spec/docs candidate nearby.\n" +
+      "        Point Anatomia at the spec tree: anatomia project spec <id> --set <dir>"
+    );
+  }
+  return "";
 }
 
 // ---------------------------------------------------------------------------

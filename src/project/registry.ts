@@ -73,6 +73,26 @@ export class ProjectRegistry {
     return project;
   }
 
+  /**
+   * Patch an existing project's settings in place (identity fields id/rootPath/
+   * addedAt are not patchable). Returns the updated project, or undefined when
+   * the id is unknown. Caller persists via saveRegistry.
+   */
+  update(
+    id: string,
+    patch: Partial<Pick<Project, "name" | "languages" | "ontologyDir" | "specDirs" | "specDirsAuto">>,
+  ): Project | undefined {
+    const existing = this.byId.get(id);
+    if (!existing) return undefined;
+    const updated: Project = { ...existing, ...patch };
+    // An explicit undefined in the patch clears the field (exactOptionalPropertyTypes-safe).
+    for (const key of Object.keys(patch) as (keyof typeof patch)[]) {
+      if (patch[key] === undefined) delete (updated as unknown as Record<string, unknown>)[key];
+    }
+    this.byId.set(id, updated);
+    return updated;
+  }
+
   /** Get a project by id, or undefined. */
   get(id: string): Project | undefined {
     return this.byId.get(id);

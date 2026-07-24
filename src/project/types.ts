@@ -28,6 +28,12 @@ export interface Project {
    * rootPath=`<repo>/src`, specDirs=[`<repo>/spec`]).
    */
   specDirs?: string[];
+  /**
+   * True when specDirs was AUTO-detected (project/spec-detect.ts) rather than
+   * user-set. Auto values may be replaced by a fresh detection; user-set values
+   * are never overwritten automatically.
+   */
+  specDirsAuto?: boolean;
   /** ISO timestamp when the project was registered. */
   addedAt: string;
 }
