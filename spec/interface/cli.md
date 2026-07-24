@@ -23,7 +23,7 @@ anatomia <verify|context|where|find|callers|callees|review|spec-review|domain-re
 | `domain-review` | ドメイン健全性レビュー（→ feature/domain-review.md） | レポート / 0 |
 | `export-graph -o <f>` | 自己完結インタラクティブ HTML グラフ | `exported graph to …` / 0 |
 | `web --port <n>` | 複数プロジェクト管理パネル（HTTP 常駐） | サーバ（exit しない） |
-| `project <add\|list\|remove\|analyze>` | レジストリ管理（→ data/project-cache.md） | 下記 |
+| `project <add\|list\|remove\|analyze\|spec>` | レジストリ管理（→ data/project-cache.md）。`spec` は spec 正本パスの表示/設定/クリア（→ feature/spec-source-config.md） | 下記 |
 | `cache-stats` | A-3 cache transcript を hit 率レポートに集計 | レポート / JSON |
 | `integral --entry <ref>` | 3 層スコープド検索（→ feature/integral-search.md） | レポート / 0 |
 | `domains <draft\|list\|reconstruct\|suggest>` | ドメイン authoring（→ feature/domain-authoring.md） | 下記 |

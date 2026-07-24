@@ -25,6 +25,12 @@ import type { CodeGraph } from "../graph/build.js";
 import type { SpecLinkResult } from "../spec/cache.js";
 import { recordAnalysis } from "../spec/stability.js";
 import { vgWrite, withVgSpan } from "../obs/vestigium.js";
+import { statSync } from "node:fs";
+import {
+  detectSpecDirCandidates,
+  hasMarkdownSources,
+  type SpecConfigStatus,
+} from "./spec-detect.js";
 
 export interface ProjectManagerOptions {
   /** Anatomia home dir (projects.json + cache/). Default: ANATOMIA_HOME or <cwd>/.anatomia. */
@@ -63,6 +69,13 @@ export class ProjectManager {
   private readonly analyzeOptions: AnalyzeOptions;
   /** Project ids with an in-flight background revalidation (SWR de-dup). */
   private readonly revalidating = new Set<string>();
+  /**
+   * Memoized spec-source resolution per project id. "root" and the persisted
+   * outcomes are stable for a process lifetime; "missing" is memoized too so a
+   * warm server does not re-walk a spec-less repo on every analyze — clearing
+   * happens on updateSpecDirs (and process restart).
+   */
+  private readonly specStatus = new Map<string, SpecConfigStatus>();
 
   constructor(registry?: ProjectRegistry, options: ProjectManagerOptions = {}) {
     this.registry = registry ?? new ProjectRegistry();
@@ -108,6 +121,39 @@ export class ProjectManager {
     await this.save();
     vgWrite("info", "project added", { project: p.id, name: p.name });
     return p;
+  }
+
+  /**
+   * Set (or clear, with null) a project's spec source dirs and persist. Dirs
+   * must exist on disk — a typo'd path failing fast beats a silently spec-less
+   * analysis. Setting marks the value user-configured (specDirsAuto cleared);
+   * clearing returns the project to the auto-detect default. The old
+   * fingerprint no longer matches afterwards (specDirs is a config dir), so
+   * the next analyze re-runs with the new spec roots.
+   */
+  async updateSpecDirs(id: string, dirs: string[] | null): Promise<Project> {
+    const projectId = this.resolveId(id);
+    if (dirs) {
+      for (const dir of dirs) {
+        if (!statSyncDir(dir)) {
+          throw new Error(`spec dir does not exist or is not a directory: ${dir}`);
+        }
+      }
+    }
+    const updated = this.registry.update(
+      projectId,
+      dirs
+        ? { specDirs: [...dirs], specDirsAuto: undefined }
+        : { specDirs: undefined, specDirsAuto: undefined },
+    )!;
+    this.specStatus.delete(projectId);
+    await this.save();
+    vgWrite("info", "project spec dirs updated", {
+      project: projectId,
+      dirs: dirs ?? [],
+      cleared: dirs === null,
+    });
+    return updated;
   }
 
   /** Remove a project, drop its cache entry, and persist. */
@@ -172,16 +218,63 @@ export class ProjectManager {
     opts: { scope?: AnalysisScope } = {},
   ): Promise<AnalysisContext> {
     const projectId = this.resolveId(id);
-    const project = this.registry.get(projectId)!;
     vgWrite("info", "project analyze requested", {
       project: projectId,
-      name: project.name,
       partial: isPartialScope(opts.scope),
     });
+    // Resolve the spec source BEFORE the fingerprint: auto-detection may
+    // persist specDirs, and specDirs is one of the fingerprint's config dirs.
+    await this.ensureSpecConfig(projectId);
+    const project = this.registry.get(projectId)!;
     const fingerprint = await computeFingerprint(project.rootPath, {
       configDirs: configDirsOf(project),
     });
     return this.analyzeWith(projectId, project, fingerprint, opts.scope);
+  }
+
+  /**
+   * Resolve where a project's spec clauses come from, auto-configuring when
+   * possible (neco 2026-07-24: unset by default; on detection, set and proceed;
+   * report when nothing is found).
+   *
+   *   1. specDirs configured (user or previous auto) → use as-is.
+   *   2. rootPath contains markdown → the default walk already covers it.
+   *   3. Otherwise probe ancestor spec/docs candidates (spec-detect.ts).
+   *      Found → PERSIST as specDirs (specDirsAuto: true) and proceed.
+   *      Not found → "missing": analysis proceeds spec-less and callers
+   *      (CLI / dashboard) surface the report to the user.
+   */
+  async ensureSpecConfig(id?: string): Promise<SpecConfigStatus> {
+    const projectId = this.resolveId(id);
+    const memo = this.specStatus.get(projectId);
+    if (memo) return memo;
+    const project = this.registry.get(projectId)!;
+
+    let status: SpecConfigStatus;
+    if (project.specDirs && project.specDirs.length > 0) {
+      status = {
+        source: project.specDirsAuto ? "auto" : "configured",
+        dirs: [...project.specDirs],
+      };
+    } else if (await hasMarkdownSources(project.rootPath)) {
+      status = { source: "root" };
+    } else {
+      const candidates = await detectSpecDirCandidates(project.rootPath);
+      if (candidates.length > 0) {
+        this.registry.update(projectId, { specDirs: candidates, specDirsAuto: true });
+        await this.save();
+        vgWrite("info", "project spec dirs auto-detected", {
+          project: projectId,
+          dirs: candidates,
+        });
+        status = { source: "auto", dirs: candidates };
+      } else {
+        vgWrite("warn", "project spec source missing", { project: projectId });
+        status = { source: "missing" };
+      }
+    }
+    this.specStatus.set(projectId, status);
+    return status;
   }
 
   /** Resolve a context for a project whose fingerprint is already computed. */
@@ -412,4 +505,13 @@ function configDirsOf(project: Project): string[] {
   if (project.ontologyDir) dirs.push(project.ontologyDir);
   if (project.specDirs) dirs.push(...project.specDirs);
   return dirs;
+}
+
+/** True when the path exists and is a directory (validation for updateSpecDirs). */
+function statSyncDir(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
 }
