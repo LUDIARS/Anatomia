@@ -217,7 +217,11 @@ export interface AnalyzeOptions {
 // Source file discovery
 // ---------------------------------------------------------------------------
 
-const SOURCE_EXTS = new Set([".cpp", ".h", ".cs", ".ts", ".tsx"]);
+const SOURCE_EXTS = new Set([
+  ".cpp", ".h", ".cs",
+  ".js", ".jsx", ".mjs", ".cjs",
+  ".ts", ".tsx", ".mts", ".cts",
+]);
 // Java/Go are not parsed by the current grammar set, but their extensions still
 // participate in graph-view default selection for mixed/future-language repos.
 const PROJECT_PROFILE_EXTS = new Set([...SOURCE_EXTS, ".java", ".go"]);
@@ -240,8 +244,8 @@ async function collectSpecFiles(dir: string): Promise<string[]> {
 export function langFor(filePath: string): Lang {
   const ext = extname(filePath).toLowerCase();
   if (ext === ".cs") return "c_sharp";
-  if (ext === ".tsx") return "tsx";
-  if (ext === ".ts") return "typescript";
+  if (ext === ".tsx" || ext === ".jsx") return "tsx";
+  if ([".ts", ".js", ".mjs", ".cjs", ".mts", ".cts"].includes(ext)) return "typescript";
   return "cpp";
 }
 

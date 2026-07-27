@@ -11,6 +11,7 @@
  *   spec-review   -- review spec/ against AIFormat criteria; exit 0
  *   domain-review -- deterministic per-domain review (coverage / cohesion /
  *                      drift / overlap / spec integrity); exit 0
+ *   pr-review     -- ephemeral branch-diff domain/quality report; exit 0
  *   export-graph  -- export a self-contained interactive HTML graph; -o <file>
  *   project       -- registry management:
  *                      project add <name> <path>   register a project
@@ -62,6 +63,7 @@ import {
   applyBaseline,
   buildDomainReview,
   formatDomainReview,
+  buildPrDiffReview,
 } from "../review/index.js";
 import { ratifyLink, SpecLinkRatifyError } from "../spec/ratify.js";
 import {
@@ -133,6 +135,7 @@ export interface CliArgs {
     | "review"
     | "spec-review"
     | "domain-review"
+    | "pr-review"
     | "project"
     | "export-graph"
     | "web"
@@ -203,6 +206,8 @@ export interface CliArgs {
   baselinePath?: string;
   /** For review: write the current report as a new baseline file (no output). */
   writeBaseline?: string;
+  /** For pr-review: explicit branch/base ref (default resolution is origin/main, main, ...). */
+  base?: string;
   /** For links: action (list | ratify). */
   linksAction?: LinksAction;
   /** For links ratify: code anchor / file path (`from` side). */
@@ -241,6 +246,7 @@ export function parseArgs(argv: string[]): CliArgs {
     subcommand !== "review" &&
     subcommand !== "spec-review" &&
     subcommand !== "domain-review" &&
+    subcommand !== "pr-review" &&
     subcommand !== "project" &&
     subcommand !== "export-graph" &&
     subcommand !== "web" &&
@@ -253,7 +259,7 @@ export function parseArgs(argv: string[]): CliArgs {
     subcommand !== "links"
   ) {
     throw new Error(
-      `Unknown subcommand "${subcommand ?? ""}". Expected: verify | context | where | find | callers | callees | review | spec-review | domain-review | project | export-graph | web | cache-stats | integral | domains | trace | screens | scenes | links`,
+      `Unknown subcommand "${subcommand ?? ""}". Expected: verify | context | where | find | callers | callees | review | spec-review | domain-review | pr-review | project | export-graph | web | cache-stats | integral | domains | trace | screens | scenes | links`,
     );
   }
 
@@ -300,6 +306,7 @@ export function parseArgs(argv: string[]): CliArgs {
   let output: string | undefined;
   let baselinePath: string | undefined;
   let writeBaseline: string | undefined;
+  let base: string | undefined;
   let sceneMaxDepth: number | undefined;
 
   for (let i = 0; i < args.length; i++) {
@@ -335,6 +342,8 @@ export function parseArgs(argv: string[]): CliArgs {
       baselinePath = args[++i];
     } else if (flag === "--write-baseline") {
       writeBaseline = args[++i];
+    } else if (flag === "--base") {
+      base = args[++i];
     } else if (subcommand === "export-graph" && !flag.startsWith("-")) {
       // Positional: export-graph <project-id-or-path>
       // If it looks like a path (contains / or \) use it as repoPath,
@@ -353,7 +362,7 @@ export function parseArgs(argv: string[]): CliArgs {
     }
   }
 
-  return { subcommand, repoPath, diff, file, task, symbol, mode, limit, json, project, output, baselinePath, writeBaseline, sceneMaxDepth };
+  return { subcommand, repoPath, diff, file, task, symbol, mode, limit, json, project, output, baselinePath, writeBaseline, base, sceneMaxDepth };
 }
 
 /**
@@ -635,6 +644,11 @@ export async function runCli(
 
   const ctx = await resolveContext(args);
 
+  if (args.subcommand === "pr-review") {
+    const report = await buildPrDiffReview(ctx, { base: args.base });
+    return { exitCode: 0, output: JSON.stringify(report, null, 2) };
+  }
+
   if (args.subcommand === "find") {
     if (!args.symbol) throw new Error("find requires a symbol name.");
     const hits = await findSymbol(
@@ -746,7 +760,9 @@ async function resolveContext(args: CliArgs): Promise<AnalysisContext> {
     const mgr = await ProjectManager.load();
     return mgr.getContext(args.project);
   }
-  return analyze(args.repoPath);
+  return args.subcommand === "pr-review"
+    ? analyze(args.repoPath, { pluginDir: domainsDir(args.repoPath) })
+    : analyze(args.repoPath);
 }
 
 /**

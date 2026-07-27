@@ -143,6 +143,15 @@ export async function changedFiles(
   return [...set];
 }
 
+/** Unified working-tree diff from merge-base to HEAD, for the five verify gates. */
+export async function branchDiffText(
+  rootPath: string,
+  mergeBase: string,
+  paths: string[] = [],
+): Promise<string | null> {
+  return git(rootPath, ["diff", "--binary", "--no-ext-diff", mergeBase, "--", ...paths]);
+}
+
 /**
  * Contents of `relPath` at `ref`, or null when the path did not exist there
  * (i.e. the file was added on this branch). `relPath` is repo-relative with

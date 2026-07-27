@@ -25,6 +25,13 @@ export type {
   BoundaryDriftFinding,
 } from "./domain-review.js";
 export { formatDomainReview } from "./domain-review-format.js";
+export { buildPrDiffReview, summarizeComplexity } from "./pr-diff.js";
+export type {
+  PrDiffReview,
+  PrDiffReviewOptions,
+  PrTargetDomain,
+  PrComplexitySummary,
+} from "./pr-diff.js";
 export { detectBoundaryDrift } from "./boundary.js";
 export type { BoundaryDrift, DriftVote, BoundaryDriftOptions } from "./boundary.js";
 export {

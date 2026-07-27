@@ -7,7 +7,7 @@
 ## サブコマンド
 
 ```
-anatomia <verify|context|where|find|callers|callees|review|spec-review|domain-review|
+anatomia <verify|context|where|find|callers|callees|review|spec-review|domain-review|pr-review|
           project|export-graph|web|cache-stats|integral|domains|trace|screens|scenes|links> [flags]
 ```
 
@@ -21,6 +21,7 @@ anatomia <verify|context|where|find|callers|callees|review|spec-review|domain-re
 | `review` | コード構造レビュー（→ feature/code-review.md） | レポート / 0 |
 | `spec-review` | spec/ の AIFormat 監査（→ feature/spec-review.md） | レポート / 0 |
 | `domain-review` | ドメイン健全性レビュー（→ feature/domain-review.md） | レポート / 0 |
+| `pr-review` | PR差分の一時ドメイン・品質解析（→ feature/pr-diff-review.md） | JSON / 0 |
 | `export-graph -o <f>` | 自己完結インタラクティブ HTML グラフ | `exported graph to …` / 0 |
 | `web --port <n>` | 複数プロジェクト管理パネル（HTTP 常駐） | サーバ（exit しない） |
 | `project <add\|list\|remove\|analyze\|spec>` | レジストリ管理（→ data/project-cache.md）。`spec` は spec 正本パスの表示/設定/クリア（→ feature/spec-source-config.md） | 下記 |

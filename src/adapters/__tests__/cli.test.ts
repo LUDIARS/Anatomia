@@ -73,6 +73,14 @@ describe("parseArgs", () => {
     expect(args.json).toBe(true);
   });
 
+  it("parses ephemeral pr-review with an explicit base", () => {
+    const args = parseArgs(["pr-review", "--repo", "/r", "--base", "origin/develop", "--json"]);
+    expect(args.subcommand).toBe("pr-review");
+    expect(args.repoPath).toBe("/r");
+    expect(args.base).toBe("origin/develop");
+    expect(args.json).toBe(true);
+  });
+
   it("defaults repoPath to cwd when --repo is absent", () => {
     const args = parseArgs(["context"]);
     expect(args.repoPath).toBe(process.cwd());

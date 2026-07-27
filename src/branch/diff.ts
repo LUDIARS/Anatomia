@@ -39,7 +39,11 @@ import {
 } from "./git.js";
 
 /** Source extensions whose function-level diff is reported. */
-const SOURCE_EXTS = new Set([".cpp", ".h", ".cs", ".ts", ".tsx"]);
+const SOURCE_EXTS = new Set([
+  ".cpp", ".h", ".cs",
+  ".js", ".jsx", ".mjs", ".cjs",
+  ".ts", ".tsx", ".mts", ".cts",
+]);
 
 // ---------------------------------------------------------------------------
 // Public types

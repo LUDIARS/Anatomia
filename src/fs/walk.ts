@@ -2,7 +2,8 @@
  * src/fs/walk.ts — directory-pruning source-file walk.
  *
  * The analysis + fingerprint passes only ever care about a project's own source
- * (.cpp/.h/.cs/.ts/.tsx/.md), never its vendored deps or build output. A naive
+ * (.cpp/.h/.cs/.js/.jsx/.mjs/.cjs/.ts/.tsx/.mts/.cts/.md), never its vendored
+ * deps or build output. A naive
  * `readdir(root, { recursive: true })` still *enumerates* node_modules/dist in
  * full before any filter runs — on a real repo that is tens of thousands of
  * entries and turns a sub-second scan into minutes. This walk prunes excluded
