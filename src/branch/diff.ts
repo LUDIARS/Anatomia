@@ -26,7 +26,7 @@ import { extractFunctions } from "../dag/extract.js";
 import { normalize } from "../dag/normalize.js";
 import { assignAnchorId } from "../dag/hash.js";
 import { diffFiles } from "../dag/diff.js";
-import { langFor } from "../core.js";
+import { langFor, ANALYZED_SOURCE_EXTS } from "../core.js";
 import type { AnalysisContext } from "../core.js";
 import type { FileNode, FunctionNode } from "../types.js";
 import {
@@ -38,12 +38,12 @@ import {
   headSha,
 } from "./git.js";
 
-/** Source extensions whose function-level diff is reported. */
-const SOURCE_EXTS = new Set([
-  ".cpp", ".h", ".cs",
-  ".js", ".jsx", ".mjs", ".cjs",
-  ".ts", ".tsx", ".mts", ".cts",
-]);
+/**
+ * Source extensions whose function-level diff is reported — the same set
+ * analyze() parses, so the diff view can never name a file the graph behind it
+ * skipped.
+ */
+const SOURCE_EXTS = ANALYZED_SOURCE_EXTS;
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -101,10 +101,13 @@ export interface BranchDiffOptions {
 // Helpers
 // ---------------------------------------------------------------------------
 
+/** Declaration files, which analyze() also skips — keep both sides in step. */
+const DECLARATION_FILE = /\.d\.(?:ts|mts|cts)$/i;
+
 function isSourcePath(relPath: string): boolean {
   const ext = extname(relPath).toLowerCase();
   if (!SOURCE_EXTS.has(ext)) return false;
-  if (relPath.endsWith(".d.ts")) return false;
+  if (DECLARATION_FILE.test(relPath)) return false;
   return true;
 }
 

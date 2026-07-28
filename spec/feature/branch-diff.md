@@ -49,7 +49,8 @@ base 変更時は `?base=` を付けて差分を再計算する。
 
 ## 制約
 
-- 解析対象拡張子は `.cpp/.h/.cs/.ts/.tsx`（`.d.ts` 除外）。spec(.md) 等は差分対象外。
+- 解析対象拡張子は `analyze()` と同じ `.cpp/.h/.cs/.js/.jsx/.mjs/.cjs/.ts/.tsx/.mts/.cts`
+  （`.d.ts / .d.mts / .d.cts` 除外）。spec(.md) 等は差分対象外。
 - バイト差分はあるが関数粒度の delta が無い（コメントだけ等）ファイルは結果に含めない。
 - git CLI に依存（`execFile`）。git 不在/失敗は全て null/false に握りつぶす。
 

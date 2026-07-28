@@ -28,9 +28,17 @@ import { stat, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { collectFilesByExt, readGitignoreDirs, EXCLUDE_DIRS } from "../fs/walk.js";
 
-/** Source extensions whose content defines a project's fingerprint. */
+/**
+ * Source extensions whose content defines a project's fingerprint. MUST stay a
+ * superset of the set analyze() parses (core.ts ANALYZED_SOURCE_EXTS): an analyzed
+ * extension that is not stamped here would let an edit to such a file leave the
+ * fingerprint unchanged, so the cached analysis would be served stale.
+ */
 const SOURCE_EXTS = new Set([
-  ".cpp", ".h", ".cs", ".ts", ".tsx", ".java", ".go", ".md",
+  ".cpp", ".h", ".cs",
+  ".js", ".jsx", ".mjs", ".cjs",
+  ".ts", ".tsx", ".mts", ".cts",
+  ".java", ".go", ".md",
 ]);
 const UNITY_PROJECT_VERSION = ["ProjectSettings", "ProjectVersion.txt"] as const;
 

@@ -74,14 +74,21 @@ export function summarizeComplexity(metrics: NodeMetrics[]): PrComplexitySummary
   if (metrics.length === 0) {
     return { functions: 0, averageCyclomatic: 0, maximumCyclomatic: 0, score: 100 };
   }
-  const total = metrics.reduce((sum, metric) => sum + metric.cyclomatic, 0);
+  // Single pass, no spread: `Math.max(...)` over a whole-repo metric array
+  // throws RangeError once the graph exceeds the engine's argument limit.
+  let total = 0;
+  let maximum = 0;
+  for (const metric of metrics) {
+    total += metric.cyclomatic;
+    if (metric.cyclomatic > maximum) maximum = metric.cyclomatic;
+  }
   const average = total / metrics.length;
   // Smooth, deterministic and monotonic: avg=1 -> 100, avg=5 -> 50.
   const score = Math.max(0, Math.min(100, Math.round(100 / (1 + Math.max(0, average - 1) / 4))));
   return {
     functions: metrics.length,
     averageCyclomatic: Number(average.toFixed(3)),
-    maximumCyclomatic: Math.max(...metrics.map((metric) => metric.cyclomatic)),
+    maximumCyclomatic: maximum,
     score,
   };
 }

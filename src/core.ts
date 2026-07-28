@@ -217,14 +217,26 @@ export interface AnalyzeOptions {
 // Source file discovery
 // ---------------------------------------------------------------------------
 
-const SOURCE_EXTS = new Set([
-  ".cpp", ".h", ".cs",
+/**
+ * JS/TS-family extensions parsed with the TypeScript / TSX grammars. Kept as its
+ * own set because these are exactly the paths that must also pass the
+ * declaration-file / vendored-path skip (shouldSkipTsPath).
+ */
+const TS_FAMILY_EXTS = new Set([
   ".js", ".jsx", ".mjs", ".cjs",
   ".ts", ".tsx", ".mts", ".cts",
 ]);
+/**
+ * Extensions analyze() parses. Exported because branch/diff.ts reports a *view*
+ * over this analysis: if the two sets drifted apart the branch diff would claim
+ * files the graph behind it never parsed.
+ */
+export const ANALYZED_SOURCE_EXTS: ReadonlySet<string> = new Set([
+  ".cpp", ".h", ".cs", ...TS_FAMILY_EXTS,
+]);
 // Java/Go are not parsed by the current grammar set, but their extensions still
 // participate in graph-view default selection for mixed/future-language repos.
-const PROJECT_PROFILE_EXTS = new Set([...SOURCE_EXTS, ".java", ".go"]);
+const PROJECT_PROFILE_EXTS = new Set([...ANALYZED_SOURCE_EXTS, ".java", ".go"]);
 const SPEC_EXTS = new Set([".md"]);
 
 // Source-file discovery uses the directory-pruning walk in fs/walk.ts so huge
@@ -245,7 +257,7 @@ export function langFor(filePath: string): Lang {
   const ext = extname(filePath).toLowerCase();
   if (ext === ".cs") return "c_sharp";
   if (ext === ".tsx" || ext === ".jsx") return "tsx";
-  if ([".ts", ".js", ".mjs", ".cjs", ".mts", ".cts"].includes(ext)) return "typescript";
+  if (TS_FAMILY_EXTS.has(ext)) return "typescript";
   return "cpp";
 }
 
@@ -300,14 +312,17 @@ function diffTargetPaths(diff: string): string[] {
 /** Path segments that should be excluded from TypeScript source collection. */
 const TS_EXCLUDE_SEGMENTS = new Set(["node_modules", "dist", ".git"]);
 
+/** Declaration files, which carry no implementation to analyze. */
+const DECLARATION_FILE = /\.d\.(?:ts|mts|cts)$/i;
+
 /**
- * Return true if the path should be skipped for TS/TSX:
- *   - declaration files (*.d.ts)
+ * Return true if the path should be skipped for the JS/TS family:
+ *   - declaration files (*.d.ts / *.d.mts / *.d.cts)
  *   - files under node_modules / dist / .git
  */
 function shouldSkipTsPath(filePath: string): boolean {
   const normalized = filePath.replace(/\\/g, "/");
-  if (normalized.endsWith(".d.ts")) return true;
+  if (DECLARATION_FILE.test(normalized)) return true;
   const segments = normalized.split("/");
   return segments.some((s) => TS_EXCLUDE_SEGMENTS.has(s));
 }
@@ -327,7 +342,7 @@ function isWasmAbort(err: unknown): boolean {
 
 /**
  * Run the whole G1→G5 chain on a real repo:
- *   discover .cpp/.h/.cs → parse → extract → normalize → hash → Merkle DAG →
+ *   discover ANALYZED_SOURCE_EXTS → parse → extract → normalize → hash → Merkle DAG →
  *   code graph → domain detection → spec linking → (supply/verify ready).
  *
  * Un-parseable / unreadable files are skipped with a warning (the analysis does
@@ -346,11 +361,11 @@ export async function analyze(
   });
   const discoveredFilePaths = await collectSourceFiles(repoPath);
   const projectProfile = await buildProjectProfile(repoPath, discoveredFilePaths);
-  const rawFilePaths = discoveredFilePaths.filter((path) => SOURCE_EXTS.has(extname(path).toLowerCase()));
-  // For TypeScript files, skip *.d.ts and files under node_modules/dist.
+  const rawFilePaths = discoveredFilePaths.filter((path) => ANALYZED_SOURCE_EXTS.has(extname(path).toLowerCase()));
+  // For the whole JS/TS family, skip declaration files and node_modules/dist.
   const unscopedFilePaths = rawFilePaths.filter((fp) => {
     const ext = extname(fp).toLowerCase();
-    if (ext === ".ts" || ext === ".tsx") return !shouldSkipTsPath(fp);
+    if (TS_FAMILY_EXTS.has(ext)) return !shouldSkipTsPath(fp);
     return true;
   });
   // Partial scope: keep only sources under one of the requested repo-relative

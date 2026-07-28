@@ -51,6 +51,7 @@ RepoNode ── files[] ──▶ FileNode ── functions[] ──▶ Function
 
 ## 解析対象
 
-`analyze(repoPath)`（`src/core.ts`）が収集する拡張子は `.cpp / .h / .cs / .ts / .tsx`。
-`node_modules / dist / .git`、`*.d.ts` は除外。spec markdown は `.md`。
+`analyze(repoPath)`（`src/core.ts`）が収集する拡張子は
+`.cpp / .h / .cs / .js / .jsx / .mjs / .cjs / .ts / .tsx / .mts / .cts`。
+`node_modules / dist / .git`、`*.d.ts / *.d.mts / *.d.cts` は除外。spec markdown は `.md`。
 パース/抽出に失敗したファイルは crash せず `AnalysisContext.skipped[]` に理由付きで記録。

@@ -68,5 +68,9 @@ tree-sitter AST を含み直列化できないため、**結果はプロセス�
 `AnalysisCache.hits / misses` は観測用カウンタ。CLI の `project analyze` / MCP
 `anatomia.projects.analyze` はこの増分により `(cache hit)` を報告する。
 
-> fingerprint が見る拡張子は `.cpp / .h / .cs / .ts / .tsx / .md`。
+> fingerprint（`src/project/fingerprint.ts`）が見る拡張子は
+> `.cpp / .h / .cs / .js / .jsx / .mjs / .cjs / .ts / .tsx / .mts / .cts / .java / .go / .md`。
+> これは **`analyze()` の収集拡張子（→ [feature/static-analysis.md](../feature/static-analysis.md)）の
+> superset でなければならない**。解析されるのに stamp されない拡張子があると、その編集で
+> fingerprint が動かず古いキャッシュが返る。
 > 走査は directory-pruning walk（`src/fs/walk.ts`）で `node_modules / dist / .git / .anatomia` を降りない。
