@@ -47,6 +47,16 @@ anatomia <verify|context|where|find|callers|callees|review|spec-review|domain-re
 ショットには**保存されない**（フル解析キャッシュを汚さない）。フルキャッシュが新鮮な
 場合はその superset がそのまま返る。
 
+### pr-review のフラグ
+
+| フラグ | 意味 |
+|---|---|
+| `--repo <path>` | 対象 worktree（既定 cwd） |
+| `--base <ref>` | 差分の base ref（既定: origin/main → main → origin/master → master） |
+| `--json` | JSON 出力（本サブコマンドは常に JSON） |
+
+`--project` は**受け付けない**（一時解析であって登録プロジェクトのキャッシュを使わない）。
+
 ### scenes のフラグ
 
 | フラグ | 意味 |

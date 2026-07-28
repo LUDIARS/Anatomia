@@ -64,6 +64,21 @@ describe("computeFingerprint content-addressing", () => {
     expect(await computeFingerprint(root)).toBe(before);
   });
 
+  it("stamps every extension analyze() parses, including the JS family", async () => {
+    // The fingerprint must stay a superset of core.ts ANALYZED_SOURCE_EXTS: an
+    // extension that is analyzed but not stamped leaves the fingerprint frozen
+    // across an edit to it, so the cached (now stale) context is served.
+    for (const name of ["tool.js", "view.jsx", "tool.mjs", "tool.cjs", "mod.mts", "mod.cts"]) {
+      const file = join(root, name);
+      await writeFile(file, "export const v = 1;\n");
+      resetFingerprintMemo();
+      const before = await computeFingerprint(root);
+      await writeFile(file, "export const v = 2;\n");
+      resetFingerprintMemo();
+      expect(await computeFingerprint(root)).not.toBe(before);
+    }
+  });
+
   it("includes the canonical Unity project-version text marker", async () => {
     const settings = join(root, "ProjectSettings");
     const marker = join(settings, "ProjectVersion.txt");

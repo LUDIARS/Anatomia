@@ -756,13 +756,22 @@ export async function runCli(
  * otherwise analyze the --repo / cwd path directly (legacy behaviour).
  */
 async function resolveContext(args: CliArgs): Promise<AnalysisContext> {
+  // pr-review is ephemeral by contract (feature/pr-diff-review.md): it must never
+  // route through ProjectManager's persistent cache, so --project is rejected
+  // rather than silently downgraded to an unrelated cwd analysis.
+  if (args.subcommand === "pr-review") {
+    if (args.project) {
+      throw new Error(
+        "pr-review is ephemeral and cannot use --project; pass --repo <worktree> instead.",
+      );
+    }
+    return analyze(args.repoPath, { pluginDir: domainsDir(args.repoPath) });
+  }
   if (args.project) {
     const mgr = await ProjectManager.load();
     return mgr.getContext(args.project);
   }
-  return args.subcommand === "pr-review"
-    ? analyze(args.repoPath, { pluginDir: domainsDir(args.repoPath) })
-    : analyze(args.repoPath);
+  return analyze(args.repoPath);
 }
 
 /**

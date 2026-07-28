@@ -12,7 +12,8 @@ context 供給）の土台になる。
 パイプライン（DESIGN の G1→G5）：
 
 ```
-.cpp/.h/.cs/.ts/.tsx を再帰収集（node_modules / dist / .git / *.d.ts は除外）
+.cpp/.h/.cs/.js/.jsx/.mjs/.cjs/.ts/.tsx/.mts/.cts を再帰収集
+  （node_modules / dist / .git、および *.d.ts / *.d.mts / *.d.cts は除外）
   → parse（tree-sitter, WASM はグローバルキャッシュ）
   → extractFunctions（関数抽出 + enclosingType / params）/ extractTypeDecls（class/基底）
   → normalize（body 正規化）
@@ -67,8 +68,11 @@ CLI `export-graph` の出力（HTML 内 DATA + 件数サマリ）に含まれる
 
 ## 言語判定
 
-拡張子マップ（`langFor`）：`.cs → c_sharp`、`.tsx → tsx`、`.ts → typescript`、
-それ以外（`.cpp / .h`）→ `cpp`。
+拡張子マップ（`langFor`, `src/core.ts`）：`.cs → c_sharp`、`.tsx / .jsx → tsx`、
+`.ts / .js / .mjs / .cjs / .mts / .cts → typescript`、それ以外（`.cpp / .h`）→ `cpp`。
+
+JS 系は TypeScript 文法で読む（TS は JS の上位互換なので同一グラマで足りる）。
+宣言ファイル（`*.d.ts / *.d.mts / *.d.cts`）は実装を持たないので収集対象外。
 
 ## 決定性 / 耐障害性
 

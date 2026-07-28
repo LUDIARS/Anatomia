@@ -143,13 +143,51 @@ export async function changedFiles(
   return [...set];
 }
 
-/** Unified working-tree diff from merge-base to HEAD, for the five verify gates. */
+/** Max characters of pathspec arguments per `git diff` invocation. */
+const PATHSPEC_BUDGET = 6000;
+
+/** Split `paths` so every resulting argv stays under the OS command-length limit. */
+function chunkPathspec(paths: string[]): string[][] {
+  const chunks: string[][] = [];
+  let current: string[] = [];
+  let size = 0;
+  for (const path of paths) {
+    if (current.length > 0 && size + path.length + 1 > PATHSPEC_BUDGET) {
+      chunks.push(current);
+      current = [];
+      size = 0;
+    }
+    current.push(path);
+    size += path.length + 1;
+  }
+  if (current.length > 0) chunks.push(current);
+  return chunks;
+}
+
+/**
+ * Unified diff from `mergeBase` to the **working tree**, optionally restricted
+ * to `paths`, for the five verify gates. Matches what `changedFiles` reports,
+ * except that untracked files are invisible to `git diff` and so never appear.
+ *
+ * A wide PR would overflow the OS argument limit (E2BIG / the 32k CreateProcess
+ * ceiling on Windows) if every path went into one argv, so the pathspec is
+ * chunked and the per-chunk patches are concatenated — consumers split a unified
+ * diff on `diff --git` headers anyway, so the join is lossless. Binary patches
+ * are deliberately not requested: the gates parse the patch as source text.
+ */
 export async function branchDiffText(
   rootPath: string,
   mergeBase: string,
   paths: string[] = [],
 ): Promise<string | null> {
-  return git(rootPath, ["diff", "--binary", "--no-ext-diff", mergeBase, "--", ...paths]);
+  const base = ["diff", "--no-ext-diff", "--no-textconv", mergeBase];
+  if (paths.length === 0) return git(rootPath, base);
+  const parts: string[] = [];
+  for (const chunk of chunkPathspec(paths)) {
+    const out = await git(rootPath, [...base, "--", ...chunk]);
+    if (out) parts.push(out);
+  }
+  return parts.length > 0 ? parts.join("\n") : null;
 }
 
 /**
