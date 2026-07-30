@@ -28,6 +28,17 @@ function caseStyle(name: string): CaseStyle {
   return "other";
 }
 
+/**
+ * JSX treats a lowercase tag as a DOM element, so a component *must* be
+ * PascalCase — it is a language requirement, not a local convention. Siblings in
+ * a .tsx/.jsx file are usually camelCase helpers, which would otherwise make
+ * every newly added component look like naming drift.
+ */
+function isJsxComponent(name: string, filePath: string | undefined): boolean {
+  if (!filePath || !/\.[jt]sx$/.test(filePath)) return false;
+  return /^[A-Z][a-zA-Z0-9]*$/.test(name);
+}
+
 /** Dominant value in a list (mode); ties resolved by sorted order. */
 function dominant<T extends string>(values: T[]): T | null {
   if (values.length === 0) return null;
@@ -67,12 +78,22 @@ export function conventionDriftGate(): Gate {
         return { gate: "convention_drift", pass: true, anchors: [], suggestion: null };
       }
 
-      const sibNames = siblings.map((f) => f.name);
+      // JSX components are excluded from convention mining (their PascalCase is
+      // mandated by JSX, not by the local style). If that leaves nothing — e.g.
+      // a .tsx file made up entirely of components — fall back to the full
+      // sibling set rather than silently mining no convention at all.
+      const nonComponents = siblings.filter(
+        (f) => !isJsxComponent(f.name, f.sourceRange?.filePath),
+      );
+      const sibNames = (nonComponents.length > 0 ? nonComponents : siblings).map(
+        (f) => f.name,
+      );
       const domStyle = dominant(sibNames.map(caseStyle));
       const sharedSuffix = commonSuffix(sibNames);
 
       const drifts: { anchor: AnchorId; reason: string }[] = [];
       for (const fn of changed) {
+        if (isJsxComponent(fn.name, fn.sourceRange?.filePath)) continue;
         const reasons: string[] = [];
         if (domStyle && domStyle !== "other") {
           const style = caseStyle(fn.name);
@@ -102,5 +123,5 @@ export function conventionDriftGate(): Gate {
   };
 }
 
-export const _internal = { caseStyle, dominant, commonSuffix };
+export const _internal = { caseStyle, dominant, commonSuffix, isJsxComponent };
 

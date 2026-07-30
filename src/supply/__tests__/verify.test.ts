@@ -34,6 +34,15 @@ const mockEmbed: EmbeddingClient = async (texts) =>
 
 const dupDeps: DuplicationDeps = { embed: mockEmbed, similarityThreshold: 0.99 };
 
+/** Same as sib() but located in a .tsx file (JSX naming rules apply there). */
+function tsxSib(id: string, name: string): FunctionNode {
+  const node = sib(id, name);
+  return {
+    ...node,
+    sourceRange: { ...node.sourceRange, filePath: "/ui/ProfilePage.tsx" },
+  };
+}
+
 function sib(id: string, name: string): FunctionNode {
   return {
     id: a(id),
@@ -165,6 +174,44 @@ describe("T29 convention_drift gate", () => {
     const { graph } = await buildFromSource(`void x() {}`);
     const r = await conventionDriftGate().run({ changed, graph, siblings });
     expect(r.pass).toBe(true);
+  });
+
+  // JSX requires PascalCase for components (a lowercase tag is a DOM element),
+  // so a new component among camelCase helpers is not drift.
+  it("does not flag a new PascalCase component in a .tsx file", async () => {
+    const siblings = [tsxSib("s1", "handleSave"), tsxSib("s2", "togglePrivacy")];
+    const changed = [tsxSib("n1", "LinkedAccountsSection")];
+    const { graph } = await buildFromSource(`void x() {}`);
+    const r = await conventionDriftGate().run({ changed, graph, siblings });
+    expect(r.pass).toBe(true);
+  });
+
+  it("still flags a non-component name that diverges inside a .tsx file", async () => {
+    const siblings = [tsxSib("s1", "handleSave"), tsxSib("s2", "togglePrivacy")];
+    const changed = [tsxSib("n1", "handle_unlink")];
+    const { graph } = await buildFromSource(`void x() {}`);
+    const r = await conventionDriftGate().run({ changed, graph, siblings });
+    expect(r.pass).toBe(false);
+    expect(r.suggestion).toMatch(/handle_unlink/);
+  });
+
+  // When every sibling is a component, excluding them all would leave no
+  // convention to mine — the gate falls back to the full sibling set.
+  it("still mines a convention when all .tsx siblings are components", async () => {
+    const siblings = [tsxSib("s1", "ProfileHeader"), tsxSib("s2", "AvatarCard")];
+    const changed = [tsxSib("n1", "handle_unlink")];
+    const { graph } = await buildFromSource(`void x() {}`);
+    const r = await conventionDriftGate().run({ changed, graph, siblings });
+    expect(r.pass).toBe(false);
+    expect(r.suggestion).toMatch(/handle_unlink/);
+  });
+
+  it("keeps flagging PascalCase drift outside jsx files", async () => {
+    const siblings = [sib("s1", "handleSave"), sib("s2", "togglePrivacy")];
+    const changed = [sib("n1", "LinkedAccountsSection")];
+    const { graph } = await buildFromSource(`void x() {}`);
+    const r = await conventionDriftGate().run({ changed, graph, siblings });
+    expect(r.pass).toBe(false);
   });
 });
 

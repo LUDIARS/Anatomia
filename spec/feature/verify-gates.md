@@ -21,6 +21,11 @@ AI が生成した diff を、その codebase の grain（ドメイン・ルー�
 | 4 | `coupling_delta` | warn | 変更関数の結合/共有状態 fan-in がリポ自身の上位パーセンタイルを超え、かつ base 比で増加したら flag（codebase 相対、`gates/coupling_delta.ts`） |
 | 5 | `convention_drift` | warn | 命名 case 様式・共通 affix が兄弟コードから乖離したら flag（LLM 不使用・構造的、`gates/convention_drift.ts`） |
 
+`convention_drift` の例外: `.tsx` / `.jsx` の PascalCase 関数は **JSX コンポーネント**と
+みなし、慣習の採掘対象からも flag 対象からも外す（小文字タグは DOM 要素になるため
+PascalCase は言語要件であり、ローカル慣習ではない）。ただし兄弟が全てコンポーネントで
+採掘対象が空になる場合は、慣習ゼロで素通しせず兄弟全体にフォールバックする。
+
 ## Verdict（出力）
 
 `verify()` は `Verdict { pass, gates: GateResult[], anchors, suggestion }` を返す。
