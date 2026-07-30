@@ -18,11 +18,14 @@ import { mkdtemp, rm, writeFile as writeFs } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { buildFromSource } from "../../supply/__tests__/helpers.js";
+import { Hono } from "hono";
 import { createApp } from "../web/server.js";
+import { webContextSourceFrom, type WebContextSource } from "../web/context.js";
+import { mountTestSuggestionRoutes } from "../web/routes/test-suggestions.js";
+import type { AugurRunner } from "../augur.js";
 import { ProjectManager } from "../../project/manager.js";
 import { ProjectRegistry } from "../../project/registry.js";
 import type { AnalysisContext } from "../../core.js";
-import type { Hono } from "hono";
 
 // ---------------------------------------------------------------------------
 // Shared C++ fixture (3 functions with call relationships)
@@ -39,6 +42,7 @@ void gamma() { beta(); alpha(); }
 // ---------------------------------------------------------------------------
 
 let singleApp: Hono;
+let singleSource: WebContextSource;
 
 beforeAll(async () => {
   const { graph, file, functions } = await buildFromSource(CPP_FIXTURE);
@@ -52,6 +56,7 @@ beforeAll(async () => {
     specClauses: [],
   };
   singleApp = createApp(ctx);
+  singleSource = webContextSourceFrom(ctx);
 });
 
 describe("GET /api/graph (single-context)", () => {
@@ -143,117 +148,156 @@ describe("GET /api/projects/:id/summary (single-context)", () => {
 });
 
 describe("POST /api/projects/:id/test-suggestions (single-context)", () => {
-  it("forwards a shaped Augur plan request and returns suggestions", async () => {
-    vi.stubEnv("ANATOMIA_AUGUR_URL", "");
-    vi.stubEnv("AUGUR_URL", "");
-    const calls: Array<{ url: string; init?: RequestInit }> = [];
-    vi.stubGlobal("fetch", async (url: RequestInfo | URL, init?: RequestInit) => {
-      calls.push({ url: String(url), init });
-      return new Response(JSON.stringify({
-        summary: "Create regression guidance from Anatomia evidence.",
-        testPlan: {
-          suggestions: [{
-            id: "test-001",
-            title: "Cache generation request regression",
-            kind: "regression",
-            priority: "high",
-            confidence: 0.86,
-            targetFiles: ["src/adapters/web/public/index.html"],
-            rationale: "The cache generation control is user-facing and stateful.",
-            draft: {
-              framework: "vitest",
-              description: "Assert the request is posted once and the button is disabled while pending.",
-              outline: ["Arrange dashboard state", "Click generate", "Assert disabled state"],
-            },
-            evidenceIds: ["ev-001"],
-          }],
-        },
-        fixPolicy: {
-          strategy: "test_first",
-          steps: [{ id: "fix-001", title: "Add regression test", description: "Cover the cache action." }],
-          risks: [],
-        },
-        evidence: [{ id: "ev-001", type: "objective", detail: "Objective supplied." }],
-      }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
-    });
+  // The transport is a child process, not `fetch`, so the runner is injected
+  // rather than a global being stubbed: there is no global left to stub, and a
+  // test that spawned the real CLI would depend on an Augur checkout.
+  function appWithRunner(runner: AugurRunner): Hono {
+    const app = new Hono();
+    mountTestSuggestionRoutes(app, singleSource, runner);
+    return app;
+  }
 
-    try {
-      const res = await singleApp.fetch(
-        new Request("http://localhost/api/projects/fixture/test-suggestions", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            objective: {
-              kind: "bug_fix",
-              description: "Cache generation should disable while the request is running.",
-              desiredOutcome: "All related requests are healthy and usable.",
-            },
-            change: { changedFiles: ["src/adapters/web/public/index.html"] },
-          }),
-        }),
-      );
-      expect(res.status).toBe(200);
-      const body = await res.json() as {
-        suggestions: Array<{ title: string; kind: string }>;
-        request: {
-          objective: { kind: string };
-          project: { testRunners: string[] };
-          change: { changedFiles: string[] };
-          runtimeSignals: Array<{ name: string }>;
-        };
-      };
-      expect(body.suggestions[0]).toMatchObject({
+  const PLAN = {
+    summary: "Create regression guidance from Anatomia evidence.",
+    testPlan: {
+      suggestions: [{
+        id: "test-001",
         title: "Cache generation request regression",
         kind: "regression",
-      });
-      expect(body.request.project.testRunners).toContain("vitest");
-      expect(body.request.change.changedFiles).toEqual(["src/adapters/web/public/index.html"]);
-      expect(body.request.runtimeSignals.some((signal) => signal.name === "anatomia.files")).toBe(true);
+        priority: "high",
+        confidence: 0.86,
+        targetFiles: ["src/adapters/web/public/index.html"],
+        rationale: "The cache generation control is user-facing and stateful.",
+        draft: {
+          framework: "vitest",
+          description: "Assert the request is posted once and the button is disabled while pending.",
+          outline: ["Arrange dashboard state", "Click generate", "Assert disabled state"],
+        },
+        evidenceIds: ["ev-001"],
+      }],
+    },
+    fixPolicy: {
+      strategy: "test_first",
+      steps: [{ id: "fix-001", title: "Add regression test", description: "Cover the cache action." }],
+      risks: [],
+    },
+    evidence: [{ id: "ev-001", type: "objective", detail: "Objective supplied." }],
+  };
 
-      expect(calls).toHaveLength(1);
-      expect(calls[0].url).toBe("http://127.0.0.1:4210/v1/plans");
-      expect(typeof calls[0].init?.body).toBe("string");
-      const forwarded = JSON.parse(calls[0].init?.body as string) as {
-        objective: { kind: string };
-        project: { frameworks: string[] };
-      };
-      expect(forwarded.objective.kind).toBe("bug_fix");
-      expect(forwarded.project.frameworks).toContain("hono");
-    } finally {
-      vi.unstubAllGlobals();
-      vi.unstubAllEnvs();
-    }
-  });
+  function suggestionRequest(body: unknown): Request {
+    return new Request("http://localhost/api/projects/fixture/test-suggestions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  }
 
-  it("returns 503 when Augur is unreachable", async () => {
-    vi.stubEnv("ANATOMIA_AUGUR_URL", "");
-    vi.stubEnv("AUGUR_URL", "");
-    vi.stubGlobal("fetch", async () => {
-      throw new Error("ECONNREFUSED");
+  it("hands a shaped Augur plan request to the CLI and returns suggestions", async () => {
+    const calls: unknown[] = [];
+    const app = appWithRunner(async (_cliPath, request) => {
+      calls.push(request);
+      return { ok: true, stdout: JSON.stringify(PLAN), stderr: "", exitCode: 0 };
     });
 
+    const res = await app.fetch(suggestionRequest({
+      objective: {
+        kind: "bug_fix",
+        description: "Cache generation should disable while the request is running.",
+        desiredOutcome: "All related requests are healthy and usable.",
+      },
+      change: { changedFiles: ["src/adapters/web/public/index.html"] },
+    }));
+
+    expect(res.status).toBe(200);
+    const body = await res.json() as {
+      suggestions: Array<{ title: string; kind: string }>;
+      request: {
+        objective: { kind: string };
+        project: { testRunners: string[] };
+        change: { changedFiles: string[] };
+        runtimeSignals: Array<{ name: string }>;
+      };
+    };
+    expect(body.suggestions[0]).toMatchObject({
+      title: "Cache generation request regression",
+      kind: "regression",
+    });
+    expect(body.request.project.testRunners).toContain("vitest");
+    expect(body.request.change.changedFiles).toEqual(["src/adapters/web/public/index.html"]);
+    expect(body.request.runtimeSignals.some((signal) => signal.name === "anatomia.files")).toBe(true);
+
+    // The request shape is unchanged by the transport: it is the same
+    // CreatePlanRequest the HTTP API received.
+    expect(calls).toHaveLength(1);
+    const forwarded = calls[0] as { objective: { kind: string }; project: { frameworks: string[] } };
+    expect(forwarded.objective.kind).toBe("bug_fix");
+    expect(forwarded.project.frameworks).toContain("hono");
+  });
+
+  it("returns 502 with the CLI's own message when the plan fails", async () => {
+    const app = appWithRunner(async () => ({
+      ok: false,
+      stdout: "",
+      stderr: "error: objective.description is required",
+      exitCode: 1,
+    }));
+
+    const res = await app.fetch(suggestionRequest({
+      objective: { kind: "regression", description: "Protect the cache generation workflow." },
+    }));
+
+    expect(res.status).toBe(502);
+    const body = await res.json() as { error: string; exitCode: number; detail: string };
+    expect(body.error).toBe("Augur plan request failed");
+    expect(body.exitCode).toBe(1);
+    expect(body.detail).toContain("objective.description is required");
+  });
+
+  it("returns 502 when the CLI answers with something that is not JSON", async () => {
+    const app = appWithRunner(async () => ({
+      ok: true,
+      stdout: "not json at all",
+      stderr: "",
+      exitCode: 0,
+    }));
+
+    const res = await app.fetch(suggestionRequest({
+      objective: { kind: "regression", description: "Protect the cache generation workflow." },
+    }));
+
+    expect(res.status).toBe(502);
+    const body = await res.json() as { error: string };
+    expect(body.error).toBe("Augur returned a response that is not JSON");
+  });
+
+  // `null` and `[]` parse as JSON but cannot be indexed for testPlan/summary,
+  // so they have to fail like any other unusable answer rather than throwing a
+  // 500 out of the route.
+  it.each(["null", "[]", "42"])("returns 502 when the CLI answers with %s", async (stdout) => {
+    const app = appWithRunner(async () => ({ ok: true, stdout, stderr: "", exitCode: 0 }));
+
+    const res = await app.fetch(suggestionRequest({
+      objective: { kind: "regression", description: "Protect the cache generation workflow." },
+    }));
+
+    expect(res.status).toBe(502);
+    const body = await res.json() as { error: string };
+    expect(body.error).toBe("Augur returned a response that is not JSON");
+  });
+
+  it("returns 503 when the Augur checkout is missing", async () => {
+    vi.stubEnv("ANATOMIA_AUGUR_DIR", join(tmpdir(), "augur-does-not-exist"));
+    const app = new Hono();
+    mountTestSuggestionRoutes(app, singleSource);
     try {
-      const res = await singleApp.fetch(
-        new Request("http://localhost/api/projects/fixture/test-suggestions", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            objective: {
-              kind: "regression",
-              description: "Protect the cache generation workflow.",
-            },
-          }),
-        }),
-      );
+      const res = await app.fetch(suggestionRequest({
+        objective: { kind: "regression", description: "Protect the cache generation workflow." },
+      }));
       expect(res.status).toBe(503);
-      const body = await res.json() as { error: string; augurUrl: string };
-      expect(body.error).toBe("Augur is not reachable");
-      expect(body.augurUrl).toBe("http://127.0.0.1:4210");
+      const body = await res.json() as { error: string; detail: string };
+      expect(body.error).toBe("Augur is not available");
+      expect(body.detail).toContain("ANATOMIA_AUGUR_DIR");
     } finally {
-      vi.unstubAllGlobals();
       vi.unstubAllEnvs();
     }
   });
@@ -357,7 +401,7 @@ describe("GET / (single-context)", () => {
     const { graph, file, functions } = await buildFromSource(CPP_FIXTURE);
     const anchor = functions[0]?.id;
     if (anchor == null) throw new Error("fixture function must have an anchor");
-    const focusedApp = createApp({
+    const focusedCtx: AnalysisContext = {
       repoPath: "/fixture",
       graph,
       files: [file],
@@ -365,16 +409,24 @@ describe("GET / (single-context)", () => {
       domains: [{ domain: "player-actions", implementors: [anchor], violations: [], conforms: true }],
       links: [],
       specClauses: [],
-    });
+    };
     let forwarded: Record<string, unknown> | undefined;
-    vi.stubGlobal("fetch", async (_url: RequestInfo | URL, init?: RequestInit) => {
-      forwarded = JSON.parse(String(init?.body)) as Record<string, unknown>;
-      return new Response(JSON.stringify({
-        summary: "Focused plan",
-        testPlan: { suggestions: [] },
-        fixPolicy: { strategy: "test_first", steps: [], risks: [] },
-        evidence: [],
-      }), { status: 200, headers: { "content-type": "application/json" } });
+    // The transport is a child process, so the route is mounted with a stub
+    // runner; there is no global fetch left to intercept.
+    const focusedApp = new Hono();
+    mountTestSuggestionRoutes(focusedApp, webContextSourceFrom(focusedCtx), async (_cliPath, request) => {
+      forwarded = request as Record<string, unknown>;
+      return {
+        ok: true,
+        stdout: JSON.stringify({
+          summary: "Focused plan",
+          testPlan: { suggestions: [] },
+          fixPolicy: { strategy: "test_first", steps: [], risks: [] },
+          evidence: [],
+        }),
+        stderr: "",
+        exitCode: 0,
+      };
     });
 
     try {

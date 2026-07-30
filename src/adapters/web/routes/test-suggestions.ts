@@ -3,10 +3,18 @@
  *
  * Anatomia owns project analysis; Augur owns test-planning suggestions. This
  * route shapes a small CreatePlanRequest from the current project + user
- * objective and forwards it to Augur's local HTTP API.
+ * objective and hands it to the Augur CLI (src/adapters/augur.ts). Augur has no
+ * daemon and no port, so the transport is a child process, not HTTP.
  */
 
 import type { Hono } from "hono";
+import {
+  AugurPlanFailedError,
+  AugurUnavailableError,
+  requestAugurPlan,
+  resolveAugurDir,
+  type AugurRunner,
+} from "../../augur.js";
 import { buildFocusedTestingFacts, FocusedTestingError } from "../../../domains/focused-testing.js";
 import type { WebContextSource } from "../context.js";
 import { parseFocusedTestingInput } from "./focused-testing-input.js";
@@ -45,7 +53,16 @@ interface AugurPlanRequest {
   focusedTesting?: unknown;
 }
 
-export function mountTestSuggestionRoutes(app: Hono, source: WebContextSource): void {
+/**
+ * `runner` exists so tests stub the transport instead of an environment variable:
+ * a stubbed global `fetch` used to stand in for Augur, and there is no global to
+ * stub once the transport is a process.
+ */
+export function mountTestSuggestionRoutes(
+  app: Hono,
+  source: WebContextSource,
+  runner?: AugurRunner,
+): void {
   app.post("/api/projects/:id/test-suggestions", async (c) => {
     const id = c.req.param("id");
     let body: AugurPlanRequest = {};
@@ -80,7 +97,6 @@ export function mountTestSuggestionRoutes(app: Hono, source: WebContextSource): 
       throw err;
     }
 
-    const augurUrl = resolveAugurUrl();
     const changedFiles = stringList(body.change?.changedFiles).slice(0, 20);
     const diff = typeof body.change?.diff === "string" && body.change.diff.trim()
       ? body.change.diff
@@ -124,52 +140,35 @@ export function mountTestSuggestionRoutes(app: Hono, source: WebContextSource): 
       ...(focusedTesting !== undefined ? { focusedTesting } : {}),
     };
 
-    let res: Response;
+    let payload: Record<string, unknown>;
     try {
-      res = await fetch(`${augurUrl}/v1/plans`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(request),
-      });
+      payload = await requestAugurPlan(request, runner === undefined ? {} : { run: runner });
     } catch (err) {
-      return c.json(
-        {
-          error: "Augur is not reachable",
-          augurUrl,
-          detail: err instanceof Error ? err.message : String(err),
-        },
-        503,
-      );
+      // A missing checkout is a setup problem (503, same as an unreachable
+      // service was); a CLI that ran and refused is a plan failure (502).
+      if (err instanceof AugurUnavailableError) {
+        return c.json({ error: "Augur is not available", augurDir: err.augurDir, detail: err.message }, 503);
+      }
+      if (err instanceof AugurPlanFailedError) {
+        return c.json(
+          { error: err.message, augurDir: resolveAugurDir(), exitCode: err.exitCode, detail: err.detail },
+          502,
+        );
+      }
+      throw err;
     }
 
-    const payload = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      return c.json(
-        {
-          error: "Augur plan request failed",
-          augurUrl,
-          status: res.status,
-          detail: payload,
-        },
-        502,
-      );
-    }
-
+    const testPlan = payload["testPlan"] as { suggestions?: unknown } | undefined;
     return c.json({
-      augurUrl,
+      augurDir: resolveAugurDir(),
       request,
-      summary: payload.summary ?? "",
-      suggestions: payload.testPlan?.suggestions ?? [],
-      fixPolicy: payload.fixPolicy ?? null,
-      evidence: payload.evidence ?? [],
+      summary: payload["summary"] ?? "",
+      suggestions: testPlan?.suggestions ?? [],
+      fixPolicy: payload["fixPolicy"] ?? null,
+      evidence: payload["evidence"] ?? [],
       focusedTesting: focusedTesting ?? null,
     });
   });
-}
-
-function resolveAugurUrl(): string {
-  const raw = process.env.ANATOMIA_AUGUR_URL || process.env.AUGUR_URL || "http://127.0.0.1:4210";
-  return raw.replace(/\/+$/, "");
 }
 
 function parseObjective(
