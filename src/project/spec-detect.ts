@@ -23,7 +23,7 @@
 import { readdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { collectFilesByExt, readGitignoreDirs, EXCLUDE_DIRS } from "../fs/walk.js";
+import { collectProjectFiles } from "../fs/walk.js";
 
 /** Directory names a non-conforming layout plausibly keeps its spec in. */
 const SPEC_DIR_CANDIDATES = ["spec", "specs", "doc", "docs", "design"];
@@ -35,8 +35,7 @@ const MD_EXTS = new Set([".md"]);
 
 /** True when the directory subtree contains at least one markdown file. */
 export async function hasMarkdownSources(root: string): Promise<boolean> {
-  const gitDirs = await readGitignoreDirs(root);
-  const files = await collectFilesByExt(root, MD_EXTS, new Set([...EXCLUDE_DIRS, ...gitDirs]));
+  const files = await collectProjectFiles(root, MD_EXTS);
   return files.length > 0;
 }
 

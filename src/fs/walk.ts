@@ -13,11 +13,15 @@
  * Symlinks are not followed (a symlinked dir reports isDirectory() === false),
  * which also avoids cycles via junctions (e.g. a node_modules junction).
  *
- * SRP: filesystem traversal only. Extension sets + exclusion policy are passed
- * in by callers (core.ts analyze, project/cache.ts fingerprint).
+ * SRP: traversal plus the one exclusion policy every analysis walk shares —
+ * the built-in prune list above and whatever git ignores (./git-ignore.ts).
+ * Extension sets stay with the callers (core.ts analyze, project/fingerprint.ts,
+ * project/spec-detect.ts), and they go through `collectProjectFiles` rather
+ * than assembling exclusion sets around raw `collectFilesByExt`.
  */
 import { readdir, readFile } from "node:fs/promises";
-import { join, extname } from "node:path";
+import { join, extname, relative } from "node:path";
+import { listGitIgnoredPaths } from "./git-ignore.js";
 
 /** Directory names never descended into (vendored deps, build output, VCS). */
 export const EXCLUDE_DIRS = new Set(["node_modules", "dist", ".git", ".anatomia"]);
@@ -58,6 +62,7 @@ export async function collectFilesByExt(
   dir: string,
   exts: Set<string>,
   excludeDirs: Set<string> = EXCLUDE_DIRS,
+  isIgnored: IgnorePredicate = () => false,
 ): Promise<string[]> {
   const result: string[] = [];
   const stack: string[] = [dir];
@@ -70,12 +75,60 @@ export async function collectFilesByExt(
       continue; // unreadable dir — skip, do not crash the whole walk
     }
     for (const entry of entries) {
+      const full = join(current, entry.name);
       if (entry.isDirectory()) {
-        if (!excludeDirs.has(entry.name)) stack.push(join(current, entry.name));
+        if (excludeDirs.has(entry.name)) continue;
+        if (isIgnored(relPath(dir, full), true)) continue;
+        stack.push(full);
       } else if (entry.isFile() && exts.has(extname(entry.name).toLowerCase())) {
-        result.push(join(current, entry.name));
+        if (isIgnored(relPath(dir, full), false)) continue;
+        result.push(full);
       }
     }
   }
   return result;
+}
+
+/**
+ * Decides whether a path found by the walk should be dropped.
+ * `path` is relative to the walk root, forward slashes, no trailing slash.
+ */
+export type IgnorePredicate = (path: string, isDirectory: boolean) => boolean;
+
+/** Walk-root-relative path in git's shape (forward slashes). */
+function relPath(root: string, full: string): string {
+  return relative(root, full).replace(/\\/g, "/");
+}
+
+/**
+ * The exclusion policy every analysis walk shares: built-in vendored/build
+ * directories plus whatever git ignores.
+ *
+ * Falls back to the crude root-.gitignore reader when git cannot answer (no
+ * git, not a work tree). That path is strictly worse but keeps non-git
+ * directories analyzable, which the CLI relies on.
+ */
+export async function buildIgnorePolicy(
+  root: string,
+): Promise<{ excludeDirs: Set<string>; isIgnored: IgnorePredicate }> {
+  const ignored = await listGitIgnoredPaths(root);
+  if (!ignored) {
+    const gitDirs = await readGitignoreDirs(root);
+    return { excludeDirs: new Set([...EXCLUDE_DIRS, ...gitDirs]), isIgnored: () => false };
+  }
+  return {
+    excludeDirs: EXCLUDE_DIRS,
+    isIgnored: (path, isDirectory) =>
+      isDirectory ? ignored.dirs.has(path) : ignored.files.has(path),
+  };
+}
+
+/**
+ * Collect a project's own source files: the pruning walk with the shared
+ * exclusion policy applied. The single entry point for analysis-facing
+ * discovery — callers should not assemble exclusion sets themselves.
+ */
+export async function collectProjectFiles(root: string, exts: Set<string>): Promise<string[]> {
+  const { excludeDirs, isIgnored } = await buildIgnorePolicy(root);
+  return collectFilesByExt(root, exts, excludeDirs, isIgnored);
 }

@@ -83,6 +83,13 @@ tree-sitter AST を含み直列化できないため、**結果はプロセス�
 > superset でなければならない**。解析されるのに stamp されない拡張子があると、その編集で
 > fingerprint が動かず古いキャッシュが返る。
 > 走査は directory-pruning walk（`src/fs/walk.ts`）で `node_modules / dist / .git / .anatomia` を降りない。
+> あわせて **git が無視するパスも対象外**（`src/fs/git-ignore.ts` が `git ls-files --others --ignored
+> --exclude-standard --directory` に委ねる）。untracked でも無視されていないファイルは対象に残る
+> ため、書いた直後の新規ファイルは fingerprint にも解析にも入る。
+> git が答えられない場合（git 不在 / work tree 外）はルート `.gitignore` の素のディレクトリ名だけを
+> 見る旧方式にフォールバックする。非 git ディレクトリも解析対象に保つための経路。
+> なお fingerprint と `analyze()` は同じ `collectProjectFiles` を通るので、除外集合は常に一致する
+> （片方だけが見るファイル、が生じない）。
 
 ## planned knowledge / generated artifact 境界
 

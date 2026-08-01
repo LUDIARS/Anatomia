@@ -12,7 +12,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { basename, extname, relative } from "node:path";
 import type { Tree } from "web-tree-sitter";
-import { collectFilesByExt, readGitignoreDirs, EXCLUDE_DIRS } from "./fs/walk.js";
+import { collectProjectFiles } from "./fs/walk.js";
 import { parse } from "./dag/parser.js";
 import { extractFunctions, extractTypeDecls } from "./dag/extract.js";
 import { normalize } from "./dag/normalize.js";
@@ -245,13 +245,11 @@ const SPEC_EXTS = new Set([".md"]);
 // node_modules/dist trees are never enumerated (see that file for the why).
 
 async function collectSourceFiles(dir: string): Promise<string[]> {
-  const gitDirs = await readGitignoreDirs(dir);
-  return collectFilesByExt(dir, PROJECT_PROFILE_EXTS, new Set([...EXCLUDE_DIRS, ...gitDirs]));
+  return collectProjectFiles(dir, PROJECT_PROFILE_EXTS);
 }
 
 async function collectSpecFiles(dir: string): Promise<string[]> {
-  const gitDirs = await readGitignoreDirs(dir);
-  return collectFilesByExt(dir, SPEC_EXTS, new Set([...EXCLUDE_DIRS, ...gitDirs]));
+  return collectProjectFiles(dir, SPEC_EXTS);
 }
 
 /** Detect language from file extension. Defaults to "cpp" for .h and .cpp. */

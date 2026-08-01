@@ -127,8 +127,8 @@ const MODULES = [
    role:"ANATOMIA_PLUGIN_DIR からドメイン／言語 plugin をロードする土台。",
    exports:["loadPlugins()"], files:["src/plugins/loader.ts"]},
   {id:"fs", label:"fs / walk", group:"support", tasks:"T01",
-   role:"ソース収集。node_modules / dist / .git を除外して .cpp/.h/.cs/.ts/.tsx/.md を再帰収集。",
-   exports:["collectFilesByExt()","EXCLUDE_DIRS"], files:["src/fs/walk.ts"]},
+   role:"ソース収集。node_modules / dist / .git と git が無視するパスを除外して .cpp/.h/.cs/.ts/.tsx/.md を再帰収集。",
+   exports:["collectProjectFiles()","collectFilesByExt()","EXCLUDE_DIRS"], files:["src/fs/walk.ts","src/fs/git-ignore.ts"]},
 
   {id:"dag.parser", label:"dag · parser", group:"G1", tasks:"T03",
    role:"言語フロントエンド。web-tree-sitter + grammar WASM で source→AST（C++/C#/TS/TSX）。",
