@@ -22,7 +22,7 @@
  */
 
 import type { Link, SpecClause } from "../types.js";
-import type { DetectionResult } from "./detect.js";
+import { semanticDetectionResults, type DetectionResult } from "./detect.js";
 
 /** Max spec clauses surfaced per domain. */
 const MAX_SPEC_REFS = 5;
@@ -82,7 +82,7 @@ export function buildDomainView(
   const clauseById = new Map(specClauses.map((c) => [c.id, c]));
 
   const views: DomainView[] = [];
-  for (const d of domains) {
+  for (const d of semanticDetectionResults(domains)) {
     if (d.implementors.length === 0) continue;
     const implementorSet = new Set<string>(d.implementors);
     // The files those implementors live in — spec links are file-anchored, so a

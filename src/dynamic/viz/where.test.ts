@@ -23,6 +23,7 @@ describe('buildWhere', () => {
     expect(result.functionAnchorId).toBeNull();
     expect(result.phase).toBeNull();
     expect(result.label).toContain('frame 5');
+    expect(result.label).toContain('domain=?');
   });
 
   it('finds domain from innermost (last) anchor', () => {
@@ -61,9 +62,9 @@ describe('buildWhere', () => {
     expect(result.label).toContain('function=abcdefghijkl');
   });
 
-  it('domain=? when anchor not found in any card', () => {
+  it('returns unassigned when an active anchor has no domain card', () => {
     const result = buildWhere(1, ['unknown-anchor'], []);
-    expect(result.domain).toBeNull();
-    expect(result.label).toContain('domain=?');
+    expect(result.domain).toBe('unassigned');
+    expect(result.label).toContain('domain=unassigned');
   });
 });

@@ -120,6 +120,26 @@ describe("deriveScenes", () => {
     expect(shop.domains).toEqual(["economy", "ui"]);
   });
 
+  it("never attributes a scene to a policy evaluation result", async () => {
+    const ctx = makeCtx();
+    // A caller may hand us the raw, unpartitioned detectDomains() output.
+    ctx.domains = [
+      ...(ctx.domains ?? []),
+      {
+        domain: "transition-guard-example",
+        role: "policy",
+        implementors: [a("f1"), a("f2")],
+        violations: [],
+        conforms: true,
+      },
+    ];
+
+    const out = await deriveScenes(ctx, makeScreens());
+    const title = out.scenes.find((s) => s.id === "TitlePage")!;
+    expect(title.directDomains).toEqual(["ui"]);
+    expect(title.domains).toEqual(["audio", "combat", "ui"]);
+  });
+
   it("resolves navigation into scene transitions and drops unresolved targets", async () => {
     const out = await deriveScenes(makeCtx(), makeScreens());
     const title = out.scenes.find((s) => s.id === "TitlePage")!;

@@ -17,6 +17,7 @@ import { join } from "node:path";
 import type { Taxonomy } from "./types.js";
 import { registerTaxonomy } from "./register.js";
 import type { RegisterResult } from "./register.js";
+import { assertTaxonomyDomainNames } from "./validation.js";
 
 /** Load a project's taxonomy (prefers <project>.taxonomy.json, else any). */
 export async function loadTaxonomy(
@@ -35,12 +36,24 @@ export async function loadTaxonomy(
     ? preferred
     : entries.find((e) => e.endsWith(".taxonomy.json"));
   if (!file) return null;
+  let parsed: unknown;
   try {
-    const tax = JSON.parse(await readFile(join(dir, file), "utf8")) as Taxonomy;
-    return tax && Array.isArray(tax.domains) ? tax : null;
+    parsed = JSON.parse(await readFile(join(dir, file), "utf8"));
   } catch {
     return null;
   }
+  if (
+    !parsed ||
+    typeof parsed !== "object" ||
+    !Array.isArray((parsed as { domains?: unknown }).domains)
+  ) {
+    return null;
+  }
+  const taxonomy = parsed as Taxonomy;
+  // Authoritative reads fail fast: a reserved relation state must never reach
+  // the adjustment/organize workflows as an editable domain.
+  assertTaxonomyDomainNames(taxonomy);
+  return taxonomy;
 }
 
 /**

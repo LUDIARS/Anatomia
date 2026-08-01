@@ -11,18 +11,27 @@
 
 ## 層の境界 (DESIGN 課題2)
 
-同一 AnchorId 基盤上の **直交する分割**:
+typed stable ID と canonical Scene の記述は planned contract（T55/T66）。現行 Integral は既存
+`AnchorId` / `SceneRef` と、adapter が渡す `SceneModel` を消費する。現行の供給元はトレース
+（`sceneModelFromTraceFile` / `sceneModelFromTrace`）だけで、CLI `integral` は
+`emptySceneModel()` を渡す（`src/adapters/cli.ts` / `src/adapters/web/routes/integral.ts`）。
+目標の scene authority は [scene derivation](./scene-derivation.md)、実装順は
+[`../../docs/plan-okf-domain-scene-flow.md`](../../docs/plan-okf-domain-scene-flow.md) を参照する。
+
+同じ typed knowledge graph 上の **直交する分割**。CodeSymbol は Anchor ID evidence、
+Domain / SpecClause / Scene は各 stable ID を持つ:
 
 | 層 | 何の分割か | 性質 |
 |---|---|---|
 | 構造グラフ | call/data DAG (関数=Anchor, 辺=calls/reads/…) | 常在・接地真実 |
 | 機能 (module) | 構造の凝集単位 (ディレクトリ / クラス) | 決定的・[[module-layer]] |
 | ドメイン | 意味的分割 (仕様由来・人手調整) | 静的・重複可・再構成可 |
-| シーンステート | 局面 (phase/FSM, 動的層) が複数ドメインを activate | 動的・トレース由来 |
+| シーン | code/asset の runtime context が複数ドメインを activate | 静的定義 + trace observation |
 
-包含方向: `scene → {active domain} → {function}`。機能はドメインに属し、ドメインは
+探索方向: `scene → {active code} → {owned domain}`（逆引きも可）。機能はドメインに属し、ドメインは
 複数機能にまたがる。**シーンとドメインは直交**(ドメインにシーン状態を含めない)が、
 シーンの active-domain が単集合のとき `scene ≈ domain` の一致を**注記**する。
+subscene と subdomain の ancestor traversal は別 edge kind を使う。
 
 ## Agent 入力フォーマット (固定 3 部)
 
@@ -44,12 +53,15 @@ interface IntegralQuery {
    - `function` … seeds + グラフ半径 (maxHops, 両方向)
    - `module` … + seed の属する機能まるごと
    - `domain` … + seed が属するドメイン
-   - `scene` … + そのドメインを activate するシーン
+   - `scene` … + その function/domain を activate する scene（T66 後は canonical manifest）
    - `scene-adjacent` (既定) … + シーン内の**他**ドメイン
 3. `maxNodes` / `budgetMs` を超えたら停止し `truncated` + `stopReason` を立てる
    (**サイレントな打ち切り禁止**)。
 4. 出力 `IntegralResult`: seeds / anchors(層タグ付き) / **modules(凝集つき)** /
    domains / scenes / specClauses / rules / contentKey。
+
+`domains` とそこから選ぶ `rules` は semantic project domain に限定する。policy evaluation は
+Integral の domain/scene/seed として表示せず、rule/violation は Verify・Supply・Review の各経路で保持する。
 
 `contentKey = sha256(seeds⊕range)`。
 
@@ -63,10 +75,13 @@ keepAnchors / keepDomains / reason / confidence / **answer**)を得る。束だ�
 
 ## Phase C — パスキャッシュ
 
-`key = versionedKey(contentKey + fingerprint, model, JUDGE_PROMPT_VERSION)`。
-content-addressed `CacheStore`(memory/file/redis)に `{result, decision}` を保存。
-**LLM の prompt キャッシュが消えた後の再調査**でも Sonnet を呼ばず replay。
-fingerprint を畳むのでソース変更で自然失効(Merkle 無効化と同じ)。
+`judgeInput = assembleJudgePrompt(query, result)` とし、
+`key = versionedKey(judgeInput + "\0" + fingerprint, model, JUDGE_PROMPT_VERSION)`。
+`judgeInput` は query と Phase A の完全な結果（domain / scene の表示を含む）から決定的に組み立てる。
+content-addressed `CacheStore`(memory/file/redis)に `{result, decision}` を保存し、
+**LLM の prompt キャッシュが消えた後の再調査**でも Sonnet を呼ばず replay する。
+fingerprint によってソース変更で失効し、judgeInput によって domain / scene の意味割当や
+探索結果が変わった場合も、同じソース fingerprint のまま旧判断を再利用しない。
 
 ## 取得面
 
@@ -77,7 +92,11 @@ fingerprint を畳むのでソース変更で自然失効(Merkle 無効化と同
 
 ## 限界
 
-- シーン層はトレース録画が要る。未配線なら空シーンに **graceful 縮退**し、
-  構造+機能+ドメインで動く(`scenesFromPhaseSignatures` で局面学習に接続可)。
+- **現行**: Integral のシーン層はトレース録画が要る。トレース未供給なら空シーンに
+  **graceful 縮退**し、構造+機能+ドメインで動く（`scenesFromPhaseSignatures` で局面学習に接続可）。
+  `scenes/derive.ts` の静的シーンは web-cache / `anatomia scenes` 側の消費で、Integral には未配線。
+- **planned**（T66）: シーン層を code/asset から静的に構築し、trace 録画を必須にしない。
+  detector 未対応時だけ空シーンへ縮退し、trace phase は canonical scene への observation
+  evidence として接続する。
 - 機能粒度は決定的構造単位(再クラスタリングしない)。低凝集は signal として surface。
 - 呼び出し解決の偽辺(汎用名)は構造グラフ側の既知限界([[static-analysis]])を継承。

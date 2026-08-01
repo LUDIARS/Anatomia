@@ -27,10 +27,13 @@ import { evaluatePredicate } from "./engine.js";
 import { buildPresetPredicate } from "./presets.js";
 import { evaluateTemplate, makeTemplateResolver } from "./template.js";
 import { matchesFilter } from "./predicate.js";
-import type { DomainDef, DomainOntology } from "./ontology.js";
+import type { DomainDef, DomainOntology, DomainRole } from "./ontology.js";
+import { assertDomainDefinitionName } from "./assignment.js";
 
 export interface DetectionResult {
   domain: string;
+  /** Missing is treated as semantic for legacy callers and cached fixtures. */
+  role?: DomainRole;
   /** Functions that implement (are touched by) the domain. */
   implementors: AnchorId[];
   /** All violations found for the domain. */
@@ -69,6 +72,12 @@ function compilePresetPredicates(def: DomainDef): Predicate[] {
   return def.presetRules.map((cfg) => buildPresetPredicate(cfg.preset, cfg.params));
 }
 
+/** Namespace local template ids while preserving legacy already-qualified ids. */
+function qualifyTemplateRuleId(domain: string, ruleId: string): string {
+  const prefix = `${domain}/`;
+  return ruleId.startsWith(prefix) ? ruleId : `${prefix}${ruleId}`;
+}
+
 /**
  * Detect a single domain against the graph + its backing functions.
  */
@@ -77,6 +86,7 @@ export async function detectDomain(
   graph: CodeGraphQuery,
   functions: FunctionNode[],
 ): Promise<DetectionResult> {
+  assertDomainDefinitionName(def.name);
   const presetPreds = compilePresetPredicates(def);
   const templateResolver = makeTemplateResolver(def.templateRules, functions);
 
@@ -94,7 +104,11 @@ export async function detectDomain(
 
   // Evaluate template rules directly (they need live AST via functions).
   for (const tpl of def.templateRules) {
-    const v = await evaluateTemplate(tpl, functions, `${def.name}/${tpl.id}`);
+    const v = await evaluateTemplate(
+      tpl,
+      functions,
+      qualifyTemplateRuleId(def.name, tpl.id),
+    );
     violations.push(...v);
   }
 
@@ -146,6 +160,7 @@ export async function detectDomain(
   const conforms = !violations.some((v) => v.severity === "error");
   return {
     domain: def.name,
+    role: def.role ?? "semantic",
     implementors: [...implementorSet],
     violations,
     conforms,
@@ -191,4 +206,42 @@ export async function detectDomains(
     results.push(await detectDomain(def, graph, functions));
   }
   return results;
+}
+
+/** Keep policy evaluation observable without making it semantic ownership. */
+export function partitionDetectionResults(results: readonly DetectionResult[]): {
+  domains: DetectionResult[];
+  policyResults: DetectionResult[];
+} {
+  const domains: DetectionResult[] = [];
+  const policyResults: DetectionResult[] = [];
+  for (const result of results) {
+    if (isSemanticDetectionResult(result)) domains.push(result);
+    else policyResults.push(result);
+  }
+  return { domains, policyResults };
+}
+
+/** Runtime guard for public consumers that interpret results as ownership. */
+export function isSemanticDetectionResult(result: DetectionResult): boolean {
+  return result.role === undefined || result.role === "semantic";
+}
+
+/**
+ * Remove policy evaluations before deriving cards, views, scenes, or other
+ * semantic ownership. Legacy results without a role remain semantic.
+ */
+export function semanticDetectionResults(
+  results: readonly DetectionResult[],
+): DetectionResult[] {
+  return results.filter(isSemanticDetectionResult);
+}
+
+/** Fail closed when a single-result API is asked to materialize a policy. */
+export function assertSemanticDetectionResult(result: DetectionResult): void {
+  if (!isSemanticDetectionResult(result)) {
+    throw new Error(
+      `policy result "${result.domain}" cannot be used as semantic domain ownership`,
+    );
+  }
 }

@@ -20,6 +20,19 @@
 `specDirs` は fingerprint の config dir に折り込まれているため、変更すれば
 次回解析はキャッシュを外して新しい spec 根で再リンクする。
 
+## planned write root（T51/T54）
+
+`specDirs[]` は複数指定できる read root であり、generated/knowledge artifact の write 先には使わない。
+planned `Project.knowledgeWriteRoot` は repository 内の単一 directory とし、次で解決する。
+
+1. 明示 `knowledgeWriteRoot` があれば、real path が project repository 内で writable か検証して使う。
+2. 未設定で `<rootPath>/spec` が AIFormat root として存在すれば使う。
+3. それ以外は read-only analysis を続けるが、Gate/sync write は `knowledge-root-required` で
+   fail-fast する。複数 `specDirs` から任意の 1 件を選ばない。
+
+domain/log/generated/annotation の全 path は `knowledgeWriteRoot` 相対で解決する。root 設定変更は
+source fingerprint version、proposal snapshot、expected log head を stale にする。
+
 ## 解決順序（`ProjectManager.ensureSpecConfig`）
 
 解析のたび（fingerprint 計算の前）に解決する。結果はプロセス内 memo
@@ -64,9 +77,15 @@ anatomia project spec <id> --clear         # クリア（自動検出の既定�
 2. `missing` は解析を止めない（spec リンクが空になるだけ）。ただし毎回報告する。
 3. 検出は決定的（候補名の固定順・祖先の近い順）。LLM を使わない。
 4. 設定変更は fingerprint を変えるので、古い解析キャッシュが誤って返ることはない。
+5. resolved `<knowledgeWriteRoot>/data/generated/anatomia/**` 配下 **または**
+   `x-anatomia.generated: true` の文書は authored spec として解析せず、source fingerprint、
+   domain proposal、retune input から除外する。
+6. domain/annotation/generated subtree は
+   [OKF loader routing](./okf-generation.md#anatomia-okf-profile) に従い、generic parser へ混ぜない。
 
 ## 関連
 
 - [spec-linkage.md](./spec-linkage.md) — 収集した spec がどうリンクされるか
 - [../data/project-cache.md](../data/project-cache.md) — fingerprint と config dirs
 - [analysis-procedure.md](./analysis-procedure.md) — 操作手順
+- [okf-generation.md](./okf-generation.md) — authored/generated 境界

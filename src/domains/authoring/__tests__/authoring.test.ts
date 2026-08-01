@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect, afterAll } from "vitest";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SpecClause } from "../../../types.js";
@@ -16,7 +16,7 @@ import {
   toDomainDef,
 } from "../store.js";
 import { reconcileDrafts } from "../reconcile.js";
-import { seedDraftsFromStructure } from "../draft.js";
+import { parseDrafts, seedDraftsFromStructure } from "../draft.js";
 import type { DomainDraft, EditableDomainDef } from "../types.js";
 
 const dirs: string[] = [];
@@ -49,15 +49,25 @@ describe("draftToEditableDef", () => {
     expect((def.presetRules[0]!.params as { by: string }).by).toBe("path");
     expect(def.mechanics).toEqual(["damage"]);
   });
+
+  it("rejects the unassigned relation state as a domain draft", () => {
+    expect(() => draftToEditableDef(draft({ name: "unassigned" })))
+      .toThrow(/reserved for the unassigned relation state/);
+    expect(() => parseDrafts('[{"name":" Unassigned ","description":"invalid"}]'))
+      .toThrow(/reserved for the unassigned relation state/);
+  });
 });
 
 describe("store roundtrip", () => {
-  it("keeps exact membership when stripping authoring metadata", () => {
+  it("keeps detection semantics when stripping authoring metadata", () => {
     const editable = {
       ...draftToEditableDef(draft()),
+      role: "policy" as const,
       membership: [{ signatureShapePattern: "^\\(sig resolve\\)$" }],
     };
-    expect(toDomainDef(editable).membership).toEqual(editable.membership);
+    const domain = toDomainDef(editable);
+    expect(domain.role).toBe("policy");
+    expect(domain.membership).toEqual(editable.membership);
   });
 
   it("saves and reloads editable defs", async () => {
@@ -83,6 +93,23 @@ describe("store roundtrip", () => {
     // re-saving without source is not possible here, so just assert it loads.
     const back = await loadEditableDomains(dir);
     expect(back[0]!.name).toBe("ai");
+  });
+
+  it("rejects a persisted editable def named unassigned", async () => {
+    const dir = await tempDir();
+    await writeFile(
+      join(dir, "reserved.json"),
+      JSON.stringify({
+        name: "unassigned",
+        description: "invalid domain node",
+        presetRules: [],
+        templateRules: [],
+        source: "manual",
+      }),
+      "utf8",
+    );
+    await expect(loadEditableDomains(dir))
+      .rejects.toThrow(/reserved for the unassigned relation state/);
   });
 });
 

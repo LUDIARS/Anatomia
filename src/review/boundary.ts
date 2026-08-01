@@ -25,7 +25,7 @@
 
 import type { AnchorId } from "../types.js";
 import type { CodeGraphQuery } from "../graph/query.js";
-import type { DetectionResult } from "../domains/detect.js";
+import { semanticDetectionResults, type DetectionResult } from "../domains/detect.js";
 
 /** One domain's vote count in a node's calls-neighbourhood. */
 export interface DriftVote {
@@ -87,7 +87,8 @@ export async function detectBoundaryDrift(
 
   // ── Seeds: implementor -> lexicographically smallest claiming domain ──────
   const seeds = new Map<AnchorId, string>();
-  const sortedDetections = [...detections].sort((a, b) => cmp(a.domain, b.domain));
+  const sortedDetections = semanticDetectionResults(detections)
+    .sort((a, b) => cmp(a.domain, b.domain));
   for (const d of sortedDetections) {
     for (const a of d.implementors) {
       if (!seeds.has(a)) seeds.set(a, d.domain);

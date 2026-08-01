@@ -12,22 +12,41 @@
 
 提案・承認・孤立調査を含む全体順序の正本は
 [domain-discovery-workflow.md](./domain-discovery-workflow.md)。
+目標の OKF / hierarchy / code assignment 契約は
+[domain-organization.md](./domain-organization.md) と
+[okf-generation.md](./okf-generation.md)（planned、T51-T62）を正本とする。
 
 ドメインの作りは人により異なる(メカニクスを含んでも含めなくてもよい)ので、
 明確なルールは決めない。シーンステートはドメインに含めない(一致ケースは注記)。
+
+## 目標 authoring 境界（planned）
+
+first pass は authored specification OKF だけを入力にし、module map、directory、code symbol を
+domain の name / purpose / boundary の根拠へ混ぜない。`DomainProposal` は stable candidate ID、
+source SpecClause IDs、source revision、purpose、responsibilities、in/out boundary、`assignable`、
+parent edge proposal、assumption を持つ。
+
+Gate A 後にだけ `<knowledgeWriteRoot>/data/domains/*.md` を作り、承認済み domain と `subdomain-of` edge を
+knowledge transaction に保存する。spec-only domain は implementor 0 件でも有効である。
+コードは Gate A 後の assignment phase で evidence として扱う。
 
 ## データモデル
 
 `EditableDomainDef = DomainDef + { source, lockedFields?, mechanics?, specRefs?,
 rationale?, updatedAt? }`。`source ∈ {spec-draft, manual, reconstructed}`。
 余剰フィールドは検出パイプラインが無視する(`isDomainDef` は name/description/
-presetRules/templateRules のみ検証)ので、**プロジェクトの ontologyDir に置けば
+role/membership/presetRules/templateRules を検証)ので、**プロジェクトの ontologyDir に置けば
 既存の検出・ルール・spec-linkage がそのまま消費する**(追加配線ゼロ)。
 
 `DomainDraft`(下書き)= name / description / pathPatterns / namePatterns /
 specRefs / mechanics / rationale。membership は **membership-marker preset**
 (`couplingCap` を巨大上限で張る)に変換され、検出が NodeFilter を集めて
 implementors を起こす(違反は出ない)。
+
+`EditableDomainDef` と ontologyDir は現行互換モデルである。planned contract では domain OKF が
+authoring source、knowledge JSONL が machine source、DomainDef は再生成可能な compatibility
+projection になる。path/name pattern は code assignment evidence であり、domain identity や
+semantic boundary そのものではない。
 
 ## フロー
 
@@ -68,6 +87,10 @@ Web の proposal 経路では reconcile は preview にだけ使い、Gate A ま
   操作であり、対話フローでは Web の Gate A API を使う。
 - 保存先 = `<repoRoot>/.anatomia/domains/`(= ontology pluginDir)。draft 時に
   project.ontologyDir 未設定なら自動で配線。ファイル名は名前ハッシュ付きで衝突回避。
+
+planned write path は `<knowledgeWriteRoot>/data/domains/*.md` +
+`<knowledgeWriteRoot>/data/domain-map/*.knowledge.jsonl`。
+`.anatomia/domains` への direct write は T68 完了までの legacy compatibility とする。
 
 ## ライブ / E2E 検証 runbook (#364)
 
@@ -130,3 +153,4 @@ Gate A で人間が確認した定義は既定で `source=manual` + 全 lock と
 
 - 下書き品質は LLM/仕様の質に依存(雑でよい設計)。membership は人が締める。
 - mechanics/specRefs はメタ情報(spec-linkage が権威の spec リンクとは別)。
+- 一般仕様書を domain ごとのフォルダへ移動しない。clause-level relation を使う。

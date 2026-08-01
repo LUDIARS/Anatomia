@@ -2,6 +2,10 @@
 
 ## 目的
 
+本ファイルの既存 Gate A/B は現行実装の契約である。仕様だけから domain を確定し、その後に
+code assignment と乖離補正を行う目標拡張は
+[`domain-organization.md`](./domain-organization.md)（planned、T56-T62）を正本とする。
+
 仕様と実装の両側からプロジェクト固有のドメインを発見する。ただし LLM と静的解析は
 **候補を提案するだけ**であり、人間が確認する前に ontology / taxonomy / feature spec を
 変更しない。既存の `domains suggest`、domain authoring、domain review、module 層、retune の
@@ -24,7 +28,9 @@
   dynamic dispatch や外部 entrypoint を含み得るため、未所属・到達不能とは同一視しない。
 - **孤立機能 (orphan feature group)**: 未所属関数を既存 module 層の決定的境界
   （既定は source directory、任意で class）へ集約したもの。
-- **権威データ**: 検出が消費する ontology、committed taxonomy、承認済み feature spec。
+- **現行の権威データ**: 検出が消費する ontology、committed taxonomy、承認済み feature spec。
+  planned contract では authored domain OKF を authoring source、knowledge JSONL を machine source、
+  ontology/taxonomy を compatibility projection とする。
 - **提案データ**: Gate A / Gate B の前に返す read-only draft。権威データではない。
 
 ## 不変条件
@@ -69,6 +75,36 @@ spec + code snapshot
 Gate A より前に orphan scan へ進めない。Gate B より前に孤立群由来の DomainDef と feature
 spec を保存しない。既存の `retune` は taxonomy 全体を再生成する明示的な保守操作として残すが、
 このワークフローからは呼ばない（retune は leftover 全件を登録するため目的が異なる）。
+
+## 目標状態遷移（planned）
+
+```text
+authored spec OKF
+  -> structured SpecClause parse
+  -> spec-only domain/subdomain proposals
+  -> human edit/add/drop
+  -> Gate A: domain meaning/hierarchy approval
+  -> approved domain OKF + knowledge transaction
+  -> deterministic code assignment scan
+  -> assign-existing | move | unassign | abstain
+  -> code-only cluster | spec-gap | split | merge proposals
+  -> existing-domain assignment: Gate B
+  -> new domain: authored OKF supplement -> Gate A
+  -> split/merge/boundary: Gate A-equivalent Gate C
+  -> atomic knowledge transaction + projections
+  -> residual re-analysis
+```
+
+spec-only proposal の入力へ module map、directory、code symbol を入れない。spec が無いコードは
+semantic truth ではなく `emergent-domain` / `spec-gap` proposal を返し、人が purpose、boundary、
+acceptance を補うまで成立させない。spec があり code が無い domain は
+`implementationStatus=missing` として保持する。
+
+Gate B は既存 domain への `assign-existing`、誤割当の `move` / `unassign`、判断保留の
+`abstain` を扱う。code-only new domain は purpose/boundary/acceptance を authored OKF に補って
+Gate A へ戻す。Gate C は split / merge / hierarchy / boundary 変更を Gate A と同じ semantic
+approval 条件で扱い、影響する spec/code/scene edge と一括承認する。各 Gate は proposal ID、
+analysis snapshot、source revision、expected knowledge-log head を検証する。
 
 ## 提案モデル
 
@@ -151,6 +187,12 @@ Gate B で承認した domain ごとに `spec/feature/domain-<slug>.md` を作�
 
 残余一覧は Gate B 後の**再解析結果**から作る。候補化前の一覧を使い回さない。
 
+上記は現行保存形式。planned contract では domain definition を
+`<knowledgeWriteRoot>/data/domains/*.md`（`type: data`, `x-anatomia.kind: domain`）へ置き、一般 feature spec は
+元の AIFormat 分類を保つ。clause 単位の owner / related relation は
+[`../data/domain-knowledge-log.md`](../data/domain-knowledge-log.md) へ保存する。1 document =
+1 domain を強制しない。
+
 ## 現行実装から継承する優れた点
 
 - `domains suggest` の read-only 境界。
@@ -160,3 +202,10 @@ Gate B で承認した domain ごとに `spec/feature/domain-<slug>.md` を作�
   `file:line` evidence。
 - module 層の決定的集約と評価。
 - content-addressed cache と安定 ID。snapshot の stale 検出へそのまま利用できる。
+
+## planned contract
+
+- [domain / scene knowledge log](../data/domain-knowledge-log.md)
+- [OKF parsing and generation](./okf-generation.md)
+- [domain organization and UI](./domain-organization.md)
+- [implementation plan](../../docs/plan-okf-domain-scene-flow.md)

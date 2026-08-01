@@ -19,6 +19,7 @@ import type { PresetId } from "./presets.js";
 import type { TemplateRule } from "./template.js";
 import type { NodeFilter } from "../types.js";
 import { resolvePluginDir } from "../plugins/loader.js";
+import { assertDomainDefinitionName } from "./assignment.js";
 
 /** A preset configured with concrete parameters. */
 export interface ConfiguredPreset {
@@ -26,10 +27,15 @@ export interface ConfiguredPreset {
   params: Record<string, unknown>;
 }
 
+/** Whether a definition owns project meaning or only evaluates policy. */
+export type DomainRole = "semantic" | "policy";
+
 /** A named domain definition (the unit a plugin contributes). */
 export interface DomainDef {
   name: string;
   description: string;
+  /** Missing means semantic for backwards-compatible project plugins. */
+  role?: DomainRole;
   presetRules: ConfiguredPreset[];
   templateRules: TemplateRule[];
   /**
@@ -52,14 +58,15 @@ export interface DomainOntology {
 // ── Builtin domains ───────────────────────────────────────────────────────
 
 /**
- * Two example builtin domains:
- *   - state-machine: state nodes only mutated via transition functions; no
- *     cycles among states beyond declared transitions.
+ * Two example builtin policies (never implicit semantic project domains):
+ *   - transition-guard-example: state nodes only mutated via transition
+ *     functions; no cycles among states beyond declared transitions.
  *   - hot-path-processor: hot functions must not allocate and keep low coupling.
  */
 export const BUILTIN_DOMAINS: DomainDef[] = [
   {
-    name: "state-machine",
+    name: "transition-guard-example",
+    role: "policy",
     description:
       "State held behind transition functions; state mutation only via *Transition/*Apply; no forbidden direct mutation.",
     presetRules: [
@@ -71,7 +78,7 @@ export const BUILTIN_DOMAINS: DomainDef[] = [
     ],
     templateRules: [
       {
-        id: "state-machine/no-direct-mutate",
+        id: "no-direct-mutate",
         pattern: "$SKILL.mutate($STATE)",
         metavars: ["SKILL", "STATE"],
         language: "cpp",
@@ -84,6 +91,7 @@ export const BUILTIN_DOMAINS: DomainDef[] = [
   },
   {
     name: "hot-path-processor",
+    role: "policy",
     description:
       "Per-frame hot functions (tagged `hotPath`): no allocation in the hot path.",
     presetRules: [
@@ -107,12 +115,19 @@ function isDomainDef(x: unknown): x is DomainDef {
   if (!x || typeof x !== "object") return false;
   const d = x as Record<string, unknown>;
   if (d.membership !== undefined && !Array.isArray(d.membership)) return false;
+  if (d.role !== undefined && d.role !== "semantic" && d.role !== "policy") return false;
   return (
     typeof d.name === "string" &&
     typeof d.description === "string" &&
     Array.isArray(d.presetRules) &&
     Array.isArray(d.templateRules)
   );
+}
+
+function requireDomainDef(x: unknown, source: string): DomainDef {
+  if (!isDomainDef(x)) throw new Error(`invalid DomainDef in ${source}`);
+  assertDomainDefinitionName(x.name);
+  return x;
 }
 
 /** Load all DomainDefs from a directory (.json and .mjs files). */
@@ -133,16 +148,14 @@ async function loadFromDir(dir: string): Promise<DomainDef[]> {
       const parsed = JSON.parse(raw);
       const list = Array.isArray(parsed) ? parsed : [parsed];
       for (const d of list) {
-        if (isDomainDef(d)) defs.push(d);
-        else throw new Error(`invalid DomainDef in ${full}`);
+        defs.push(requireDomainDef(d, full));
       }
     } else if (ext === ".mjs" || ext === ".js") {
       const mod = await import(pathToFileURL(full).href);
       const exported = mod.default ?? mod.domain ?? mod.domains;
       const list = Array.isArray(exported) ? exported : [exported];
       for (const d of list) {
-        if (isDomainDef(d)) defs.push(d);
-        else throw new Error(`invalid DomainDef export in ${full}`);
+        defs.push(requireDomainDef(d, `export ${full}`));
       }
     }
   }
@@ -157,7 +170,10 @@ async function loadFromDir(dir: string): Promise<DomainDef[]> {
  */
 export async function loadOntology(pluginDir?: string): Promise<DomainOntology> {
   const domains = new Map<string, DomainDef>();
-  for (const d of BUILTIN_DOMAINS) domains.set(d.name, d);
+  for (const d of BUILTIN_DOMAINS) {
+    assertDomainDefinitionName(d.name);
+    domains.set(d.name, d);
+  }
 
   const dir = pluginDir ? resolve(pluginDir) : resolvePluginDir();
   if (dir) {

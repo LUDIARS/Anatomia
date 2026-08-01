@@ -22,9 +22,10 @@ import type { SpecClause } from "../../types.js";
 import type { LLMClient } from "../card.js";
 import { versionedKey, type CacheStore } from "../../cache/store.js";
 import type { DomainDraft } from "./types.js";
+import { assertDomainDefinitionName } from "../assignment.js";
 
 /** BUMP whenever assembleDraftPrompt changes (shared-cache correctness). */
-export const DRAFT_PROMPT_VERSION = "2";
+export const DRAFT_PROMPT_VERSION = "3";
 
 const MAX_SPEC_SNIPPETS = 80;
 const MAX_SPEC_TEXT_CHARS = 700;
@@ -108,6 +109,7 @@ export function assembleDraftPrompt(inputs: DraftInputs): string {
     "    mechanics: string[]      (game mechanics involved; [] if none),",
     "    rationale: string }",
     "Use module-map directories for pathPatterns where a domain maps to a directory.",
+    'The name "unassigned" is reserved for missing ownership; never propose it as a domain.',
   );
   return lines.join("\n");
 }
@@ -136,6 +138,7 @@ export function parseDrafts(text: string): DomainDraft[] {
     if (!item || typeof item !== "object") continue;
     const o = item as Record<string, unknown>;
     if (typeof o.name !== "string" || !o.name.trim()) continue;
+    assertDomainDefinitionName(o.name);
     drafts.push({
       name: o.name.trim(),
       description: typeof o.description === "string" ? o.description : "",
@@ -163,7 +166,10 @@ export async function synthesizeDomainDrafts(
   const key = versionedKey(draftContentKey(inputs), modelId, DRAFT_PROMPT_VERSION);
   if (cache) {
     const hit = await cache.get(key);
-    if (hit) return hit;
+    if (hit) {
+      for (const draft of hit) assertDomainDefinitionName(draft.name);
+      return hit;
+    }
   }
   const prompt = assembleDraftPrompt(inputs);
   const drafts = parseDrafts(await llm(prompt));
@@ -186,6 +192,7 @@ export function seedDraftsFromStructure(inputs: DraftInputs): DomainDraft[] {
   }
   const drafts: DomainDraft[] = [];
   for (const [top, clauses] of byTop) {
+    assertDomainDefinitionName(top);
     drafts.push({
       name: top,
       description: clauses[0]?.text.replace(/\s+/g, " ").trim().slice(0, 160) ?? top,

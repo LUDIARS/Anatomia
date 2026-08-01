@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { relative } from 'node:path';
 
 import type { AnalysisContext } from '../../core.js';
+import { semanticDetectionResults } from '../detect.js';
 import type { ModuleGranularity } from '../../modules/index.js';
 import { evaluateModulesFromGraph } from '../../modules/index.js';
 import type { AnchorId, FunctionNode } from '../../types.js';
@@ -92,7 +93,8 @@ export async function investigateOrphanFunctions(
   }
 
   const assignedAnchors = new Set<AnchorId>(
-    (context.domains ?? []).flatMap((domain) => domain.implementors),
+    semanticDetectionResults(context.domains ?? [])
+      .flatMap((domain) => domain.implementors),
   );
   const orphanNodes = [...context.functions]
     .filter(hasAnchor)

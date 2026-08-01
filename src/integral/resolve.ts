@@ -14,7 +14,7 @@
 
 import type { AnchorId, CodeNode } from "../types.js";
 import type { CodeGraphQuery } from "../graph/query.js";
-import type { DetectionResult } from "../domains/detect.js";
+import { semanticDetectionResults, type DetectionResult } from "../domains/detect.js";
 import type { IntegralScope } from "./types.js";
 import type { SceneModel } from "./scene.js";
 
@@ -109,12 +109,13 @@ export async function resolveSeeds(
   entry: { ref: string; scope: IntegralScope },
   inputs: ResolveInputs,
 ): Promise<AnchorId[]> {
+  const domains = semanticDetectionResults(inputs.domains);
   switch (entry.scope) {
     case "function":
       return resolveFunctionRef(entry.ref, inputs.graph);
     case "domain":
-      return resolveDomainRef(entry.ref, inputs.domains);
+      return resolveDomainRef(entry.ref, domains);
     case "scene":
-      return resolveSceneRef(entry.ref, inputs.scenes, inputs.domains);
+      return resolveSceneRef(entry.ref, inputs.scenes, domains);
   }
 }

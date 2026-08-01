@@ -21,7 +21,7 @@ import type {
   WebViewName,
   WebCacheBundle,
 } from "./types.js";
-import { WEB_VIEWS } from "./types.js";
+import { WEB_CACHE_SCHEMA_VERSION, WEB_VIEWS } from "./types.js";
 
 /** The web-cache directory for a project, given its cache dir. */
 export function webDir(projectCacheDir: string): string {
@@ -51,7 +51,7 @@ export async function writeWebCache(
   for (const view of WEB_VIEWS) {
     const data = bundle[view];
     const env: WebViewEnvelope = {
-      version: 1,
+      version: WEB_CACHE_SCHEMA_VERSION,
       view,
       preparedAt,
       fingerprint,
@@ -62,7 +62,7 @@ export async function writeWebCache(
   }
 
   const manifest: WebCacheManifest = {
-    version: 1,
+    version: WEB_CACHE_SCHEMA_VERSION,
     projectId,
     preparedAt,
     fingerprint,
@@ -84,7 +84,7 @@ export async function readWebManifest(
   try {
     const raw = await readFile(join(webDir(projectCacheDir), "manifest.json"), "utf8");
     const m = JSON.parse(raw) as WebCacheManifest;
-    return m && m.version === 1 ? m : null;
+    return m && m.version === WEB_CACHE_SCHEMA_VERSION ? m : null;
   } catch {
     return null;
   }
@@ -98,7 +98,7 @@ export async function readWebView<T = unknown>(
   try {
     const raw = await readFile(join(webDir(projectCacheDir), viewFile(view)), "utf8");
     const env = JSON.parse(raw) as WebViewEnvelope<T>;
-    return env && env.version === 1 ? env : null;
+    return env && env.version === WEB_CACHE_SCHEMA_VERSION ? env : null;
   } catch {
     return null;
   }

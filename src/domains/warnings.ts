@@ -40,7 +40,12 @@ export interface DomainHealthInput {
 
 export async function assessDomainHealth(input: DomainHealthInput): Promise<DomainHealthSummary> {
   const detectedDomains = input.domains?.length ?? 0;
-  const builtinDomains = BUILTIN_DOMAINS.length;
+  // Policy-only builtins are absent from AnalysisContext.domains and must not
+  // be subtracted from the semantic-domain count. Keep the calculation ready
+  // for any future builtin that explicitly opts into semantic ownership.
+  const builtinDomains = BUILTIN_DOMAINS.filter(
+    (definition) => (definition.role ?? "semantic") === "semantic",
+  ).length;
   const detectedCuratedDomains = Math.max(0, detectedDomains - builtinDomains);
   const activeDomains = (input.domains ?? []).filter((domain) => (domain.implementors?.length ?? 0) > 0).length;
   const expectedCuratedDomains = await loadExpectedTaxonomyDomainCount(input.repoPath);
@@ -74,8 +79,9 @@ export async function assessDomainHealth(input: DomainHealthInput): Promise<Doma
       code: "domain-count-zero",
       severity: "warning",
       message:
-        `No domains were detected for a project with ${functionCount} functions. ` +
-        "Domain detection may have failed before the builtin ontology loaded.",
+        `No semantic domains were detected for a project with ${functionCount} functions, ` +
+        "so every function is unassigned. Builtin policies are never semantic domains, " +
+        "so this is expected until the project supplies its own domain ontology/taxonomy.",
       details: {
         detectedDomains,
         detectedCuratedDomains,

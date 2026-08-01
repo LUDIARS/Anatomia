@@ -12,6 +12,7 @@ import {
   decodeStitchedFrames,
   sceneModelFromTraceFile,
 } from "../ingest.js";
+import { buildWhere } from "../../viz/where.js";
 
 const domains: DetectionResult[] = [
   { domain: "combat", implementors: ["anchorA" as AnchorId, "anchorB" as AnchorId], violations: [], conforms: true },
@@ -45,6 +46,24 @@ describe("cardsFromDomains", () => {
     const cards = cardsFromDomains(domains);
     expect(cards.map((c) => c.domain).sort()).toEqual(["combat", "menu"]);
     expect(cards.find((c) => c.domain === "combat")!.keyAnchors).toContain("anchorA");
+  });
+
+  it("never materializes policy ownership for trace anchors", () => {
+    const mixed: DetectionResult[] = [
+      ...domains,
+      {
+        domain: "transition-guard-example",
+        role: "policy",
+        implementors: ["anchorA" as AnchorId, "policy-only" as AnchorId],
+        violations: [],
+        conforms: true,
+      },
+    ];
+    const cards = cardsFromDomains(mixed);
+
+    expect(cards.map((card) => card.domain)).not.toContain("transition-guard-example");
+    expect(buildWhere(1, ["anchorA"], cards).domain).toBe("combat");
+    expect(buildWhere(1, ["policy-only"], cards).domain).toBe("unassigned");
   });
 });
 

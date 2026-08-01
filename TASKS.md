@@ -1,6 +1,7 @@
 # Anatomia — 実装タスクリスト (Sonnet 向け)
 
-> 設計正本: `DESIGN.md`。方針: **フルセット・No-MVP** (`feedback_full_set_no_mvp` /
+> 全体 decision / 索引: `DESIGN.md`。normative contract: `spec/`。作業管理正本: 本ファイル。
+> 方針: **フルセット・No-MVP** (`feedback_full_set_no_mvp` /
 > スキル `full-set-implementation`)。MVP/最小縦切りは作らず、設計済み機能を全部実装 → 配線 → テスト。
 > **実装 = Sonnet / 最終レビュー = Opus**。保留は局面学習 (DESIGN §5.5) のみ。
 
@@ -11,7 +12,8 @@
   LLM = Anthropic SDK (蒸留)。束整形 = `@ludiars/llm-gateway` の `orderSegments`。テスト = **vitest**。
 - **単一責任 (SRP)** 必須。1 タスク = 1 機能 = 1 責務。ファイル分割 (`RULE_CODE` / `coding-conventions`)。
 - 各タスクに **単体テスト**を付ける。`query 層`等の境界は interface で抽象化 (storage 差し替え可)。
-- Anchor ID は **正規化 Merkle ハッシュ** (T03-T05)。全層がこの ID で連結する。
+- Anchor ID は CodeSymbol の **正規化 Merkle ハッシュ** (T03-T06)。Domain / SpecClause / Scene は
+  各 stable ID を持ち、Anchor ID と source revision を evidence に typed edge で連結する。
 
 ---
 
@@ -50,7 +52,8 @@
 - **T12 query 層 interface** — グラフ問い合わせの抽象境界 (近傍/集計/述語)。in-memory と Kuzu 両実装を差せる。
   受入: interface 定義 + in-memory 実装で近傍・集計が引ける。
 - **T13 Kuzu KG 射影** — DAG/グラフ → Kuzu materialized view (CodeUnit/SpecClause ノード + 辺)。
-  DAG が真実、KG は再生成。受入: グラフを Kuzu に投影し traceability クエリ (「X を呼ぶ全関数」) が引ける。
+  code structure は DAG が真実、KG は再生成。T55 で knowledge JSONL の semantic relation も射影する。
+  受入: グラフを Kuzu に投影し traceability クエリ (「X を呼ぶ全関数」) が引ける。
 
 ## G3. ドメイン + ルール
 
@@ -139,6 +142,66 @@
 - **T49 局面分類 (オンライン)** — 現フレーム(+窓多数決) → phase id。`viz/where.ts` の `phase` を埋める。
   受入: 既知フレーム→学習 phase、未知→null (任意 nearest fallback)。
 - 残: 実ゲーム (KS/AC) のトレース録画経路の配線 (§5.2 マーカー注入 → RecordedTraceSource 供給)。
+
+---
+
+## G11. OKF + knowledge foundation
+
+> 詳細・依存・移行順・受入条件の正本:
+> [`docs/plan-okf-domain-scene-flow.md`](./docs/plan-okf-domain-scene-flow.md)。
+
+- **T50 neutral builtin policy identity** — `state-machine` を本物の project domain 用に予約し、
+  builtin example を `transition-guard-example` へ変更。未解決は default domain でなく `unassigned`。
+- **T51 Anatomia OKF profile + stable identity** — AIFormat six types、routing 用
+  `x-anatomia.kind` + open extension、Domain/SpecClause/CodeSymbol/Scene ID・alias・revision evidence、
+  単一 `knowledgeWriteRoot`。
+- **T52 precise OKF spec parser** — frontmatter + Markdown AST、list/table/modality/code ref、source range、
+  explicit/provisional clause ID、generated subtree exclusion。
+- **T53 canonical knowledge transaction log** — hash-chain JSONL、expected head、atomic write/replay、
+  node/edge schema、proposal 分離、hierarchy/cardinality validation。
+- **T54 deterministic generated artifact writer** — ownership manifest、write-if-changed、atomic set replacement、
+  stale owned-file cleanup、source/output fingerprint 分離。
+- **T55 Kuzu + compatibility projections** — knowledge log を Kuzu へ再生成し、taxonomy/DomainDef/
+  screens/scenes JSON を compatibility projection に降格。
+
+## G12. spec → domain → code organization
+
+- **T56 spec-only domain proposals** — code/module map を混ぜず、仕様 clause だけから purpose/boundary/
+  source refs/parent 候補を生成。
+- **T57 domain hierarchy editor + validator** — immutable ID、child→parent `subdomain-of`、親最大1、
+  cycle/dangling/aggregate assignment 検査。layer/concern/subscene は別軸。
+- **T58 Gate A OKF + log persistence** — source revision/snapshot/head を検証し、domain OKF +
+  knowledge transaction を一括 apply/rollback。
+- **T59 code assignment analyzer** — `assign-existing | move | unassign | abstain` と exact symbol evidence。
+  owner 1件 + related/consumer 複数を表現。
+- **T60 code-only/spec-gap + drift reconciliation** — emergent-domain/spec-gap/split/merge 候補と
+  drift 分類。new domain は authored OKF + Gate A、split/merge は semantic Gate C へ戻す。
+- **T61 Gate B/C orchestrator** — Gate B の既存-domain assignment と Gate A 相当の semantic Gate C を
+  atomic transaction 化し、再解析した residual を返す。
+- **T62 domain organization Web UI** — domain canvas、typed edge、assignment evidence、before/after diff、
+  revision conflict。生 JSON/即時 taxonomy CRUD を Gate command へ統一。
+
+## G13. code-authoritative scenes
+
+- **T63 scene source inventory + stable identity** — code/asset/route/workflow の `SceneDefinitionSeed` と
+  trace-only `SceneObservation` を分離し、native ID 優先・alias/tombstone・provenance を保持。
+- **T64 exact scene graph derivation** — SceneElement、entry/contains/transition、direct/reached CodeSymbol、
+  derived Domain、reached code 由来 SpecClause edge。
+- **T65 scene knowledge sync + generated OKF** — definition source の explicit sync transaction、
+  scene manifest、edge JSONL、
+  `type: data` scene OKF、deterministic regeneration/self-ingestion guard。
+- **T66 unified scene consumers + inspection UI** — CLI/MCP/Web/Integral/web-cache を revision/schema 検証付き
+  共通 manifest reader へ。
+  manual scene override を廃止し、表示 annotation だけ移行。
+
+## G14. adapters / migration / integration
+
+- **T67 common knowledge application service** — domain/scene command/query を共有し、CLI/MCP/Web の
+  validation・conflict・rebuild status を統一。
+- **T68 legacy migration** — ontologyDir/taxonomy/DomainDef/screens/manual scenes を inventoryし、
+  dry-run + conflict report + replay可能 transaction で移行。
+- **T69 integration fixtures + quality metrics** — spec-only/code-only/mixed/rename/conflict/scene/trace fixture、
+  parser精度、ID安定性、assignment evidence、replay/再生成決定性を計測。
 
 ---
 

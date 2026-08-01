@@ -22,6 +22,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join, extname } from "node:path";
 import type { ConfiguredPreset, DomainDef } from "../ontology.js";
+import { assertDomainDefinitionName } from "../assignment.js";
 import type { DomainDraft, EditableDomainDef } from "./types.js";
 
 /** Default per-repo domains dir (also a valid ontology pluginDir). */
@@ -56,6 +57,7 @@ function membershipPreset(pattern: string, by: "path" | "name"): ConfiguredPrese
 
 /** Convert a coarse draft into a persisted, editable DomainDef. */
 export function draftToEditableDef(draft: DomainDraft): EditableDomainDef {
+  assertDomainDefinitionName(draft.name);
   const presetRules: ConfiguredPreset[] = [
     ...draft.pathPatterns.map((p) => membershipPreset(p, "path")),
     ...draft.namePatterns.map((p) => membershipPreset(p, "name")),
@@ -77,6 +79,7 @@ export function draftToEditableDef(draft: DomainDraft): EditableDomainDef {
 function isEditableDef(x: unknown): x is EditableDomainDef {
   if (!x || typeof x !== "object") return false;
   const d = x as Record<string, unknown>;
+  if (d.role !== undefined && d.role !== "semantic" && d.role !== "policy") return false;
   return (
     typeof d.name === "string" &&
     typeof d.description === "string" &&
@@ -120,6 +123,7 @@ async function loadEditableDomainDocuments(dir: string): Promise<EditableDomainD
     const definitions: EditableDomainDef[] = [];
     for (const d of list) {
       if (!isEditableDef(d)) throw new Error(`invalid domain def in ${path}`);
+      assertDomainDefinitionName(d.name);
       // Default provenance for hand-written files without a `source`.
       if (!("source" in (d as object))) (d as EditableDomainDef).source = "manual";
       definitions.push(d as EditableDomainDef);
@@ -139,6 +143,7 @@ export async function saveEditableDomain(
   dir: string,
   def: EditableDomainDef,
 ): Promise<string> {
+  assertDomainDefinitionName(def.name);
   await mkdir(dir, { recursive: true });
   const path = join(dir, domainFileName(def.name));
   const withStamp: EditableDomainDef = { ...def, updatedAt: new Date().toISOString() };
@@ -156,6 +161,7 @@ export async function saveEditableDomains(
 ): Promise<string[]> {
   const byName = new Map<string, EditableDomainDef>();
   for (const def of defs) {
+    assertDomainDefinitionName(def.name);
     if (byName.has(def.name)) throw new Error(`duplicate domain definition "${def.name}"`);
     byName.set(def.name, def);
   }
@@ -191,9 +197,11 @@ export async function saveEditableDomains(
 
 /** Strip authoring metadata back to a plain DomainDef (for ad-hoc detection). */
 export function toDomainDef(def: EditableDomainDef): DomainDef {
+  assertDomainDefinitionName(def.name);
   return {
     name: def.name,
     description: def.description,
+    role: def.role,
     presetRules: def.presetRules,
     templateRules: def.templateRules,
     cardTemplate: def.cardTemplate,

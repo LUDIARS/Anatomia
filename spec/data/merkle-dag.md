@@ -1,10 +1,14 @@
 # data: Merkle-AST DAG（正規化 AST の content-addressed 表現）
 
 Anatomia の解析土台。コードを関数粒度に解剖し、**意味が同じなら同一ハッシュ**になる
-content-addressed な Merkle DAG として保持する。DB ではなくプロセス内のデータ構造
+content-addressed な Merkle DAG として保持する。コード構造については DB ではなくプロセス内のデータ構造
 （実装は `src/dag/`、グラフ射影は `src/graph/`）。永続化されるのはこの DAG から派生した
 キャッシュスナップショット（→ [project-cache.md](./project-cache.md)）と LLM 蒸留カード
 （→ [llm-cache.md](./llm-cache.md)）。
+
+domain/spec/code/scene の承認済み relation は別責務の
+[domain knowledge log](./domain-knowledge-log.md) が machine source になる。DAG と knowledge log は
+競合する正本ではなく、前者が code structure、後者が revision 付き semantic relation を所有する。
 
 ## ノード階層
 
@@ -46,6 +50,8 @@ RepoNode ── files[] ──▶ FileNode ── functions[] ──▶ Function
   （`src/graph/query.ts`）に対し In-Memory 実装（`src/graph/in-memory.ts`）と
   Kuzu 実装（`src/graph/kuzu.ts`）。Kuzu は再生成可能な materialized view で、
   ノード表 `CodeUnit(id, name, kind, file, sline, eline)` / `SpecClause(...)` 等を持つ。
+  planned projection は knowledge log の Domain / Scene / SceneElement と typed edge も結合する。
+  Kuzu 自体へ canonical relation を直接書かない。
 - **SpecClause / Link**: spec markdown を解析した節と、コード↔spec のリンク
   （→ [feature/spec-linkage.md](../feature/spec-linkage.md)）。
 

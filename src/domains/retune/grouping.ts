@@ -14,7 +14,9 @@
 
 import type { NodeFilter } from "../../types.js";
 import type { DomainDef } from "../ontology.js";
+import { assertDomainDefinitionName } from "../assignment.js";
 import type { Taxonomy, ModulePlan, DomainPlan, NodeSummary } from "./types.js";
+import { assertTaxonomyDomainNames } from "./validation.js";
 
 /** NodeFilters a module owns: one per path pattern + one per name pattern. */
 export function moduleMembershipFilters(m: ModulePlan): NodeFilter[] {
@@ -31,6 +33,7 @@ export function domainMembershipFilters(d: DomainPlan): NodeFilter[] {
 
 /** Build a membership-only DomainDef (zero rules) from a domain plan. */
 export function domainPlanToDef(d: DomainPlan): DomainDef {
+  assertDomainDefinitionName(d.name);
   return {
     name: d.name,
     description: d.description,
@@ -43,6 +46,7 @@ export function domainPlanToDef(d: DomainPlan): DomainDef {
 
 /** All domains in a taxonomy as DomainDefs. */
 export function taxonomyToDomainDefs(t: Taxonomy): DomainDef[] {
+  assertTaxonomyDomainNames(t);
   return t.domains.map(domainPlanToDef);
 }
 
@@ -74,7 +78,7 @@ function moduleMatch(m: ModulePlan, relPath: string, name: string): number {
  * the one with the longest matched path pattern wins (most specific). Returns
  * null when no module owns the node.
  */
-export function assignNodeToModule(
+function assignNodeToModuleUnchecked(
   taxonomy: Taxonomy,
   relPath: string,
   name: string,
@@ -93,15 +97,29 @@ export function assignNodeToModule(
   return winner;
 }
 
+export function assignNodeToModule(
+  taxonomy: Taxonomy,
+  relPath: string,
+  name: string,
+): { domain: string; module: string } | null {
+  assertTaxonomyDomainNames(taxonomy);
+  return assignNodeToModuleUnchecked(taxonomy, relPath, name);
+}
+
 /**
  * A resolver for buildVisData's optional `moduleResolver`: returns the curated
  * module name for a node, or null to fall back to directory grouping.
  */
 export function moduleResolver(taxonomy: Taxonomy): (relPath: string, name: string) => string | null {
-  return (relPath, name) => assignNodeToModule(taxonomy, relPath, name)?.module ?? null;
+  assertTaxonomyDomainNames(taxonomy);
+  return (relPath, name) =>
+    assignNodeToModuleUnchecked(taxonomy, relPath, name)?.module ?? null;
 }
 
 /** Nodes not owned by any module in the taxonomy. */
 export function unassignedNodes(taxonomy: Taxonomy, nodes: NodeSummary[]): NodeSummary[] {
-  return nodes.filter((n) => assignNodeToModule(taxonomy, n.relPath, n.name) === null);
+  assertTaxonomyDomainNames(taxonomy);
+  return nodes.filter(
+    (node) => assignNodeToModuleUnchecked(taxonomy, node.relPath, node.name) === null,
+  );
 }

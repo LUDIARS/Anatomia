@@ -24,6 +24,7 @@
 
 import { relative } from "node:path";
 import type { AnalysisContext } from "../core.js";
+import { semanticDetectionResults } from "../domains/detect.js";
 import type { AnchorId } from "../types.js";
 import type { ScreenGraph, ScreenKind, ScreenNode, ScreenStack } from "../screens/index.js";
 import type { SceneRef } from "../integral/scene.js";
@@ -138,10 +139,12 @@ export async function deriveScenes(
 // Indices + traversal
 // ---------------------------------------------------------------------------
 
-/** AnchorId → domains that list it as an implementor. */
+/** AnchorId → semantic domains that list it as an implementor. */
 function buildDomainIndex(ctx: AnalysisContext): Map<AnchorId, string[]> {
   const index = new Map<AnchorId, string[]>();
-  for (const result of ctx.domains ?? []) {
+  // Scenes attribute ownership, so policy evaluation must never surface here
+  // even if a caller hands us a raw, unpartitioned detectDomains() result.
+  for (const result of semanticDetectionResults(ctx.domains ?? [])) {
     for (const anchor of result.implementors) {
       const list = index.get(anchor) ?? [];
       list.push(result.domain);

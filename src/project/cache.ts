@@ -56,9 +56,17 @@ export interface SummaryCounts {
   domainHealth?: DomainHealthSummary;
 }
 
+/**
+ * Analyzer-output schema for persisted project summaries.
+ *
+ * Snapshot freshness cannot rely on the project fingerprint alone: analyzer
+ * semantics may change while the source/config content remains identical.
+ */
+export const SNAPSHOT_CACHE_SCHEMA_VERSION = 3 as const;
+
 /** Persisted, serializable cache snapshot for a project. */
 export interface CacheSnapshot {
-  version: 1;
+  version: typeof SNAPSHOT_CACHE_SCHEMA_VERSION;
   projectId: string;
   /** Pre-analysis fingerprint (files + content hashes; see fingerprint.ts). */
   fingerprint: string;
@@ -82,13 +90,22 @@ export interface CacheEntry {
 }
 
 /**
+ * Analyzer-output schema for all fingerprint-keyed artifacts.
+ *
+ * The fingerprint intentionally describes only project source/config content.
+ * Analyzer semantic or payload changes invalidate persisted output here instead
+ * of pretending the project's source changed.
+ */
+export const ARTIFACT_CACHE_SCHEMA_VERSION = 3 as const;
+
+/**
  * Persisted envelope for a derived render artifact (e.g. the vis-network graph
  * payload). Unlike the AnalysisContext, these artifacts are plain JSON, so they
  * CAN survive a restart on disk. Keyed by the same pre-analysis `fingerprint`,
  * so a stale source tree never serves a stale artifact.
  */
 export interface ArtifactEnvelope<T> {
-  version: 1;
+  version: typeof ARTIFACT_CACHE_SCHEMA_VERSION;
   fingerprint: string;
   builtAt: string;
   data: T;
@@ -189,7 +206,7 @@ export class AnalysisCache {
     this.mem.set(projectId, { fingerprint, merkleHash, ctx });
     const summary = await summarize(ctx);
     const snap: CacheSnapshot = {
-      version: 1,
+      version: SNAPSHOT_CACHE_SCHEMA_VERSION,
       projectId,
       fingerprint,
       merkleHash,
@@ -218,7 +235,7 @@ export class AnalysisCache {
     try {
       const raw = await readFile(path, "utf8");
       const snap = JSON.parse(raw) as CacheSnapshot;
-      return snap && snap.version === 1 ? snap : null;
+      return snap && snap.version === SNAPSHOT_CACHE_SCHEMA_VERSION ? snap : null;
     } catch {
       return null;
     }
@@ -261,7 +278,11 @@ export class AnalysisCache {
     try {
       const raw = await readFile(this.artifactPath(projectId, name), "utf8");
       const env = JSON.parse(raw) as ArtifactEnvelope<T>;
-      if (env && env.version === 1 && env.fingerprint === fingerprint) {
+      if (
+        env &&
+        env.version === ARTIFACT_CACHE_SCHEMA_VERSION &&
+        env.fingerprint === fingerprint
+      ) {
         this.artifactHits++;
         return env.data;
       }
@@ -280,7 +301,7 @@ export class AnalysisCache {
     data: T,
   ): Promise<void> {
     const env: ArtifactEnvelope<T> = {
-      version: 1,
+      version: ARTIFACT_CACHE_SCHEMA_VERSION,
       fingerprint,
       builtAt: new Date().toISOString(),
       data,

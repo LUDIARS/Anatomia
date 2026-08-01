@@ -15,6 +15,7 @@
 
 import type { Rule } from "../types.js";
 import type { DomainOntology } from "./ontology.js";
+import { assertDomainDefinitionName } from "./assignment.js";
 import { buildPresetPredicate } from "./presets.js";
 
 /**
@@ -26,6 +27,7 @@ import { buildPresetPredicate } from "./presets.js";
 export function compileDomainRules(ontology: DomainOntology): Rule[] {
   const rules: Rule[] = [];
   for (const def of ontology.domains.values()) {
+    assertDomainDefinitionName(def.name);
     def.presetRules.forEach((cfg, i) => {
       rules.push({
         id: `${def.name}/preset#${i}`,

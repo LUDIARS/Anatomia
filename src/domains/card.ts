@@ -5,10 +5,11 @@
  * §4.4): what it is, its rules, key anchors, spec refs, complexity. It is the
  * unit of caching + delivery.
  *
- * Caching is content-keyed: cacheKey = merkleHash(sorted implementor function
- * hashes). Because AnchorId IS the normalized function hash, the implementor
- * anchors are exactly those content hashes. On a cache hit the LLM is NOT
- * called; only a cache miss invokes it (verified in card.test.ts).
+ * Caching is content-keyed: the key folds the domain identity plus the Merkle
+ * hash of sorted implementor function hashes. Because AnchorId IS the normalized
+ * function hash, the implementor anchors are exactly those content hashes. On a
+ * cache hit the LLM is NOT called; only a cache miss invokes it (verified in
+ * card.test.ts).
  *
  * SRP: this file owns prompt assembly + caching + response parsing. The LLM is
  * an injected interface (LLMClient) — no real API calls, no hardcoded client.
@@ -17,7 +18,7 @@
 import { createHash } from "node:crypto";
 import type { AnchorId } from "../types.js";
 import type { CodeGraphQuery } from "../graph/query.js";
-import type { DetectionResult } from "./detect.js";
+import { assertSemanticDetectionResult, type DetectionResult } from "./detect.js";
 import { createMemoryStore, versionedKey, type CacheStore } from "../cache/store.js";
 
 /** Injected LLM interface: prompt -> completion text. Never hardcoded. */
@@ -27,7 +28,7 @@ export type LLMClient = (prompt: string) => Promise<string>;
  * Prompt-template version. BUMP whenever assemblePrompt changes, so a shared
  * cache does not serve cards distilled with an older prompt.
  */
-export const CARD_PROMPT_VERSION = "1";
+export const CARD_PROMPT_VERSION = "2";
 
 export interface DomainCard {
   domain: string;
@@ -36,7 +37,7 @@ export interface DomainCard {
   keyAnchors: AnchorId[];
   specRefs: string[];
   complexity: "low" | "medium" | "high";
-  /** Cache key = versionedKey(content hash, model id, prompt version). */
+  /** Cache key = versionedKey(domain + content hash, model id, prompt version). */
   cacheKey: string;
 }
 
@@ -73,6 +74,7 @@ export async function assemblePrompt(
   result: DetectionResult,
   graph: CodeGraphQuery,
 ): Promise<string> {
+  assertSemanticDetectionResult(result);
   const implementors = [...result.implementors].sort();
   const lines: string[] = [];
   lines.push(`Domain: ${domain}`);
@@ -131,9 +133,10 @@ function parseResponse(text: string): {
 /**
  * Generate (or fetch from cache) a domain card.
  *
- * Content-keyed cache: cacheKey = versionedKey(merkleHash(implementor anchors),
- * modelId, CARD_PROMPT_VERSION). On a cache HIT the cached card is returned
- * WITHOUT calling `llm`. Only a MISS calls `llm`, then stores the result.
+ * Content-keyed cache: cacheKey = versionedKey(domain + merkleHash(implementor
+ * anchors), modelId, CARD_PROMPT_VERSION). On a cache HIT the cached card is
+ * returned WITHOUT calling `llm`. Only a MISS calls `llm`, then stores the
+ * result.
  */
 export async function generateCard(
   domain: string,
@@ -143,8 +146,13 @@ export async function generateCard(
   cache?: CardCache,
   opts?: CardGenOptions,
 ): Promise<DomainCard> {
+  assertSemanticDetectionResult(result);
   const contentKey = merkleHash(result.implementors);
-  const cacheKey = versionedKey(contentKey, opts?.modelId ?? "default", CARD_PROMPT_VERSION);
+  const cacheKey = versionedKey(
+    `${domain}\0${contentKey}`,
+    opts?.modelId ?? "default",
+    CARD_PROMPT_VERSION,
+  );
 
   if (cache) {
     const hit = await cache.get(cacheKey);

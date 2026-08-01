@@ -12,7 +12,7 @@ import { join } from "node:path";
 import type { FileNode } from "../../types.js";
 import type { DomainOntology } from "../ontology.js";
 import { loadOntology } from "../ontology.js";
-import { detectionCacheKey } from "../cache.js";
+import { DETECTION_CACHE_VERSION, detectionCacheKey } from "../cache.js";
 import { createMemoryStore } from "../../cache/store.js";
 import type { DetectionResult } from "../detect.js";
 import { analyze } from "../../core.js";
@@ -23,6 +23,10 @@ const onto = (names: string[]): DomainOntology => ({
 const file = (path: string, hash: string): FileNode => ({ path, hash, functions: [] });
 
 describe("detectionCacheKey", () => {
+  it("uses the policy-role-aware schema version", () => {
+    expect(DETECTION_CACHE_VERSION).toBe("2");
+  });
+
   const files = [file("/r/a.ts", "h1"), file("/r/b.ts", "h2")];
   const ontology = onto(["combat"]);
 

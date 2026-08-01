@@ -13,6 +13,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { Taxonomy } from "./types.js";
 import { moduleResolver } from "./grouping.js";
+import { assertTaxonomyDomainNames } from "./validation.js";
 
 export type ModuleResolver = (relPath: string, name: string) => string | null;
 
@@ -29,6 +30,7 @@ export async function loadTaxonomyResolver(repoPath: string): Promise<ModuleReso
   try {
     const tax = JSON.parse(await readFile(join(dir, file), "utf8")) as Taxonomy;
     if (!tax || !Array.isArray(tax.domains) || tax.domains.length === 0) return undefined;
+    assertTaxonomyDomainNames(tax);
     return moduleResolver(tax);
   } catch {
     return undefined;

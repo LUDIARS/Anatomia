@@ -87,6 +87,28 @@ describe('investigateOrphanFunctions', () => {
     expect(result.remainingFunctions.map((item) => item.anchor)).toEqual(['solo']);
   });
 
+  it('keeps anchors touched only by policy evaluation unassigned', async () => {
+    const policyOnly = functionNode('policy-only', 'C:\\repo\\src\\policy-only.ts');
+    arrangeModules([{ id: 'src', label: 'src', anchors: ['policy-only'] }]);
+    const context = analysisContext([policyOnly]);
+    const policy = {
+      domain: 'transition-guard-example',
+      role: 'policy' as const,
+      implementors: ['policy-only' as AnchorId],
+      violations: [],
+      conforms: true,
+    };
+    // Defend public AnalysisContext consumers even if a caller passes the raw,
+    // mixed detectDomains() result instead of the partitioned production shape.
+    context.domains = [policy];
+    context.policyResults = [policy];
+
+    const result = await investigateOrphanFunctions(context);
+
+    expect(result.functions.map((item) => item.anchor)).toEqual(['policy-only']);
+    expect(result.functions[0]?.reason).toBe('unassigned-domain');
+  });
+
   it('fails fast instead of silently omitting functions without Anchor IDs', async () => {
     const unanchored = functionNode('pending', 'C:\\repo\\src\\pending.ts', 4, 6);
     unanchored.id = null;

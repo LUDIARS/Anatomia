@@ -46,6 +46,31 @@ describe("retune grouping", () => {
     expect(defs[0]!.membership).toEqual([{ pathPattern: "^src/graph/" }, { pathPattern: "^src/graph/build/" }]);
   });
 
+  it("rejects materialising unassigned as a taxonomy domain", () => {
+    const invalid: Taxonomy = {
+      ...TAX,
+      domains: [{ name: "unassigned", description: "relation state", modules: [] }],
+    };
+    expect(() => taxonomyToDomainDefs(invalid))
+      .toThrow(/reserved for the unassigned relation state/);
+  });
+
+  it("never activates unassigned as a module owner", () => {
+    const invalid: Taxonomy = {
+      ...TAX,
+      domains: [{
+        name: "unassigned",
+        description: "relation state",
+        modules: [{ name: "legacy", description: "", paths: ["^src/graph/"] }],
+      }],
+    };
+
+    expect(() => assignNodeToModule(invalid, "src/graph/query.ts", "q"))
+      .toThrow(/reserved for the unassigned relation state/);
+    expect(() => moduleResolver(invalid))
+      .toThrow(/reserved for the unassigned relation state/);
+  });
+
   it("assignNodeToModule picks the longest matching path (most specific)", () => {
     expect(assignNodeToModule(TAX, "src/graph/build/x.ts", "x")).toEqual({ domain: "graph", module: "graph-build" });
     expect(assignNodeToModule(TAX, "src/graph/query.ts", "q")).toEqual({ domain: "graph", module: "graph-core" });

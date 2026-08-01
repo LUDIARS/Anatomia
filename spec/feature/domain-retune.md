@@ -6,11 +6,15 @@
 （[domain-view.md](./domain-view.md)）が依存する **ドメイン × モジュールの taxonomy** を、
 プロジェクトの目的（README/DESIGN）と `spec/feature/*` を起点に **自己調整** する。
 
-ビルトインオントロジー（`state-machine` / `hot-path-processor`）は汎用ルールであって、
+現行ビルトインオントロジー（`transition-guard-example` / `hot-path-processor`）は汎用ルールであって、
 個々のコードベースが「何のために存在するか」を表す taxonomy ではない。Anatomia 自身を含む
 多くのリポは `ontologyDir` 未設定でドメインビューが無意味になっていた。本機能は対象リポを
 解析し、**そのリポ固有のドメイン/モジュール taxonomy** を生成・登録してドメインビューを意味の
 あるものにする。
+
+現行の T50 contract では builtin example を `transition-guard-example` とし、`state-machine` を本物の
+project domain 用に予約する。builtin rule が project の semantic default domain になってはならない。
+`unassigned` は未割当 relation state であり、DomainDef 名には使わない。
 
 ## 自己調整の 7 ステップ
 
@@ -77,3 +81,17 @@ leftover を網羅的に module 化して step 4 で直ちに committed artifact
 
 通常の spec 起点発見には [domain-discovery-workflow.md](./domain-discovery-workflow.md) を使う。
 同フローは retune を内部呼び出しせず、Gate A / Gate B の前に ontology / spec を書かない。
+
+## planned migration
+
+T56-T62 後、retune は semantic domain/taxonomy を直接 commit する通常 write path ではなく、
+code cluster、split、merge、module grouping の **proposal generator** に降格する。
+
+- flat `domains[] → modules[]` は UI/compatibility projection とし、subdomain は
+  knowledge log の child→parent typed edge で表す。
+- directory / function cluster は assignment evidence。domain purpose / boundary を自動確定しない。
+- step 4 の direct write は Gate B/C transaction に置換する。
+- taxonomy / DomainDef / generated Markdown は knowledge log からの projection とする。
+
+目標契約は [domain organization](./domain-organization.md) と
+[domain knowledge log](../data/domain-knowledge-log.md)。

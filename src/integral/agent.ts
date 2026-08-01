@@ -21,7 +21,7 @@ import type { IntegralQuery, IntegralResult, IntegralScope, ScopeDecision } from
  * Prompt-template version. BUMP whenever assembleJudgePrompt changes, so a shared
  * path cache never serves a decision distilled with an older prompt.
  */
-export const JUDGE_PROMPT_VERSION = "1";
+export const JUDGE_PROMPT_VERSION = "2";
 
 const SCOPES = ["function", "domain", "scene", "scene-adjacent"] as const;
 

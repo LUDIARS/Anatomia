@@ -60,4 +60,12 @@ describe("compileDomainRules", () => {
   it("returns no rules for an empty ontology", () => {
     expect(compileDomainRules({ domains: new Map() })).toEqual([]);
   });
+
+  it("rejects the unassigned relation sentinel as a domain definition", () => {
+    const invalid = ontology();
+    const def = invalid.domains.get("ks-layer-spine")!;
+    invalid.domains = new Map([["unassigned", { ...def, name: "unassigned" }]]);
+
+    expect(() => compileDomainRules(invalid)).toThrow(/reserved/);
+  });
 });

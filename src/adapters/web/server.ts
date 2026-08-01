@@ -99,6 +99,7 @@ import type { CodeNode, Edge } from "../../types.js";
 import { buildTimeline } from "../../dynamic/viz/timeline.js";
 import { buildActiveOverlay } from "../../dynamic/viz/active.js";
 import { buildWhere } from "../../dynamic/viz/where.js";
+import { cardsFromDomains } from "../../dynamic/record/ingest.js";
 import { RecordedTraceSource } from "../../dynamic/viz/trace-source.js";
 import type { TraceSource } from "../../dynamic/viz/trace-source.js";
 
@@ -334,7 +335,7 @@ export function createApp(
   });
 
   // GET /api/trace/where -- T42
-  app.get("/api/trace/where", (c) => {
+  app.get("/api/trace/where", async (c) => {
     const current = trace.currentFrame();
     if (!current) {
       return c.json({
@@ -345,10 +346,11 @@ export function createApp(
         phase: null,
       });
     }
+    const ctx = await source.resolve(c.req.query("project"));
     const result = buildWhere(
       current.frameId,
       trace.currentActiveZoneSet(),
-      [],
+      cardsFromDomains(ctx.domains ?? []),
     );
     return c.json(result);
   });

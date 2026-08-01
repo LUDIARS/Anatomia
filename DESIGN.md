@@ -4,8 +4,9 @@
 > コードを「ドメイン」へ解剖し、仕様と実行時挙動に結びつけ、決定的キャッシュの上で
 > **AI のクリーンなコード生成を支える**開発者ツール。
 >
-> 本書は設計のみ (実装未着手)。特定サービスのリポには属さない (システム自身の設計ホーム
-> `Ars/Anatomia/`)。既存資産 (Ergo 等) は統合先候補として §11 で参照する。
+> 本書は全体設計の索引。実装済みの詳細契約と planned contract の正本は `spec/`
+> （目標は `status: planned` の OKF）、実装追跡の正本は `TASKS.md` とする。システム自身の設計ホームは
+> `Ars/Anatomia/`。既存資産 (Ergo 等) は統合先候補として §11 で参照する。
 >
 > **確定事項**: 重心 = AI クリーンコード生成支援 (§1.1 supply→verify ループ) / 形態 = コア lib +
 > アダプタ群 (§1.2、v1 = MCP/HTTP) / 用語 = **DAG** はキャッシュ土台 (acyclic 必須)・**KG** は
@@ -29,7 +30,8 @@
 - **ドメインの分割と仕様突合**: リポジトリ分割に寄せず、Anatomia がドメイン粒度を管理し、
   仕様クレームとの対応・ギャップを同じ解析基盤で扱う。
 - **シーンの定義と管理**: 実行局面、UI 画面、複数画面にまたがる workflow/module をすべて
-  「シーン」として扱い、手動定義と実行トレース由来の自動検出を同じ scene model に集約する。
+  「シーン」として扱う。identity / composition / transition はコード・asset を正本として
+  自動導出し、trace は観測 evidence、手動入力は表示注記だけを担う。
 
 **主対象**: C++/C# のゲーム基盤 (Pictor/Ergo 系・Unity 系)。
 **副対象**: 肥大化した非ゲーム (Memoria 等) にも汎用オントロジーで適用可。
@@ -71,8 +73,8 @@ Anatomia は「AI 用 RAG」ではなく、**AI のコード生成を綺麗に�
 
 1. **キャッシュをデータ構造にする。** 後付けの索引でなく、コンテンツアドレッシング (Merkle) で
    無効化を構造から *無料で・正確に* 得る。ビルドキャッシュ (Bazel/Nix) や git と同じ原理。
-2. **静的・動的・仕様を同一アンカー ID で縫う。** 「存在するドメイン」「実行されたドメイン」「仕様クレーム」が
-   同じ ID で繋がる。
+2. **typed stable ID と evidence で静的・動的・仕様を縫う。** CodeSymbol の版 evidence は
+   Anchor ID、Domain / SpecClause / Scene は各 entity の stable ID を持ち、typed edge で繋ぐ。
 3. **結合は類似度でなく適合・証拠で。** embedding は補助信号に留め、契約 (conformance) と
    明示参照を一級市民にする。
 
@@ -85,23 +87,28 @@ Anatomia は「AI 用 RAG」ではなく、**AI のコード生成を綺麗に�
 ## 3. 全体アーキテクチャ
 
 ```
+┌── 仕様 / domain authoring ─────────────────────────────┐
+│ authored OKF → clause → domain/subdomain proposal → human Gate │
+└──────────────────────────┬──────────────────────────────┘
+                           │ approved knowledge transaction
 ┌── 静的層: コンテンツアドレス DAG ─────────────────────┐
-│ Parse(tree-sitter) → Merkle-AST → ドメイン契約 → ドメインカード │
+│ Parse(tree-sitter) → Merkle-AST → code assignment → domain card │
 │                          ↕ 3段リンカ                    │
 │                       仕様クレーム                      │
-│                    └─ KG 射影 (traceability クエリ)     │
 └──────────────────────────┬──────────────────────────────┘
-                           │ 同一 Anchor ID で縫合
+                           │ stable entity ID + Anchor evidence
 ┌──────────────────────────┴── 動的層: 実行トレース ──────┐
-│ 静的ループ骨格抽出 → マーカー自動注入 → フレーム×ドメイントレース │
+│ code/asset scene → マーカー自動注入 → フレーム×ドメイン観測       │
 └──────────────────────────┬──────────────────────────────┘
                            │
-┌──────────────────────────┴── 配信・可視化層 ────────────┐
-│ Web ビュー (タイムライン/光るグラフ/You are here) ＋ AI 文脈束 │
+┌──────────────────────────┴── machine knowledge / 配信 ───┐
+│ JSONL → Kuzu / generated OKF / compatibility / Web view ＋ AI 束 │
 └─────────────────────────────────────────────────────────┘
 ```
 
-すべてのノード・トレース・仕様は **Anchor ID = 正規化 Merkle ハッシュ** で識別され、層を跨いで結合する。
+CodeSymbol の構造版は **Anchor ID = 正規化 Merkle ハッシュ**で識別する。Domain / SpecClause /
+Scene / SceneElement は rename や code body 変更で揺れない個別の stable ID を持ち、Anchor ID、
+source revision、trace anchor を evidence とする typed edge で層を跨いで結合する。
 
 ---
 
@@ -128,6 +135,18 @@ Anatomia は「AI 用 RAG」ではなく、**AI のコード生成を綺麗に�
 **関数の追加・更新が一切無ければ同一ハッシュ**とする (整形/コメント/ローカル名のみの変更は
 関数 AST が不変 → 同一ハッシュ)。関数本体の構造が変われば別ハッシュ。
 これで「整形だけ→不変 / 挙動変化→変化 / 別関数→衝突なし」を関数粒度で先に検証する (§14 PoC)。
+
+**旧仕様が Anchor ID で一意識別した理由**は、中央 registry で entity の寿命を管理するためではなく、
+同じ正規化コード内容を同じ cache entry として再利用するためである。
+
+- content-addressing により重複排除と部分キャッシュ無効化を同じ ID で行える
+- format/comment/local-name だけの差を同一視できる
+- trace marker に hash を埋め、実行時 zone と解析時 FunctionNode を直接 join できる
+- repository 全体の採番表が無くても決定的に再構築できる
+
+したがって Anchor ID は CodeSymbol の **content/revision identity**として保持するが、Domain /
+SpecClause / Scene の **lifetime identity**には使わない。後者は内容・表示名・path が変わっても同じ
+entity であり続ける stable ID を持ち、Anchor ID や content fingerprint を revision evidence とする。
 
 ### 4.3 アーキテクチャルール (ドメイン契約の一般化)
 
@@ -180,13 +199,50 @@ Anatomia は「AI 用 RAG」ではなく、**AI のコード生成を綺麗に�
 
 ### 4.6 KG 射影 (traceability クエリ用)
 
-DAG (コンテンツアドレスの不変構造) を *下層の真実* とし、**KG (Kuzu) はその上の問い合わせ用射影**。
+DAG はコード構造の下層事実、Git 管理の knowledge JSONL は承認済み domain/spec/code/scene 関係の
+machine source とし、**KG (Kuzu) は両者から作る問い合わせ用射影**。
 
 - 「§4 を実装する全コード」「System X に触る全仕様」などの traceability クエリは graph 探索で。
-- KG は materialized view: DAG から生成され、DAG が真実。可変グラフを別途管理しない。
+- KG は materialized view。削除して DAG + knowledge JSONL から再構築でき、Kuzu-only write を許さない。
 - 集計・近傍探索は Kuzu、複雑な導出ルール (ドメイン検出の一部) は将来 Datalog 風層を差せるよう
   **query 層を抽象化**しておく (CodeQL/Glean/Soufflé の先行技術を参照)。
 - embedding-RAG を核にしない理由: retrieval が揺れ prefix が揺れる → キャッシュと本質的に不適合。
+
+### 4.7 OKF → domain → code と scene の権威
+
+権威を用途別に分ける。
+
+| 対象 | 上流の正本 | 機械正本 | 派生 |
+|---|---|---|---|
+| domain の意味・境界・階層 | human-approved domain OKF | knowledge JSONL transaction | DomainDef / taxonomy / Kuzu |
+| spec ↔ domain | authored SpecClause + human Gate | knowledge JSONL edge | Kuzu / UI |
+| code ↔ domain | code evidence + human Gate | knowledge JSONL edge | card / taxonomy / Kuzu |
+| scene identity / composition / transition | code / engine asset | code-sync transaction | scene OKF / edge JSONL / Kuzu |
+| runtime scene observation | raw trace | provenance 付き observation | timeline / phase view |
+
+一般仕様書は domain ごとに並べ替えず AIFormat の分類を保つ。1 文書が複数 domain にまたがれるよう、
+stable clause ID へ owner 1 件 + related 0..n を張る。subdomain は child→parent の typed edge
+（親最大 1、acyclic）で表し、directory、layer、concern、subscene と混同しない。
+
+目標順序は **仕様だけから domain 候補 → Gate A → 承認済み domain へ code を精査・割当 →
+code-only/spec-gap と乖離を Gate B/C で補正**。spec が無いコードからは proposal を作れるが、
+コードだけで domain の意味を確定しない。未解決は `unassigned` のまま保持し、catch-all default
+domain を置かない。`state-machine` は本物の project domain 用に予約し、builtin policy example は
+`transition-guard-example` とする。
+
+scene は「function か domain か」の二択にしない。
+
+```text
+Scene ─contains→ SceneElement
+Scene / SceneElement ─activates / realized-by→ CodeSymbol
+CodeSymbol ─owned-by→ Domain
+Scene ─activates→ Domain                (上の edge から導出)
+```
+
+scene/subscene と domain/subdomain は直交する。generated scene OKF は `type: data` +
+`x-anatomia.kind: scene` の read-only projection とし、大量の edge は JSONL/Kuzu に置く。
+詳細契約は `spec/data/domain-knowledge-log.md`、`spec/feature/okf-generation.md`、
+`spec/feature/domain-organization.md`、`spec/feature/scene-derivation.md`。
 
 ---
 
@@ -368,7 +424,8 @@ Memoria 肥大化も同じ尺度 (1 モジュールに機能が何個刺さっ�
 
 - KG は結合の *保管・配信* に最適だが、結合の *生成* は 3 段リンカ (§4.5) 次第。KG 単体を
   「1 番」と見ると本丸 (リンカ) を見落とす。
-- → コンテンツアドレス DAG を下層の真実、KG をその射影、embedding を信号、に役割分離。
+- → code structure はコンテンツアドレス DAG、承認済み semantic relation は knowledge JSONL、
+  KG は両者の射影、embedding は信号、に役割分離。
 
 ---
 
@@ -406,6 +463,11 @@ Memoria 肥大化も同じ尺度 (1 モジュールに機能が何個刺さっ�
 - KG 基盤 = **Kuzu** (query 層抽象化、in-memory graph + Kuzu 永続。Datalog 風層は後付け可)
 - 実装方針 = **フルセット・No-MVP** (§14)。実装 Sonnet / レビュー Opus
 - 閾値 = **codebase 相対** (§9.2、固定値でなくリポ自身の分布)
+- domain semantics / hierarchy = **human-approved OKF**、承認済み machine relation =
+  **hash-chain JSONL**、Kuzu / taxonomy / generated OKF = **再生成可能な projection**
+- domain 整理順 = **spec-only proposal → Gate A → code assignment → Gate B/C → residual review**
+- scene = **code / asset authoritative**。trace は observation、manual は表示 annotation のみ
+- no implicit default domain。`state-machine` は project domain 用に予約
 
 **残未決定 / 保留**:
 - 略称の最終確定・リポ化の有無 (`project-codes`)
@@ -421,8 +483,13 @@ Memoria 肥大化も同じ尺度 (1 モジュールに機能が何個刺さっ�
 局面学習 (§5.5) は手法確定 + 実装済 (G10)。残保留は実トレース録画経路の配線のみ。
 タスクの全列挙は `Ars/Anatomia/TASKS.md`。
 
-依存順 (全部作る前提の順序): 静的 DAG → グラフ/KG(Kuzu) → ドメイン・ルール → コード↔仕様 →
+既存機能の依存順: 静的 DAG → グラフ/KG(Kuzu) → ドメイン・ルール → コード↔仕様 →
 supply/verify → アダプタ(MCP/CLI/Web) → 動的トレース → 動的可視化。
+
+domain / scene 知識基盤の追加順: OKF profile + stable ID → structured spec parser +
+transaction log + generated artifact writer → spec-only domain Gate → code assignment / drift Gate →
+code-authoritative scene manifest → Kuzu / compatibility projection → 共通 CLI/MCP/Web service → migration。
+詳細は `docs/plan-okf-domain-scene-flow.md` と `TASKS.md` の G11-G14。
 
 各 feature で計測: 正規化ハッシュの命中率 / ルールの取りこぼし率 / 束の決定性 / verify の精度。
 **実装は Sonnet、最終レビューは Opus。**
@@ -445,3 +512,6 @@ supply/verify → アダプタ(MCP/CLI/Web) → 動的トレース → 動的可
 - 静的 scan→可視化の前例: Ergo `render_pipeline`
 - トレース配信: `ergo_custos` / Custos
 - 先行技術: CodeQL / Glean / Soufflé (コード = 事実 + 再帰ルール)、Tracy/Optick (フレーム計測)
+- domain / scene machine data: `spec/data/domain-knowledge-log.md`
+- OKF ingestion / generation: `spec/feature/okf-generation.md`
+- domain organization: `spec/feature/domain-organization.md`

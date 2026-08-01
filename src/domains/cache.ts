@@ -24,7 +24,7 @@ import type { FileNode } from "../types.js";
 import { filesContentKey } from "../graph/cache.js";
 
 /** BUMP when detectDomains' inputs/semantics change (shared-store correctness). */
-export const DETECTION_CACHE_VERSION = "1";
+export const DETECTION_CACHE_VERSION = "2";
 
 /** Hash the ontology's domain defs so an ontology edit busts the detection cache. */
 export function hashOntology(ontology: DomainOntology): string {

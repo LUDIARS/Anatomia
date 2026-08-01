@@ -49,10 +49,24 @@ export type { CandidateRule, MiningOptions } from "./mining.js";
 
 // T18 — ontology loader
 export { loadOntology, BUILTIN_DOMAINS } from "./ontology.js";
-export type { DomainDef, ConfiguredPreset, DomainOntology } from "./ontology.js";
+export type { DomainDef, ConfiguredPreset, DomainOntology, DomainRole } from "./ontology.js";
+
+// Explicit absence of an approved semantic owner (not a domain node).
+export {
+  UNASSIGNED_DOMAIN,
+  assertDomainDefinitionName,
+  isReservedDomainName,
+} from "./assignment.js";
 
 // T19 — detection
-export { detectDomain, detectDomains } from "./detect.js";
+export {
+  assertSemanticDetectionResult,
+  detectDomain,
+  detectDomains,
+  isSemanticDetectionResult,
+  partitionDetectionResults,
+  semanticDetectionResults,
+} from "./detect.js";
 export type { DetectionResult } from "./detect.js";
 
 // T20 — card generation

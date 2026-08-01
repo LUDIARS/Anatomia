@@ -13,7 +13,7 @@
  */
 
 import type { AnchorId } from "../types.js";
-import type { DetectionResult } from "./detect.js";
+import { semanticDetectionResults, type DetectionResult } from "./detect.js";
 import type { ModuleEvaluation } from "../modules/types.js";
 
 /** One module a domain spans, with its cohesion + how many of its members the domain owns. */
@@ -49,7 +49,7 @@ export function buildDomainModules(
   for (const c of evaluation.cohesion) cohesion.set(c.moduleId, c.cohesion);
 
   const out: Record<string, DomainModuleRef[]> = {};
-  for (const d of domains) {
+  for (const d of semanticDetectionResults(domains)) {
     if (d.implementors.length === 0) continue;
     const counts = new Map<string, number>();
     for (const a of d.implementors) {

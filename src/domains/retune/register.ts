@@ -62,11 +62,12 @@ export function renderTaxonomyMd(t: Taxonomy): string {
 }
 
 export async function registerTaxonomy(repoPath: string, taxonomy: Taxonomy): Promise<RegisterResult> {
+  // Validate every derived DomainDef before creating or deleting any files.
+  const defs = taxonomyToDomainDefs(taxonomy);
   const ontologyDir = join(repoPath, "spec", "data", "ontology");
   await mkdir(ontologyDir, { recursive: true });
   await mkdir(join(repoPath, "spec", "feature"), { recursive: true });
 
-  const defs = taxonomyToDomainDefs(taxonomy);
   const wanted = new Set(defs.map((d) => `${d.name}.domain.json`));
 
   // Remove stale *.domain.json from a previous pass.

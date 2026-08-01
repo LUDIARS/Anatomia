@@ -40,4 +40,23 @@ describe("loadTaxonomyResolver", () => {
     await writeFile(join(repo, "spec", "data", "bad.taxonomy.json"), "{ not json", "utf8");
     expect(await loadTaxonomyResolver(repo)).toBeUndefined();
   });
+
+  it("falls back when a legacy taxonomy uses the unassigned relation sentinel", async () => {
+    await mkdir(join(repo, "spec", "data"), { recursive: true });
+    const invalid: Taxonomy = {
+      ...TAX,
+      domains: [{
+        name: "unassigned",
+        description: "relation state",
+        modules: [{ name: "legacy", description: "", paths: ["^src/graph/"] }],
+      }],
+    };
+    await writeFile(
+      join(repo, "spec", "data", "legacy.taxonomy.json"),
+      JSON.stringify(invalid),
+      "utf8",
+    );
+
+    expect(await loadTaxonomyResolver(repo)).toBeUndefined();
+  });
 });

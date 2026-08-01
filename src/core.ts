@@ -30,7 +30,7 @@ import { landingInjections } from "./supply/detectors.js";
 import { rankExemplars, rankSpecClauses, RELEVANCE_VERSION } from "./supply/relevance.js";
 import { selectSiblings, verifyThresholds } from "./supply/verify-inputs.js";
 import { loadOntology } from "./domains/ontology.js";
-import { detectDomains } from "./domains/detect.js";
+import { detectDomains, partitionDetectionResults } from "./domains/detect.js";
 import { detectionCacheKey } from "./domains/cache.js";
 import { compileDomainRules } from "./domains/compile.js";
 import { generateCard, createCardCache } from "./domains/card.js";
@@ -80,8 +80,10 @@ export interface AnalysisContext {
   specClauses?: SpecClause[];
   /** Explicit + structural code↔spec links (G4). */
   links?: Link[];
-  /** Domain-detection results from the builtin ontology + plugins (G3). */
+  /** Semantic project-domain results. Builtin policy examples never appear here. */
   domains?: DetectionResult[];
+  /** Policy evaluation results retained for rules/violations, never ownership. */
+  policyResults?: DetectionResult[];
   /**
    * Preset rules compiled from the active ontology (builtin + plugins). These
    * are the rules the supply bundle lists and the verify pipeline evaluates.
@@ -528,6 +530,7 @@ export async function analyze(
   // context then carries the `partial` marker).
   const runDomains = options.scope?.domains !== false;
   let domains: DetectionResult[] = [];
+  let policyResults: DetectionResult[] = [];
   let rules: Rule[] = [];
   if (runDomains) try {
     const ontology = await loadOntology(options.pluginDir);
@@ -536,21 +539,23 @@ export async function analyze(
     // spec/config-only-edit case, where the fingerprint busts but the DAG does
     // not. No cache configured → always recompute (the hermetic default).
     const detectionCache = options.detectionCache;
+    let detected: DetectionResult[] = [];
     if (detectionCache) {
       const key = detectionCacheKey(files, ontology);
       const hit = await detectionCache.get(key);
       if (hit) {
         vgWrite("debug", "anatomia domain detection cache hit", { repo: repoName, files: files.length });
-        domains = hit;
+        detected = hit;
       } else {
         vgWrite("debug", "anatomia domain detection cache miss", { repo: repoName, files: files.length });
-        domains = await detectDomains(ontology, graph, allFunctions);
-        await detectionCache.set(key, domains);
+        detected = await detectDomains(ontology, graph, allFunctions);
+        await detectionCache.set(key, detected);
       }
     } else {
       vgWrite("debug", "anatomia domain detection start", { repo: repoName, files: files.length });
-      domains = await detectDomains(ontology, graph, allFunctions);
+      detected = await detectDomains(ontology, graph, allFunctions);
     }
+    ({ domains, policyResults } = partitionDetectionResults(detected));
     // Surface the ontology's preset rules so supply can list them and verify
     // can evaluate them (detection only reports violations on existing code).
     rules = compileDomainRules(ontology);
@@ -659,6 +664,7 @@ export async function analyze(
     functions: allFunctions.length,
     skipped: skipped.length,
     domains: domains.length,
+    policies: policyResults.length,
     links: links.length,
     duration_ms: Date.now() - started,
   });
@@ -672,6 +678,7 @@ export async function analyze(
     specClauses,
     links,
     domains,
+    policyResults,
     rules,
     skipped,
     semanticLinked,
@@ -730,10 +737,12 @@ export async function buildContextBundle(
   const activeDomains = (ctx.domains ?? []).filter((m) => m.implementors.length > 0);
   const existingDomains = activeDomains.map((m) => m.domain);
 
-  // Applicable rules = the preset rules of domains that are actually present in
-  // this repo (rule id is `${domain}/preset#i`), so the bundle advises the agent
-  // with the conventions that apply here rather than every catalogued rule.
-  const activeNames = new Set(existingDomains);
+  // Policies can contribute applicable rules without becoming semantic domains.
+  // A policy is active when it matched code or emitted a violation.
+  const activePolicies = (ctx.policyResults ?? [])
+    .filter((result) => result.implementors.length > 0 || result.violations.length > 0)
+    .map((result) => result.domain);
+  const activeNames = new Set([...existingDomains, ...activePolicies]);
   const applicable = (ctx.rules ?? []).filter((r) => activeNames.has(r.id.split("/")[0]!));
 
   const bundle = assembleFittingBundle(
@@ -830,7 +839,7 @@ async function impactRadiusForLandings(
 /**
  * Cache key for a context bundle. Folds the request (task + domain hints) with a
  * digest of EVERY ctx field the bundle reads — files (path + structural hash),
- * spec clauses (which can live outside ctx.files), domains and rules — so a
+ * spec clauses (which can live outside ctx.files), domains, policies and rules — so a
  * change to any of them busts the cache and no stale bundle is served.
  */
 function bundleCacheKey(ctx: AnalysisContext, req: BundleRequest): string {
@@ -848,10 +857,15 @@ function bundleCacheKey(ctx: AnalysisContext, req: BundleRequest): string {
   }
   h.update("\0");
   for (const d of ctx.domains ?? []) {
-    h.update(`${d.domain}|${[...d.implementors].sort().join(",")}\0`);
+    h.update(`domain|${d.domain}|${[...d.implementors].sort().join(",")}\0`);
   }
   h.update("\0");
-  for (const r of ctx.rules ?? []) h.update(`${r.id}\0`);
+  for (const p of ctx.policyResults ?? []) {
+    const isActive = p.implementors.length > 0 || p.violations.length > 0;
+    h.update(`policy|${p.domain}|${isActive ? "active" : "inactive"}\0`);
+  }
+  h.update("\0");
+  for (const r of ctx.rules ?? []) h.update(`${JSON.stringify(r)}\0`);
   return versionedKey(h.digest("hex"), "bundle", BUNDLE_CACHE_VERSION);
 }
 

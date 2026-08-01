@@ -23,12 +23,32 @@ LLM なしで評価する。コード一般の hotspot を見る `review` と分
 | `boundaryDrift` | calls 近傍の多数 domain と現在 assignment が一致しない member |
 | `specIntegrity` | `specRefs` を宣言した domain に spec-linked implementor が 1 件もない状態 |
 
+planned `DomainReviewReport` は既存指標を維持し、次も返す。
+
+| 項目 | 意味 |
+|---|---|
+| `implementationGap` | approved spec domain に owner CodeSymbol が無い状態 |
+| `codeOnly` | owner/spec relation を持たない code cluster |
+| `hierarchyIntegrity` | cycle、dangling parent、multiple parent、aggregate への直接 assignment |
+| `assignmentStaleness` | CodeSymbol revision と承認時 evidence の不一致 |
+| `specRevisionDrift` | domain/spec edge が参照する authored OKF revision の不一致 |
+| `contradiction` | spec boundary と code assignment evidence の明示的な衝突 |
+
+planned state の semantic owner は最大 1 なので、現行の `overlap` をそのまま 1 指標にはしない。
+
+- `legacyOverlap`: 複数の legacy DomainDef が同じ symbol を claim する migration input
+- `proposalConflict`: 未承認の複数 assignment 候補
+- `ownerCardinalityViolation`: approved log が壊れて owner edge が複数ある fail-fast error
+- `sharedUsage`: `domain-uses-code` が複数ある正常状態。overlap error ではない
+
 `summary` は cap 前の真の件数を保持し、詳細配列は既定 50 件まで。cohesion の分母となる edge が
 無い domain は `null`。implementor が 1 件未満の domain では isolated member を出さない。
 
 boundary drift は決定的 label propagation を既定 10 round 行い、現在 domain と提案 domain、
 domain 別 vote 数を evidence として返す。実装は
 [`src/review/boundary.ts`](../../src/review/boundary.ts) で、自動で assignment は変更しない。
+追加項目も自動修正せず、[`domain-organization.md`](./domain-organization.md) の
+assign/move/unassign/split/merge proposal へ evidence を渡す。
 
 ## CLI
 
@@ -49,6 +69,8 @@ anatomia domain-review [--repo <path> | --project <id>] [--json]
 - **boundary drift** は calls 近傍の多数決との不一致であり、誤所属の確定ではない。
 - external entrypoint や dynamic dispatch は静的 calls graph に現れないことがあるため、
   isolated / drift は人間が evidence を確認する。
+- **spec-only** は異常ではなく実装 gap、**code-only** は自動 domain ではなく spec-gap 候補。
+- hierarchy integrity は semantic tree の検査であり、directory/layer/subscene の tree を混ぜない。
 
 ## 関連
 
@@ -56,3 +78,4 @@ anatomia domain-review [--repo <path> | --project <id>] [--json]
 - [ドメイン authoring](./domain-authoring.md)
 - [人間承認付きドメイン発見](./domain-discovery-workflow.md)
 - [コード構造レビュー](./code-review.md)
+- [domain / scene knowledge log](../data/domain-knowledge-log.md)

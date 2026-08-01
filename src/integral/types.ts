@@ -135,7 +135,7 @@ export interface IntegralResult {
   stopReason: "complete" | "maxNodes" | "budgetMs";
   /** Wall-clock ms the deterministic pass took. */
   elapsedMs: number;
-  /** Content key over (seed anchors + range) — the path-cache key input. */
+  /** Deterministic content identity over the seed anchors and range. */
   contentKey: string;
 }
 

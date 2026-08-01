@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { assessDomainHealth } from "./warnings.js";
 
 describe("domain health warnings", () => {
-  it("warns when taxonomy domains exist but only builtin domains are detected", async () => {
+  it("counts detected semantic domains without subtracting builtin policies", async () => {
     const repo = await mkdtemp(join(tmpdir(), "anatomia-domain-health-"));
     try {
       await mkdir(join(repo, "spec", "data"), { recursive: true });
@@ -27,11 +27,12 @@ describe("domain health warnings", () => {
       const health = await assessDomainHealth({
         repoPath: repo,
         functions: [{}, {}, {}],
-        domains: [{ implementors: [] }, { implementors: [] }],
+        domains: [{ implementors: [] }],
       });
 
       expect(health.expectedCuratedDomains).toBe(3);
-      expect(health.detectedCuratedDomains).toBe(0);
+      expect(health.builtinDomains).toBe(0);
+      expect(health.detectedCuratedDomains).toBe(1);
       expect(health.warnings[0]?.code).toBe("domain-count-low-vs-taxonomy");
     } finally {
       await rm(repo, { recursive: true, force: true });

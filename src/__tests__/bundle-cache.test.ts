@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { analyze, buildContextBundle } from "../core.js";
 import { createMemoryStore } from "../cache/store.js";
 import type { AnalysisContext } from "../core.js";
-import type { ContextBundle, SpecClause } from "../types.js";
+import type { AnchorId, ContextBundle, Rule, SpecClause } from "../types.js";
 
 let root: string;
 beforeEach(async () => {
@@ -81,5 +81,38 @@ describe("buildContextBundle cache", () => {
     );
     expect(bundle.specClauses.map((c) => c.id)).toEqual(["z"]);
     expect(Buffer.byteLength(JSON.stringify(bundle), "utf8")).toBeLessThanOrEqual(700);
+  });
+
+  it("applies policy rules without presenting the policy as an existing domain", async () => {
+    const policyAnchor = "policy-anchor" as AnchorId;
+    const policyRule: Rule = {
+      id: "transition-guard-example/preset#0",
+      scope: "global",
+      description: "Transition policy",
+      predicate: { type: "NoCycle", scope: {} },
+      severity: "warn",
+    };
+    const ctx: AnalysisContext = {
+      repoPath: "/repo",
+      graph: {} as AnalysisContext["graph"],
+      files: [],
+      functions: [],
+      domains: [],
+      policyResults: [{
+        domain: "transition-guard-example",
+        role: "policy",
+        implementors: [policyAnchor],
+        violations: [],
+        conforms: true,
+      }],
+      rules: [policyRule],
+    };
+    const bundle = await buildContextBundle(
+      ctx,
+      { task: "update transitions" },
+      createMemoryStore<ContextBundle>(),
+    );
+    expect(bundle.existingDomains).toEqual([]);
+    expect(bundle.applicableRules.map((rule) => rule.id)).toEqual([policyRule.id]);
   });
 });

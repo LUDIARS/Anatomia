@@ -16,7 +16,7 @@
 import type { LLMClient } from "../domains/card.js";
 import type { ModuleEvaluation } from "../modules/types.js";
 import { integralSearch, type IntegralContext } from "./search.js";
-import { judgeScope, JUDGE_PROMPT_VERSION } from "./agent.js";
+import { assembleJudgePrompt, judgeScope, JUDGE_PROMPT_VERSION } from "./agent.js";
 import { createIntegralCache, integralCacheKey, type IntegralCache } from "./cache.js";
 import { emptySceneModel, type SceneModel } from "./scene.js";
 import type { IntegralQuery, IntegralReport } from "./types.js";
@@ -59,8 +59,9 @@ export async function runIntegral(
   }
 
   const cache = opts.cache ?? createIntegralCache();
+  const judgeInput = assembleJudgePrompt(query, result);
   const key = integralCacheKey(
-    result.contentKey,
+    judgeInput,
     opts.fingerprint ?? "nofp",
     opts.modelId ?? "default",
     JUDGE_PROMPT_VERSION,
@@ -68,8 +69,8 @@ export async function runIntegral(
 
   const hit = await cache.get(key);
   if (hit) {
-    // Replay the cached judgement; the freshly-computed result is identical
-    // (the key folds the fingerprint), so use it to reflect the current graph.
+    // Replay the cached judgement; the key folds the full semantic judge input
+    // and fingerprint, so use the fresh result to reflect the current graph.
     return { result, decision: hit.decision, cached: true };
   }
 

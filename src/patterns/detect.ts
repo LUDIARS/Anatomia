@@ -26,7 +26,7 @@ import { readFile } from "node:fs/promises";
 import { relative } from "node:path";
 import type { AnchorId, FunctionNode } from "../types.js";
 import type { AnalysisContext } from "../core.js";
-import type { DetectionResult } from "../domains/detect.js";
+import { semanticDetectionResults, type DetectionResult } from "../domains/detect.js";
 import type { CodeGraphQuery } from "../graph/query.js";
 
 export type AccessPatternKind = "singleton" | "service-locator" | "facade" | "network";
@@ -184,7 +184,7 @@ export function scanForPatterns(
 
   // anchor → domains, for accessor attribution.
   const domainsOf = new Map<string, Set<string>>();
-  for (const d of domains) {
+  for (const d of semanticDetectionResults(domains)) {
     for (const a of d.implementors) {
       let s = domainsOf.get(a);
       if (!s) domainsOf.set(a, (s = new Set()));
@@ -383,6 +383,7 @@ function enclosingFn(
 // ---------------------------------------------------------------------------
 
 export async function detectAccessPatterns(ctx: AnalysisContext): Promise<AccessPattern[]> {
+  const domains = semanticDetectionResults(ctx.domains ?? []);
   const files: ScanFile[] = await Promise.all(
     ctx.files.map(async (f) => ({
       path: f.path,
@@ -391,11 +392,11 @@ export async function detectAccessPatterns(ctx: AnalysisContext): Promise<Access
   );
   const classFanOut = await computeClassFanOut(
     ctx.functions,
-    ctx.domains ?? [],
+    domains,
     ctx.graph,
     ctx.repoPath,
   );
-  return scanForPatterns(files, ctx.functions, ctx.domains ?? [], ctx.repoPath, { classFanOut });
+  return scanForPatterns(files, ctx.functions, domains, ctx.repoPath, { classFanOut });
 }
 
 /**

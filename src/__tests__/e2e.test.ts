@@ -47,9 +47,10 @@ describe("analyze() — mini fixture (always runs)", () => {
     const nodes = await ctx.graph.allNodes();
     expect(nodes.length).toBeGreaterThan(0);
 
-    // Domain detection attempted (G3) — builtin ontology always loads.
+    // Policy detection attempted (G3) — builtin policies never become domains.
     expect(Array.isArray(ctx.domains)).toBe(true);
-    expect(ctx.domains!.length).toBeGreaterThan(0);
+    expect(ctx.domains!.some((domain) => domain.domain === "transition-guard-example")).toBe(false);
+    expect(ctx.policyResults!.some((policy) => policy.domain === "transition-guard-example")).toBe(true);
 
     // Spec linking (G4) — the fixture ships a spec/Mini.md.
     expect(ctx.specClauses!.length).toBeGreaterThan(0);
@@ -113,8 +114,8 @@ describe("analyze() — mini fixture (always runs)", () => {
     for (const n of nodes) edgeCount += (await ctx.graph.edgesFrom(n.id)).length;
     expect(edgeCount).toBeGreaterThan(0);
 
-    // Phase-4 bodyAst consumer (domain template matching) ran before freeing.
-    expect(ctx.domains!.length).toBeGreaterThan(0);
+    // Phase-4 bodyAst consumer (policy template matching) ran before freeing.
+    expect(ctx.policyResults!.length).toBeGreaterThan(0);
 
     // Post-analyze graph operations still work after trees are freed — they read
     // plain FileNode/edge data, never bodyAst.
@@ -138,10 +139,11 @@ acDescribe("analyze() — AdventureCube subset (real C++)", () => {
       const nodes = await ctx.graph.allNodes();
       expect(nodes.length).toBeGreaterThan(0);
 
-      // Domain detection was attempted on real code (results may include
-      // zero-implementor domains — that is a valid outcome, not a crash).
+      // Builtin policy detection was attempted without creating a semantic
+      // default domain (zero implementors is a valid outcome, not a crash).
       expect(Array.isArray(ctx.domains)).toBe(true);
-      expect(ctx.domains!.length).toBeGreaterThan(0);
+      expect(ctx.domains!.some((domain) => domain.domain === "transition-guard-example")).toBe(false);
+      expect(ctx.policyResults!.some((policy) => policy.domain === "transition-guard-example")).toBe(true);
     },
     60_000,
   );

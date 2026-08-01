@@ -2,9 +2,14 @@
 
 ## 目的
 
-scene 層([[integral-search]] の第3層)は「トレースがあれば流れる」配線まで済んでいた。
-本機能はその**録画経路**を閉じる: ゲームを計装 → TraceEvent を記録 → Anatomia が
-読み戻して scene にする。これで実プロジェクトの scene が空でなくなる。
+現行機能は scene 層([[integral-search]] の第3層)の**録画経路**を閉じる: ゲームを計装 →
+TraceEvent を記録 → Anatomia が読み戻して trace-derived `SceneModel` にする。
+
+planned contract（T63-T66）ではこの出力を `SceneObservation` に変更する。canonical scene の定義は
+code / engine asset から導出し、trace だけから未承認の identity/composition/transition を
+権威化しない。
+目標契約は [scene derivation](./scene-derivation.md)、実装順は
+[`../../docs/plan-okf-domain-scene-flow.md`](../../docs/plan-okf-domain-scene-flow.md)。
 
 ## 経路
 
@@ -27,7 +32,8 @@ scene 層([[integral-search]] の第3層)は「トレースがあれば流れる
 2. **ingest** (`dynamic/record/ingest.ts`):
    - `parseTraceJsonl` → `processEvents`(既存 ringbuffer) → `DecodedFrame[]`
    - `cardsFromDomains(DetectionResult[])` = **検出結果から LLM 非依存の最小カード**(anchor→domain)
-   - `stitchFrame` → `StitchedFrame` → `frameSignature` → scene(`sceneModelFromTraceFile`)
+   - `stitchFrame` → `StitchedFrame` → `frameSignature` → phase/scene observation
+     (`sceneModelFromTraceFile`)
 3. **scene → integral**: warm サーバは env `ANATOMIA_TRACE_FILE` を読み、その**プロジェクトの
    domains で per-request に scene を復号**して integral search に流す。
 
@@ -98,5 +104,7 @@ anatomia trace ingest --project <id> --file ./hand-trace.jsonl --entry <domain> 
 - **ライブ録画(ゲームを実走させて記録)は本 PR の範囲外**: C++ 計装ヘッダ + 注入計画 + ingest は
   揃ったが、KS のメインループへのマーカー適用とビルド/実走はゲーム側作業(Pictor 実行はユーザ側)。
 - scene の粒度はドメインの粒度に従う。単一ドメイン支配のリポは scene も粗い → 多 scene 化は
-  ドメイン authoring([[domain-authoring]]) の精緻化に依存。
+  現行 trace-only projection の限界。planned canonical scene は code/asset detector の entry /
+  transition / composition を使い、domain 粒度だけに依存しない。
 - frame マーカーは手置き(loop 自動特定は未対応)。
+- raw trace JSONL は観測 source。approved knowledge log のように書き換え transaction を表すものではない。

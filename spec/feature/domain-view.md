@@ -23,6 +23,14 @@
 LLM 蒸留の `DomainCard`（[feature/domain-detection.md](./domain-detection.md)）とは別レイヤーで、
 このビューは LLM を呼ばない（spec の実テキストだけで補間する決定的経路）。
 
+上記は現行 `DomainView`。planned organization view（T62）では実装関数 0 の approved domain を
+除外せず、`implementationStatus=missing` / spec-only gap として表示する。authored meaning、
+approved code owner、inferred assignment、unassigned/code-only proposal を別レイヤーにし、推測を
+domain 定義のように見せない。
+
+subdomain は child→parent edge の tree、layer/concern は facet、scene activation は usage overlay として
+分ける。ancestor 集約は query 時に行い、transitive edge を保存しない。
+
 ## パネルでの使われ方
 
 `Domain View` タブ。左にドメイン一覧（名前 + 日本語説明 + conforms バッジ + 実装数）、
@@ -54,9 +62,12 @@ LLM 蒸留の `DomainCard`（[feature/domain-detection.md](./domain-detection.md
   粗いドメイン（例: state-machine が TS リポで数千関数）も**機能単位集約**なのでノード数は
   モジュール数で有界、関数件数はラベルに出る。
 - spec リンクが無いドメインは説明 null（「spec リンクなし」と表示）。
+- planned contract では粗い builtin domain を catch-all default として表示しない。
+  `state-machine` は本物の project domain 用に予約する。
 
 ## 関連
 
 - 検出: [feature/domain-detection.md](./domain-detection.md)
 - リンク: [feature/spec-linkage.md](./spec-linkage.md)
 - インターフェース: [interface/web.md](../interface/web.md)
+- 整理 UI: [feature/domain-organization.md](./domain-organization.md)

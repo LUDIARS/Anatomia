@@ -22,7 +22,10 @@ import type { TraceEvent } from "../protocol.js";
 import { processEvents } from "../ringbuffer.js";
 import { stitchFrame } from "../stitch.js";
 import type { DomainCard } from "../../domains/card.js";
-import type { DetectionResult } from "../../domains/detect.js";
+import {
+  semanticDetectionResults,
+  type DetectionResult,
+} from "../../domains/detect.js";
 import { RecordedTraceSource, type FrameWithZones } from "../viz/trace-source.js";
 import { sceneModelFromTrace, type SceneModel } from "../../integral/scene.js";
 
@@ -53,7 +56,7 @@ export function parseTraceJsonl(text: string): TraceEvent[] {
  * zone anchor onto its domain. No LLM.
  */
 export function cardsFromDomains(domains: DetectionResult[]): DomainCard[] {
-  return domains
+  return semanticDetectionResults(domains)
     .filter((d) => d.implementors.length > 0)
     .map((d) => ({
       domain: d.domain,

@@ -28,7 +28,7 @@ import type {
   SpecClause,
 } from "../types.js";
 import type { CodeGraphQuery } from "../graph/query.js";
-import type { DetectionResult } from "../domains/detect.js";
+import { semanticDetectionResults, type DetectionResult } from "../domains/detect.js";
 import { resolveSeeds } from "./resolve.js";
 import { emptySceneModel, type SceneModel, type SceneRef } from "./scene.js";
 import type { ModuleEvaluation } from "../modules/types.js";
@@ -65,7 +65,7 @@ function dirOf(path: string): string {
   return slash >= 0 ? f.slice(0, slash) : ".";
 }
 
-/** Content key over the seeds + range (the path-cache key input). */
+/** Deterministic content identity over the seeds and range. */
 export function integralContentKey(seeds: AnchorId[], range: unknown): string {
   const canonical = JSON.stringify({ seeds: [...seeds].sort(), range });
   return createHash("sha256").update(canonical, "utf8").digest("hex");
@@ -89,7 +89,7 @@ export async function integralSearch(
   const climb = range.climb ?? DEFAULT_CLIMB;
   const climbLevel = CLIMB_ORDER[climb];
 
-  const domains = ctx.domains ?? [];
+  const domains = semanticDetectionResults(ctx.domains ?? []);
 
   // anchor → CodeNode and anchor → file, for materialisation + spec linkage.
   const allNodes = await ctx.graph.allNodes();
@@ -201,6 +201,7 @@ export async function integralSearch(
   // ── scene layer ────────────────────────────────────────────────────────────
   const surfacedScenes: IntegralScene[] = [];
   const sceneAdjacentDomainNames = new Set<string>();
+  const semanticDomainNames = new Set(domains.map((domain) => domain.domain));
   if (climbLevel >= CLIMB_ORDER.scene) {
     const sceneRefs = new Map<string, SceneRef>();
     for (const d of allDirect) {
@@ -212,12 +213,20 @@ export async function integralSearch(
     }
     const directNames = new Set(allDirect.map((d) => d.domain));
     for (const sc of [...sceneRefs.values()].sort((a, b) => (a.id < b.id ? -1 : 1))) {
+      const sceneDomains = sc.domains.filter((domain) => semanticDomainNames.has(domain));
       // scene ≈ domain coincidence: a singleton active set already surfaced.
       const coincidesWithDomain =
-        sc.domains.length === 1 && directNames.has(sc.domains[0]!) ? sc.domains[0] : undefined;
-      surfacedScenes.push({ id: sc.id, label: sc.label, domains: sc.domains, coincidesWithDomain });
+        sceneDomains.length === 1 && directNames.has(sceneDomains[0]!)
+          ? sceneDomains[0]
+          : undefined;
+      surfacedScenes.push({
+        id: sc.id,
+        label: sc.label,
+        domains: sceneDomains,
+        coincidesWithDomain,
+      });
       if (climbLevel >= CLIMB_ORDER["scene-adjacent"]) {
-        for (const dn of sc.domains) {
+        for (const dn of sceneDomains) {
           if (!directNames.has(dn)) sceneAdjacentDomainNames.add(dn);
         }
       }

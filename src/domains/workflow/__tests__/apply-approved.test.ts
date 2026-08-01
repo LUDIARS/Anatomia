@@ -92,6 +92,11 @@ describe("approved orphan domain apply", () => {
     expect(definition.membership?.[0]).not.toHaveProperty("anchorPattern");
   });
 
+  it("rejects promoting an orphan group into the unassigned relation state", () => {
+    expect(() => orphanProposalToEditableDef(proposal("unassigned")))
+      .toThrow(/reserved for the unassigned relation state/);
+  });
+
   it("rejects a domain-name collision before writing its spec", async () => {
     const root = await mkdtemp(join(tmpdir(), "anatomia-approved-"));
     roots.push(root);

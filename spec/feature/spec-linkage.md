@@ -16,9 +16,18 @@ collectSpecFiles(.md) → parseSpecFiles → SpecClause[]
   → links = [...explicit, ...structural]
 ```
 
+planned OKF parser（T52）は Markdown AST、frontmatter、list/table/modality、explicit clause ID、
+source range を保持する。resolved `<knowledgeWriteRoot>/data/generated/anatomia/**` 配下または
+`x-anatomia.generated: true` の文書は `collectSpecFiles` から除外し、scene OKF が次回の
+authored spec input へ自己還流しない。domain/annotation subtree は専用 loader へ route する。
+
 ### SpecClause
 Markdown を見出し単位で節に分解（`src/spec/parse.ts`）。`slugify` で URL-safe な
 ASCII slug を持つ。
+
+現行 slug は表示/URL 用。planned stable binding は explicit clause ID を優先し、無い場合だけ
+document ID + heading ancestry の provisional ID を使う。本文 hash、表示名、domain path を
+長期 identity にしない。
 
 ### Explicit リンク（`src/spec/explicit.ts`）
 コード中の `@implements SPEC-xxx` / `@spec <text>` アノテーション、および spec 文中の
@@ -42,3 +51,4 @@ spec_linkage ゲート（`src/supply/gates/spec_linkage.ts`）は、変更関数
 
 - データ: [data/merkle-dag.md](../data/merkle-dag.md)（SpecClause / Link）
 - ゲート: [feature/verify-gates.md](./verify-gates.md)
+- OKF: [feature/okf-generation.md](./okf-generation.md)

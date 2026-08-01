@@ -29,7 +29,7 @@ import { readFile } from "node:fs/promises";
 import { relative } from "node:path";
 import type { FunctionNode } from "../types.js";
 import type { AnalysisContext } from "../core.js";
-import type { DetectionResult } from "../domains/detect.js";
+import { semanticDetectionResults, type DetectionResult } from "../domains/detect.js";
 import type { ScreenGraph, ScreenKind, ScreenNode, ScreenStack } from "./types.js";
 
 /** One source file's path + text, for the pure scanner. */
@@ -195,7 +195,7 @@ export function scanForScreens(
 
   // anchor → domains, then file → domains (screens attribute by file).
   const domainsOfAnchor = new Map<string, Set<string>>();
-  for (const d of domains) {
+  for (const d of semanticDetectionResults(domains)) {
     for (const a of d.implementors) {
       let s = domainsOfAnchor.get(a);
       if (!s) domainsOfAnchor.set(a, (s = new Set()));

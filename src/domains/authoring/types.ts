@@ -9,9 +9,7 @@
  * a domain may coincide with one.
  *
  * An EditableDomainDef is a superset of DomainDef: the extra fields are ignored
- * by the detection pipeline (which validates only name/description/presetRules/
- * templateRules), so an editable def stored in a project's ontology dir is loaded
- * templateRules/membership), so an editable def stored in a project's ontology
+ * by the detection pipeline, so an editable def stored in a project's ontology
  * dir is loaded and detected with no separate conversion step.
  *
  * SRP: type definitions only.

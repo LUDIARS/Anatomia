@@ -96,6 +96,20 @@ describe("T20 generateCard — content-keyed caching", () => {
     expect(calls()).toBe(2); // different cache key => miss => second call
   });
 
+  it("does not reuse a card when the same implementors move to another domain", async () => {
+    const cache = createCardCache();
+    const { llm, calls } = mockLLM();
+    const graph = stubGraph();
+    const r = result(["aaaa", "bbbb"]);
+
+    const before = await generateCard("state-machine", r, graph, llm, cache);
+    const after = await generateCard("transition-guard-example", r, graph, llm, cache);
+
+    expect(calls()).toBe(2);
+    expect(after.cacheKey).not.toBe(before.cacheKey);
+    expect(after.domain).toBe("transition-guard-example");
+  });
+
   it("cacheKey is order-independent over implementors", () => {
     expect(merkleHash(["a", "b"] as AnchorId[])).toBe(
       merkleHash(["b", "a"] as AnchorId[]),
@@ -116,6 +130,19 @@ describe("T20 generateCard — content-keyed caching", () => {
     const graph = stubGraph();
     const card = await generateCard("m", result(["bbbb", "aaaa"]), graph, llm);
     expect(card.keyAnchors).toEqual(["aaaa", "bbbb"]);
+  });
+
+  it("rejects policy results before cache lookup or LLM invocation", async () => {
+    const { llm, calls } = mockLLM();
+    const policy: DetectionResult = {
+      ...result(["aaaa"]),
+      domain: "transition-guard-example",
+      role: "policy",
+    };
+
+    await expect(generateCard(policy.domain, policy, stubGraph(), llm, createCardCache()))
+      .rejects.toThrow(/cannot be used as semantic domain ownership/);
+    expect(calls()).toBe(0);
   });
 });
 

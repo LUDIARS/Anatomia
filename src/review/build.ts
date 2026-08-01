@@ -127,7 +127,7 @@ export async function buildReview(
 
   // ── violations (RULES × graph) ─────────────────────────────────────────────
   const violations: ReviewViolation[] = [];
-  for (const d of ctx.domains ?? []) {
+  for (const d of [...(ctx.domains ?? []), ...(ctx.policyResults ?? [])]) {
     for (const v of d.violations) {
       violations.push({
         rule: v.ruleId,

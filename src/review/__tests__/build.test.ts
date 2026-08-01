@@ -18,6 +18,7 @@ let ctx: AnalysisContext;
 const ONTOLOGY = JSON.stringify([
   {
     name: "no-skill-to-render",
+    role: "policy",
     description: "skill/ must not call render/",
     presetRules: [
       { preset: "forbiddenCall", params: { callerPattern: "/skill/", calleePattern: "/render/", by: "path", kind: "calls" } },
@@ -49,6 +50,8 @@ afterAll(async () => {
 
 describe("buildReview", () => {
   it("reports the rule violation with source locations", async () => {
+    expect(ctx.domains?.some((domain) => domain.domain === "no-skill-to-render")).toBe(false);
+    expect(ctx.policyResults?.some((policy) => policy.domain === "no-skill-to-render")).toBe(true);
     const r = await buildReview(ctx);
     const v = r.violations.find((x) => x.rule.startsWith("no-skill-to-render/"));
     expect(v).toBeTruthy();

@@ -123,6 +123,30 @@ describe("integralSearch — containment climb", () => {
     expect(r.scenes.some((s) => s.id === "S1")).toBe(true);
   });
 
+  it("removes policy identity from surfaced scene domains", async () => {
+    const policy: DetectionResult = {
+      domain: "transition-guard-example",
+      role: "policy",
+      implementors: [idOf["a_main"]!],
+      violations: [],
+      conforms: true,
+    };
+    const mixedCtx: IntegralContext = { ...ctx, domains: [...domains, policy] };
+    const scenes = createSceneModel([{
+      id: "S-policy",
+      domains: ["domA", policy.domain],
+    }]);
+
+    const r = await integralSearch(
+      mixedCtx,
+      { entry: { ref: "domA", scope: "domain" }, range: { climb: "scene-adjacent" } },
+      scenes,
+    );
+
+    expect(r.domains.map((domain) => domain.name)).not.toContain(policy.domain);
+    expect(r.scenes.find((scene) => scene.id === "S-policy")?.domains).toEqual(["domA"]);
+  });
+
   it("honours maxNodes and flags truncation", async () => {
     const r = await integralSearch(ctx, {
       entry: { ref: "domA", scope: "domain" },
@@ -178,6 +202,39 @@ describe("runIntegral — path cache replay", () => {
     const third = await runIntegral(ctx, query, { llm, cache, fingerprint: "fp2" });
     expect(third.cached).toBe(false);
     expect(calls).toBe(2);
+  });
+
+  it("re-judges when domain identity changes without changing source anchors", async () => {
+    let calls = 0;
+    const llm = async (): Promise<string> => {
+      calls++;
+      return '{"sufficientScope":"domain","keepAnchors":[],"keepDomains":[],"reason":"r","confidence":0.7,"answer":null}';
+    };
+    const cache = createIntegralCache();
+    const query = {
+      entry: { ref: "a_main", scope: "function" as const },
+      range: { climb: "domain" as const },
+    };
+
+    const first = await runIntegral(ctx, query, { llm, cache, fingerprint: "same-source" });
+    const renamedCtx: IntegralContext = {
+      ...ctx,
+      domains: (ctx.domains ?? []).map((domain) => ({
+        ...domain,
+        domain: domain.domain === "domA" ? "transition-guard-example" : domain.domain,
+      })),
+    };
+    const second = await runIntegral(renamedCtx, query, {
+      llm,
+      cache,
+      fingerprint: "same-source",
+    });
+
+    expect(first.cached).toBe(false);
+    expect(second.cached).toBe(false);
+    expect(calls).toBe(2);
+    expect(second.result.domains.some((domain) => domain.name === "transition-guard-example"))
+      .toBe(true);
   });
 
   it("returns the deterministic bundle alone when no judge llm is given", async () => {

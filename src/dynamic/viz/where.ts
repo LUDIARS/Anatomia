@@ -8,11 +8,15 @@
  * level with phase=null (backward compatible).
  */
 import type { DomainCard } from '../../domains/card.js';
+import { UNASSIGNED_DOMAIN } from '../../domains/assignment.js';
 import type { AnchorId } from '../../types.js';
 
 export interface WhereLabel {
   frameId: number;
-  /** Domain of the innermost active anchor, or null if not found. */
+  /**
+   * Domain of the innermost active anchor, `unassigned` when that anchor has no
+   * approved domain, or null when there is no active anchor.
+   */
   domain: string | null;
   /** Innermost active anchor ID, or null if no zones active. */
   functionAnchorId: string | null;
@@ -42,7 +46,7 @@ export function buildWhere(
   // Innermost zone = last element (LIFO zone-stack convention from ringbuffer)
   const innermostAnchor: string | null = activeZones.at(-1) ?? null;
 
-  let domain: string | null = null;
+  let domain: string | null = innermostAnchor === null ? null : UNASSIGNED_DOMAIN;
   if (innermostAnchor !== null) {
     for (const card of cards) {
       if (card.keyAnchors.includes(innermostAnchor as AnchorId)) {

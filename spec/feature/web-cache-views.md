@@ -109,7 +109,7 @@ POST /api/projects/:id/web/search          { query } → LLM 検索結果
 - ランナー (analyze + buildWebCacheBundle + writeWebCache) は注入で渡し、キュー本体は
   ProjectManager / HTTP に依存しない (SRP)。
 
-## 調整サブシステム (E)
+## 現行調整サブシステム (E, migration source)
 
 curated な taxonomy (`spec/data/<project>.taxonomy.json`, DomainPlan→ModulePlan)
 が編集の正本。編集→保存で `registerTaxonomy` が ontology DomainDefs + taxonomy +
@@ -127,6 +127,18 @@ POST /api/projects/:id/adjust/retune       粒度自動フロー (retune) 起動
 
 編集/retune 後は解析キャッシュを invalidate し project.ontologyDir を更新。
 web キャッシュは stale になる (UI が再生成を促す)。
+
+上記 direct taxonomy/manual scene CRUD は現行互換であり、planned contract の権威境界ではない。
+T62/T66 で次へ移行する。
+
+- Adjust は [domain organization](./domain-organization.md) の read model + proposal + diff + Gate
+  command を使い、生 taxonomy JSON を編集正本にしない。
+- subdomain edge、spec/code owner、unassigned、drift、source evidence、expected log head を表示する。
+- scene は [scene derivation](./scene-derivation.md) の canonical manifest を inspection / diff / sync
+  表示し、manual add/delete/domain override を提供しない。
+- web-cache の `projectionFingerprint` は code/spec source revision、approved relation revision、
+  knowledge-log head、projection schema を記録する。knowledge head 自体を source analysis fingerprint
+  には戻さない。read route は repository artifact を生成しない。
 
 ## パネル (index.html)
 

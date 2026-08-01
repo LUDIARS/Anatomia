@@ -10,6 +10,7 @@ import {
 import { domainFileName } from "../authoring/store.js";
 import type { ApprovedOrphanDomainProposal } from "./spec-store.js";
 import type { OrphanFeatureGroup } from "../discovery/index.js";
+import { assertDomainDefinitionName } from "../assignment.js";
 import {
   DomainDiscoveryGateError,
   domainDiscoveryGatePath,
@@ -103,6 +104,7 @@ function gateBTransactionPaths(
 export function orphanProposalToEditableDef(
   proposal: ApprovedOrphanDomainProposal,
 ): EditableDomainDef {
+  assertDomainDefinitionName(proposal.domain.name);
   const membership: NodeFilter[] = proposal.evidence.map((fn) => ({
     pathPattern: `(^|/)${escapeRegex(fn.file.replace(/\\/g, "/"))}$`,
     namePattern: `^${escapeRegex(fn.name)}$`,

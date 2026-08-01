@@ -14,6 +14,7 @@ import type { NodeMetrics } from "../../supply/metrics.js";
 import { projectClassView } from "../../graph/view-projection.js";
 import { defaultGraphViewForPaths, type GraphViewMode } from "../../project/profile.js";
 import { resolveUnityLifecycleFunctions } from "../../frameworks/unity/lifecycle.js";
+import { UNASSIGNED_DOMAIN } from "../../domains/assignment.js";
 
 export const GROUP_PALETTE: readonly string[] = [
   "#58a6ff", "#3fb950", "#d29922", "#f78166", "#bc8cff",
@@ -32,7 +33,7 @@ export interface VisNodeMeta {
   kind: string;
   file: string;
   line: number;
-  domain: string | null;
+  domain: string;
   coupling: number;
   cyclomatic: number;
   fanIn: number;
@@ -238,7 +239,7 @@ export async function buildVisData(
     const group = functionGroups.byId.get(node.id) ?? "unknown";
     const groupColor = functionGroups.colors[group] ?? "#8b949e";
     const file = relPath(ctx.repoPath, node.sourceRange.filePath);
-    const domain = anchorDomain.get(node.id) ?? null;
+    const domain = anchorDomain.get(node.id) ?? UNASSIGNED_DOMAIN;
     const kind = fn?.enclosingType ? "method" : node.kind;
     return {
       id: node.id,
@@ -248,7 +249,7 @@ export async function buildVisData(
         lifecycle ? `lifecycle: Unity/${lifecycle.phase}` : null,
         `coupling: ${coupling}`, `cyclomatic: ${cyclomatic}`,
         `fan-in: ${metric?.fanIn ?? 0}`, `fan-out: ${metric?.fanOut ?? 0}`,
-        domain ? `domain: ${domain}` : null,
+        `domain: ${domain}`,
       ].filter(Boolean).join("\n"),
       group,
       color: {
@@ -307,6 +308,8 @@ export async function buildVisData(
     const coupling = (classFanIn.get(node.id) ?? 0) + (classFanOut.get(node.id) ?? 0);
     const cyclomatic = Math.max(1, memberMetrics.reduce((sum, metric) => sum + metric.cyclomatic, 0));
     const domains = [...new Set(node.memberAnchors.map((a) => anchorDomain.get(a)).filter(Boolean))] as string[];
+    const primaryDomain = domains[0] ?? UNASSIGNED_DOMAIN;
+    const domainLabel = domains.length ? domains.join(", ") : primaryDomain;
     const lifecycleEvents = node.memberAnchors
       .map((anchor) => lifecycleByAnchor.get(anchor)?.event)
       .filter((event): event is string => event !== undefined)
@@ -324,7 +327,7 @@ export async function buildVisData(
         `members: ${node.memberAnchors.length}`, `coupling: ${coupling}`,
         `fan-in: ${fanIn}`, `fan-out: ${fanOut}`,
         lifecycleEvents.length ? `Unity lifecycle: ${lifecycleEvents.join(", ")}` : null,
-        domains.length ? `domain: ${domains.join(", ")}` : null,
+        `domain: ${domainLabel}`,
       ].filter(Boolean).join("\n"),
       group,
       color: {
@@ -336,7 +339,7 @@ export async function buildVisData(
       font: { color: "#e1e4e8", size: 10 },
       _meta: {
         name: node.name, kind: node.kind, file, line: node.sourceRange.start.line,
-        domain: domains[0] ?? null, coupling, cyclomatic, fanIn, fanOut,
+        domain: primaryDomain, coupling, cyclomatic, fanIn, fanOut,
         domainOverlap: Math.max(0, domains.length - 1), crossDomainDepth: 0,
         memberAnchors: node.memberAnchors, memberCount: node.memberAnchors.length,
         lifecycle: lifecycleEvents.length ? "Unity lifecycle" : null,

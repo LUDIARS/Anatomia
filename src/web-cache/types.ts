@@ -42,13 +42,16 @@ export const WEB_VIEWS: readonly WebViewName[] = [
   "search-corpus",
 ] as const;
 
+/** Analyzer-output schema shared by the prepared manifest and every view. */
+export const WEB_CACHE_SCHEMA_VERSION = 3 as const;
+
 /**
  * One prepared view, on disk as <view>.json. Carries its own generation date so
  * every view independently answers "when was this built" — the panel stamps each
  * tab with it.
  */
 export interface WebViewEnvelope<T = unknown> {
-  version: 1;
+  version: typeof WEB_CACHE_SCHEMA_VERSION;
   view: WebViewName;
   /** ISO generation date of THIS view. */
   preparedAt: string;
@@ -59,7 +62,7 @@ export interface WebViewEnvelope<T = unknown> {
 
 /** The manifest written alongside the view files (the index of a prepared cache). */
 export interface WebCacheManifest {
-  version: 1;
+  version: typeof WEB_CACHE_SCHEMA_VERSION;
   projectId: string;
   /** ISO generation date of the whole prepare run. */
   preparedAt: string;

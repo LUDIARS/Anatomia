@@ -5,12 +5,19 @@
 静的 DAG に、実行時の挙動（どのゾーンがいつ active か = 局面）を重ねる層。
 「You-are-here」を静的着地点に加えて動的な現在地（phase）で示すための機構。
 
+planned contract（T63-T66）では、trace が作る phase/scene は **runtime observation** であり、
+code / engine asset が定義する canonical
+scene identity、composition、transition を上書きしない。同じ stable scene ID へ対応できる場合は
+origin=`trace-observation`、trace/source revision、observed anchors を provenance として加える。
+対応できない phase は provisional diagnostic のまま保持する。
+
 ## 状態
 
 **録画経路は CLI まで配線済み**: `anatomia trace plan`（マーカー注入計画）/
 `anatomia trace ingest`（録画 JSONL → scene 化）が使える
 （→ [trace-recording.md](./trace-recording.md)、運用手順は `docs/trace-operations.md`）。
 warm サーバは `ANATOMIA_TRACE_FILE`（起動時 1 回読み）で scene 層を点灯できる。
+現行 ingest は trace から直接 `SceneModel` を作るため、上記 definition/observation 分離は未実装。
 **ライブストリーム（socket/UDP）は未配線**: `LiveTraceSource` / `createTraceReceiver` は
 部品のみで、production に source factory が存在しない。
 
@@ -41,4 +48,8 @@ warm サーバは `ANATOMIA_TRACE_FILE`（起動時 1 回読み）で scene 層�
 ## 関連
 
 - web の trace 系 API（`GET /api/trace/timeline|active|where`、→ interface/web.md）は
-  動的 viz データを返す経路として server に定義されている。
+  動的 viz データを返す経路として server に定義されている。`trace/where` は `?project` で指定した
+  project（未指定時は選択中 project）の検出済み domain membership で active anchor を解決し、
+  active anchor が無い場合だけ `domain=null`、
+  membership が無い active anchor は `domain=unassigned` を返す。
+- canonical scene: [scene-derivation.md](./scene-derivation.md)

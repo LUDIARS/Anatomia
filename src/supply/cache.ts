@@ -7,9 +7,10 @@
  * landing resolution + assembly every time; caching the finished ContextBundle
  * by (request + context identity) makes the repeat free.
  *
- * Correctness: the bundle reads ctx.files, ctx.specClauses, ctx.domains and
- * ctx.rules — and spec clauses can come from a SIBLING spec/ dir that is NOT in
- * ctx.files (collected separately in analyze Phase 5). So the context-identity
+ * Correctness: the bundle reads ctx.files, ctx.specClauses, ctx.domains,
+ * ctx.policyResults and ctx.rules — and spec clauses can come from a SIBLING
+ * spec/ dir that is NOT in ctx.files (collected separately in analyze Phase 5).
+ * So the context-identity
  * key MUST fold all of those, not just the file set, or a spec edit would serve
  * a stale bundle. The key is built in core.ts (which has the ctx); this module
  * owns the version, the store type, and the process-shared default.
@@ -24,7 +25,7 @@ import { resolveTranscript } from "../cache/transcript.js";
 import type { ContextBundle } from "../types.js";
 
 /** BUMP when ContextBundle's shape or assembly semantics change. */
-export const BUNDLE_CACHE_VERSION = "1";
+export const BUNDLE_CACHE_VERSION = "2";
 
 /** Content-addressed store for assembled context bundles. */
 export type BundleCache = CacheStore<ContextBundle>;
