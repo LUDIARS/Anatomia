@@ -34,6 +34,23 @@ C# Unity の支配的なシングルトン形は**静的プロパティ** `publi
   そのドメイン＋種別（`reads`=プロパティ/`calls`=メソッド）。network は実体が DI されるため、クライアントを
   **所有するドメイン**（クライアントのファイルの関数群）を `calls` で帰属。`{domain, access}` で集約。
 
+## accessor 帰属解像度（#322、implemented 2026-08-04）
+
+accessor の domain 解決は単一の resolver `domainsAt(ranges, line, enclosingType, domainsOf)` に集約し、
+狭い scope から順に一意に解けた時点で確定する:
+
+1. **関数 scope** — 使用行を内包する解析関数のうち**行範囲が最小**のもの（`enclosingFn`）。
+   nested / local function が外側関数に飲み込まれるのを防ぐ。
+2. **型 scope** — property/field initializer のように関数外だが class 内の使用は、同じ `enclosingType`
+   を持つ解析関数だけから domain を取る。複数 class 同居ファイルでの過大帰属を防ぐ。
+3. **file scope** — 型情報が無い file-scope 使用は、そのファイルの semantic domain が**一意な場合だけ**採用。
+   複数 domain なら推測せず欠落にする。
+
+`Type` と `.Instance` / `.Resolve` が改行で分かれた accessor も 2 行 window で検出し、使用行は型トークン側の
+行として記録する。内包クラス名はファイルを前方に 1 パス走査して追跡する（`trackEnclosingClass`）＝
+使用行ごとの後方再走査による二乗コストを避ける。network client の owner（同名 class の関数を優先）と
+DI field も同じ resolver を使い、単純な「ファイル内の全 domain」への拡散を行わない。
+
 精度優先（汎用 `get`・素の `registry.get` は除外）。返りは `AccessPattern[]`
 `{ name, file, line, kind, reason, target?, accessors:[{domain,access}] }`。route `GET /api/projects/:id/access-patterns`。
 
@@ -49,7 +66,8 @@ C# Unity の支配的なシングルトン形は**静的プロパティ** `publi
 ## 制約
 
 - 名前/署名/ソースのヒューリスティックなので完全ではない（精度優先＝見逃しあり）。
-- accessor の解像度は検出ドメインの粒度に依存（粗い builtin だと帰属が大雑把、B-3 で改善）。
+- accessor の解像度は検出済み semantic domain の粒度に依存する。関数/型/file-unique のいずれでも
+  一意に解けない使用は欠落として残し、複数 domain へ推測展開しない。
 - 通信先サーバは**論理種別**まで（DI される具体 URL/host はソースに無いので出さない）。種別分類は名前ヒューリスティック。
 
 ## 関連

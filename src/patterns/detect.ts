@@ -81,8 +81,8 @@ const CLASS_DECL = /\b(?:class|struct|interface)\s+([A-Za-z_]\w*)/;
 const FACADE_CLASS = /\b(?:class|struct)\s+(\w*Facade)\b/;
 
 // Usages: `Type.Instance`, `Type.Resolve(`/`Type.Provide(…`, `XFacade.member`.
-const USE_SINGLETON = /\b([A-Z]\w*)\.(?:Instance|GetInstance|getInstance)\b/g;
-const USE_LOCATOR = /\b([A-Z]\w*)\.(?:Resolve|Provide|GetService|Locate)\s*[<(]/g;
+const USE_SINGLETON = /\b([A-Z]\w*)\s*\.(?:Instance|GetInstance|getInstance)\b/g;
+const USE_LOCATOR = /\b([A-Z]\w*)\s*\.(?:Resolve|Provide|GetService|Locate)\s*[<(]/g;
 const USE_FACADE = /\b(\w*Facade)\s*\.\s*[A-Za-z_]\w*/g;
 
 // Network/communication: a client class (by name) or a class that touches a
@@ -138,7 +138,14 @@ interface Decl {
    */
   presetAccessors?: PatternAccessor[];
 }
-interface Use { name: string; access: string; absPath: string; line: number; }
+interface Use { name: string; access: string; absPath: string; line: number; enclosingType: string | null; }
+
+interface FunctionRange {
+  start: number;
+  end: number;
+  anchor: AnchorId;
+  enclosingType?: string;
+}
 
 /**
  * Per-class structural fan-out, derived from the call graph by the caller and
@@ -162,13 +169,14 @@ export interface ScanOptions {
   classFanOut?: Map<string, ClassFanOut>;
 }
 
-/** Nearest enclosing `class/struct/interface` name at or above `idx`. */
-function enclosingClass(lines: string[], idx: number): string | null {
-  for (let i = idx; i >= 0; i--) {
-    const m = lines[i]!.match(CLASS_DECL);
-    if (m) return m[1]!;
-  }
-  return null;
+/**
+ * Nearest enclosing `class/struct/interface` name, tracked while walking a file
+ * forward: the last declaration at or above the current line. Every usage line
+ * needs this, so a per-line backward rescan would make the scan quadratic.
+ */
+function trackEnclosingClass(line: string, current: string | null): string | null {
+  const m = line.match(CLASS_DECL);
+  return m ? m[1]! : current;
 }
 
 export function scanForPatterns(
@@ -193,11 +201,12 @@ export function scanForPatterns(
   }
 
   // Per-file analyzed function ranges, for enclosing-function lookup of a usage.
-  const fnsByFile = new Map<string, { start: number; end: number; anchor: AnchorId }[]>();
+  const fnsByFile = new Map<string, FunctionRange[]>();
   for (const fn of functions) {
     if (!fn.id) continue;
     const arr = fnsByFile.get(fn.sourceRange.filePath) ?? [];
-    arr.push({ start: fn.sourceRange.start.line, end: fn.sourceRange.end.line, anchor: fn.id });
+    arr.push({ start: fn.sourceRange.start.line, end: fn.sourceRange.end.line, anchor: fn.id,
+      ...(fn.enclosingType ? { enclosingType: fn.enclosingType } : {}) });
     fnsByFile.set(fn.sourceRange.filePath, arr);
   }
 
@@ -212,13 +221,15 @@ export function scanForPatterns(
     const lines = f.text.split(/\r?\n/);
     const relFile = rel(f.path);
     const inLocatorFile = LOCATOR_FILE.test(relFile);
+    let enclosingType: string | null = null;
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i]!;
+      enclosingType = trackEnclosingClass(line, enclosingType);
 
       // ── declarations ──
       if (SINGLETON_DECL.test(line)) {
-        const cls = enclosingClass(lines, i);
+        const cls = enclosingType;
         if (cls) decls.push({ kind: "singleton", name: cls, file: relFile, line: i + 1, reason: `static Instance accessor in ${cls}` });
       }
       const facadeCls = line.match(FACADE_CLASS);
@@ -226,7 +237,7 @@ export function scanForPatterns(
         decls.push({ kind: "facade", name: facadeCls[1]!, file: relFile, line: i + 1, reason: `class ${facadeCls[1]} (facade-named)` });
       }
       if (inLocatorFile && LOCATOR_DECL.test(line)) {
-        const cls = enclosingClass(lines, i) ?? relFile;
+        const cls = enclosingType ?? relFile;
         decls.push({ kind: "service-locator", name: cls, file: relFile, line: i + 1, reason: `resolve method in ${relFile}` });
       }
       // network: a client class by name, or any class touching a networking API.
@@ -235,7 +246,7 @@ export function scanForPatterns(
         const n = netCls[1]!;
         decls.push({ kind: "network", name: n, file: relFile, line: i + 1, target: classifyServer(n), absFile: f.path, reason: `network client class ${n}` });
       } else if (NET_API.test(line)) {
-        const cls = enclosingClass(lines, i);
+        const cls = enclosingType;
         if (cls) decls.push({ kind: "network", name: cls, file: relFile, line: i + 1, target: classifyServer(cls + " " + relFile), absFile: f.path, reason: `uses networking API in ${cls}` });
       }
 
@@ -243,10 +254,13 @@ export function scanForPatterns(
       collectPairs(line, DI_REGISTER_PAIR, aliasPairs);
       collectPairs(line, DI_BIND_TO, aliasPairs);
 
-      // ── usages ──
-      collect(line, USE_SINGLETON, "reads", f.path, i + 1, uses);
-      collect(line, USE_LOCATOR, "calls", f.path, i + 1, uses);
-      collect(line, USE_FACADE, "calls", f.path, i + 1, uses);
+      // ── usages ── a `Type` broken from its `.Member` by a newline is joined
+      // with the continuation line so the accessor is still seen (the usage is
+      // reported at the line the type token is on).
+      const usageText = /^\s*\./.test(lines[i + 1] ?? "") ? `${line}${lines[i + 1]}` : line;
+      collect(usageText, USE_SINGLETON, "reads", f.path, i + 1, enclosingType, uses);
+      collect(usageText, USE_LOCATOR, "calls", f.path, i + 1, enclosingType, uses);
+      collect(usageText, USE_FACADE, "calls", f.path, i + 1, enclosingType, uses);
     }
   }
 
@@ -261,21 +275,23 @@ export function scanForPatterns(
   for (const { iface, concrete } of aliasPairs) {
     if (netConcrete.has(concrete)) tokenToConcrete.set(iface, concrete);
   }
-  const netRefs: { concrete: string; absPath: string; line: number }[] = [];
+  const netRefs: { concrete: string; absPath: string; line: number; enclosingType: string | null }[] = [];
   if (tokenToConcrete.size > 0) {
     const tokenRe = new RegExp(`\\b(${[...tokenToConcrete.keys()].join("|")})\\b`, "g");
     for (const f of files) {
       if (!f.text) continue;
       const lines = f.text.split(/\r?\n/);
+      let enclosingType: string | null = null;
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i]!;
+        enclosingType = trackEnclosingClass(line, enclosingType);
         tokenRe.lastIndex = 0;
         let m: RegExpExecArray | null;
         while ((m = tokenRe.exec(line)) !== null) {
           const token = m[1]!;
           // Skip the declaration site of the client/interface itself.
           if (new RegExp(`\\b(?:class|struct|interface)\\s+${token}\\b`).test(line)) continue;
-          netRefs.push({ concrete: tokenToConcrete.get(token)!, absPath: f.path, line: i + 1 });
+          netRefs.push({ concrete: tokenToConcrete.get(token)!, absPath: f.path, line: i + 1, enclosingType });
         }
       }
     }
@@ -319,27 +335,25 @@ export function scanForPatterns(
       // Structural facade (#323): accessors are graph-derived, not name-scanned.
       for (const a of d.presetAccessors) add(a.domain, a.access);
     } else if (d.kind === "network") {
-      // Attribute to the domain(s) that OWN the client (its file's functions)…
-      for (const r of fnsByFile.get(d.absFile ?? "") ?? []) {
+      // Attribute to the domain(s) that OWN the client: the functions of the
+      // client's own class when the file declares several classes, else the
+      // whole file's functions (a file with no typed functions still counts)…
+      const ownerRanges = fnsByFile.get(d.absFile ?? "") ?? [];
+      const typedOwnerRanges = ownerRanges.filter((range) => range.enclosingType === d.name);
+      for (const r of typedOwnerRanges.length > 0 ? typedOwnerRanges : ownerRanges) {
         for (const dom of domainsOf.get(r.anchor) ?? []) add(dom, "calls");
       }
       // …plus the domains that REFERENCE it through DI (#321): a resolve, a
-      // typed field/param, or a `new`. Inside a function → that function's
-      // domain; at class scope (e.g. a `[Inject]` field) → the file's domains.
+      // typed field/param, or a `new`. Resolved at the narrowest scope that is
+      // unambiguous (function → enclosing type → file, see `domainsAt`).
       for (const r of netRefs) {
         if (r.concrete !== d.name) continue;
-        const anchor = enclosingFn(fnsByFile.get(r.absPath), r.line);
-        const doms = anchor
-          ? domainsOf.get(anchor)
-          : new Set((fnsByFile.get(r.absPath) ?? []).flatMap((x) => [...(domainsOf.get(x.anchor) ?? [])]));
-        for (const dom of doms ?? []) add(dom, "calls");
+        for (const dom of domainsAt(fnsByFile.get(r.absPath), r.line, r.enclosingType, domainsOf)) add(dom, "calls");
       }
     } else {
       for (const u of uses) {
         if (u.name !== d.name) continue;
-        const anchor = enclosingFn(fnsByFile.get(u.absPath), u.line);
-        if (!anchor) continue;
-        for (const dom of domainsOf.get(anchor) ?? []) add(dom, u.access);
+        for (const dom of domainsAt(fnsByFile.get(u.absPath), u.line, u.enclosingType, domainsOf)) add(dom, u.access);
       }
     }
     const accessors: PatternAccessor[] = [];
@@ -361,21 +375,48 @@ function collectPairs(line: string, re: RegExp, out: { iface: string; concrete: 
   }
 }
 
-function collect(line: string, re: RegExp, access: string, absPath: string, lineNo: number, uses: Use[]): void {
+function collect(
+  line: string,
+  re: RegExp,
+  access: string,
+  absPath: string,
+  lineNo: number,
+  enclosingType: string | null,
+  uses: Use[],
+): void {
   re.lastIndex = 0;
   let m: RegExpExecArray | null;
   while ((m = re.exec(line)) !== null) {
-    uses.push({ name: m[1]!, access, absPath, line: lineNo });
+    uses.push({ name: m[1]!, access, absPath, line: lineNo, enclosingType });
   }
 }
 
 function enclosingFn(
-  ranges: { start: number; end: number; anchor: AnchorId }[] | undefined,
+  ranges: FunctionRange[] | undefined,
   line: number,
 ): AnchorId | null {
   if (!ranges) return null;
-  for (const r of ranges) if (line >= r.start && line <= r.end) return r.anchor;
-  return null;
+  const candidates = ranges.filter((range) => line >= range.start && line <= range.end);
+  candidates.sort((left, right) => (left.end - left.start) - (right.end - right.start)
+    || right.start - left.start || String(left.anchor).localeCompare(String(right.anchor)));
+  return candidates[0]?.anchor ?? null;
+}
+
+/** Resolve a usage to the narrowest available scope, avoiding whole-file over-attribution. */
+function domainsAt(
+  ranges: FunctionRange[] | undefined,
+  line: number,
+  enclosingType: string | null,
+  domainsOf: Map<string, Set<string>>,
+): Set<string> {
+  const exact = enclosingFn(ranges, line);
+  if (exact) return domainsOf.get(exact) ?? new Set();
+  const typed = enclosingType
+    ? (ranges ?? []).filter((range) => range.enclosingType === enclosingType)
+    : [];
+  if (typed.length > 0) return new Set(typed.flatMap((range) => [...(domainsOf.get(range.anchor) ?? [])]));
+  const fileDomains = new Set((ranges ?? []).flatMap((range) => [...(domainsOf.get(range.anchor) ?? [])]));
+  return fileDomains.size === 1 ? fileDomains : new Set();
 }
 
 // ---------------------------------------------------------------------------

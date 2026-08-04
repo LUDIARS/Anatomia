@@ -15,13 +15,14 @@ function file(rel: string, text: string): ScanFile {
 }
 
 /** A function spanning [start,end] in `rel`, with anchor id. */
-function fn(id: string, rel: string, start: number, end: number): FunctionNode {
+function fn(id: string, rel: string, start: number, end: number, enclosingType?: string): FunctionNode {
   return {
     id: id as unknown as AnchorId,
     name: id,
     signature: "",
     sourceRange: { start: { line: start, column: 0 }, end: { line: end, column: 0 }, filePath: abs(rel) },
     bodyAst: { type: "block", children: [] } as unknown as AstNode,
+    ...(enclosingType ? { enclosingType } : {}),
   };
 }
 
@@ -65,6 +66,50 @@ describe("scanForPatterns", () => {
       { domain: "combat", access: "reads" },
       { domain: "ui", access: "reads" },
     ]);
+  });
+
+  it("chooses the innermost analyzed function when ranges overlap", () => {
+    const files = [
+      file("Game/GameManager.cs", "class GameManager { static GameManager Instance { get; } }\n"),
+      file("Ui/Panel.cs", "void Outer() {\n  void Inner() {\n    var x = GameManager.Instance;\n  }\n}\n"),
+    ];
+    const functions = [fn("outer", "Ui/Panel.cs", 1, 5), fn("inner", "Ui/Panel.cs", 2, 4)];
+    const out = scanForPatterns(files, functions, [domain("ui", ["outer"]), domain("combat", ["inner"])], ROOT);
+    expect(out.find((pattern) => pattern.name === "GameManager")!.accessors)
+      .toEqual([{ domain: "combat", access: "reads" }]);
+  });
+
+  it("attributes class-scope and multiline access to the enclosing type only", () => {
+    const files = [
+      file("Game/GameManager.cs", "class GameManager { static GameManager Instance { get; } }\n"),
+      file("Mixed/Consumers.cs", [
+        "class CombatConsumer {",
+        "  object manager = GameManager",
+        "    .Instance;",
+        "  void Tick() {}",
+        "}",
+        "class UiConsumer {",
+        "  void Draw() {}",
+        "}",
+      ].join("\n")),
+    ];
+    const functions = [
+      fn("combat", "Mixed/Consumers.cs", 4, 4, "CombatConsumer"),
+      fn("ui", "Mixed/Consumers.cs", 7, 7, "UiConsumer"),
+    ];
+    const out = scanForPatterns(files, functions, [domain("combat", ["combat"]), domain("ui", ["ui"])], ROOT);
+    expect(out.find((pattern) => pattern.name === "GameManager")!.accessors)
+      .toEqual([{ domain: "combat", access: "reads" }]);
+  });
+
+  it("does not guess a domain for classless file-scope access when the file is ambiguous", () => {
+    const files = [
+      file("Game/GameManager.cs", "class GameManager { static GameManager Instance { get; } }\n"),
+      file("Mixed/Globals.cs", "var manager = GameManager.Instance;\nvoid A() {}\nvoid B() {}\n"),
+    ];
+    const functions = [fn("a", "Mixed/Globals.cs", 2, 2), fn("b", "Mixed/Globals.cs", 3, 3)];
+    const out = scanForPatterns(files, functions, [domain("combat", ["a"]), domain("ui", ["b"])], ROOT);
+    expect(out.find((pattern) => pattern.name === "GameManager")!.accessors).toEqual([]);
   });
 
   it("detects a service-locator resolve only inside a locator-ish file", () => {
@@ -123,6 +168,28 @@ describe("scanForPatterns", () => {
     const net = out.find((p) => p.kind === "network")!;
     expect(net.target).toBe("ランキングサーバ");
     expect(net.accessors).toEqual([{ domain: "ranking", access: "calls" }]);
+  });
+
+  it("attributes ownership to the client's own class when the file holds several", () => {
+    const files = [
+      file("Ranking/Clients.cs", [
+        "public class RankingApiClient {",
+        "  public void Submit() {}",
+        "}",
+        "public class RankingViewModel {",
+        "  public void Bind() {}",
+        "}",
+      ].join("\n")),
+    ];
+    const functions = [
+      fn("r1", "Ranking/Clients.cs", 2, 2, "RankingApiClient"),
+      fn("v1", "Ranking/Clients.cs", 5, 5, "RankingViewModel"),
+    ];
+    const domains = [domain("ranking", ["r1"]), domain("ui", ["v1"])];
+    const out = scanForPatterns(files, functions, domains, ROOT);
+    // The co-located view-model's domain must NOT be pulled in as an owner.
+    expect(out.find((pattern) => pattern.kind === "network")!.accessors)
+      .toEqual([{ domain: "ranking", access: "calls" }]);
   });
 
   // ── #321: trace network clients to their calling domains via DI ────────────
