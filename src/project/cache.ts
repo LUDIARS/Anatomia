@@ -1,6 +1,8 @@
 /**
  * src/project/cache.ts — Incremental analysis cache.
  *
+ * @spec プロジェクトレジストリ + 増分解析キャッシュ
+ *
  * STRATEGY (DESIGN §2/§9 — "make the cache a data structure"):
  *
  *   - A project's analyzed result (AnalysisContext) holds live tree-sitter AST

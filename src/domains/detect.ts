@@ -5,6 +5,8 @@
  * predicates, evaluate them against the graph, and report which functions
  * implement the domain, the violations found, and whether it conforms.
  *
+ * @spec ドメイン検出（G3）
+ *
  * SRP: this file orchestrates ontology -> predicates -> engine; it does not
  * define predicates (presets.ts), match templates (template.ts) or interpret
  * the ADT (engine.ts).

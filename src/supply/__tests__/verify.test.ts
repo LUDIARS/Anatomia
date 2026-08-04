@@ -156,6 +156,23 @@ describe("T29 coupling_delta gate", () => {
     const r = await couplingDeltaGate().run({ changed: functions, graph });
     expect(r.pass).toBe(true);
   });
+
+  it("ignores hot functions that live in test files", async () => {
+    const src = `
+      void leaf() {}
+      void c1() { hub(); }
+      void c2() { hub(); }
+      void c3() { hub(); }
+      void hub() { leaf(); }
+    `;
+    const { graph, functions } = await buildFromSource(src, "/src/__tests__/hub.test.cpp");
+    const metrics = await computeMetrics(graph);
+    const thresholds = deriveThresholds(metrics, { upperPercentile: 0.5 });
+    const hubFn = functions.find((f) => f.name === "hub")!;
+    const r = await couplingDeltaGate().run({ changed: [hubFn], graph, thresholds });
+    expect(r.pass).toBe(true);
+    expect(r.anchors).toEqual([]);
+  });
 });
 
 describe("T29 convention_drift gate", () => {

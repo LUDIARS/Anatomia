@@ -38,6 +38,7 @@
  * lifecycle via ProjectManager; HTML building via export.ts.
  */
 
+import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { basename, resolve as resolvePath } from "node:path";
 import {
@@ -765,7 +766,15 @@ async function resolveContext(args: CliArgs): Promise<AnalysisContext> {
         "pr-review is ephemeral and cannot use --project; pass --repo <worktree> instead.",
       );
     }
-    return analyze(args.repoPath, { pluginDir: domainsDir(args.repoPath) });
+    // Prefer the repo-local editable domains dir, but only when it exists:
+    // ephemeral checkouts (Revisor review worktrees) have no `.anatomia/`, and
+    // passing its path unconditionally overrides analyze()'s fallback to the
+    // committed `spec/data/ontology`, leaving every PR with no target domain.
+    const editableDir = domainsDir(args.repoPath);
+    return analyze(
+      args.repoPath,
+      existsSync(editableDir) ? { pluginDir: editableDir } : {},
+    );
   }
   if (args.project) {
     const mgr = await ProjectManager.load();

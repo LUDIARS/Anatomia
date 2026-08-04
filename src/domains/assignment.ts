@@ -3,6 +3,8 @@
  *
  * This is a relation state, not a DomainDef: callers must not materialize an
  * `unassigned` domain node or use it as a catch-all owner.
+ *
+ * @spec ドメイン検出（G3）
  */
 export const UNASSIGNED_DOMAIN = "unassigned" as const;
 

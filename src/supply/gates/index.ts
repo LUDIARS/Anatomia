@@ -2,7 +2,7 @@
  * T29 — Verify gates barrel.
  */
 export type { Gate, DiffInput, DuplicationDeps } from "./types.js";
-export { changedAnchors } from "./types.js";
+export { changedAnchors, isTestFilePath, productionChanged } from "./types.js";
 export { ruleConformanceGate } from "./rule_conformance.js";
 export { duplicationGate } from "./duplication.js";
 export { specLinkageGate } from "./spec_linkage.js";

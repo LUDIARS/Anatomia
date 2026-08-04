@@ -26,6 +26,13 @@ AI が生成した diff を、その codebase の grain（ドメイン・ルー�
 PascalCase は言語要件であり、ローカル慣習ではない）。ただし兄弟が全てコンポーネントで
 採掘対象が空になる場合は、慣習ゼロで素通しせず兄弟全体にフォールバックする。
 
+`spec_linkage` / `coupling_delta` の例外: **テストコード**（`__tests__/` 配下または
+`*.test.*` / `*.spec.*` ファイル、`gates/types.ts` の `isTestFilePath`）の関数は
+flag 対象から外す。テストは spec 節を「実装」するのではなく検証する側であり、
+`it()`/`describe()` クロージャは設計上多数のヘルパ・アサーションを呼ぶため、
+孤児判定・結合度はアーキテクチャ信号にならない（`review/pr-diff.ts` の
+changedOrphans も同じ `isTestFilePath` を共有し、境界が二重定義で乖離しないようにする）。
+
 ## Verdict（出力）
 
 `verify()` は `Verdict { pass, gates: GateResult[], anchors, suggestion }` を返す。

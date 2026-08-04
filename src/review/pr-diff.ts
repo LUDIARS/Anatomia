@@ -11,6 +11,7 @@ import { buildVerdict } from "../core.js";
 import { computeBranchDiff, type BranchDiff } from "../branch/diff.js";
 import { branchDiffText } from "../branch/git.js";
 import { computeMetrics, type NodeMetrics } from "../supply/metrics.js";
+import { isTestFilePath } from "../supply/gates/types.js";
 import type { AnchorId, Verdict } from "../types.js";
 import {
   buildReview,
@@ -125,9 +126,11 @@ export async function buildPrDiffReview(
     .flatMap((domain) => domain.isolated)
     .map((location) => location.anchor)
     .filter((anchor) => changedAnchors.has(anchor));
+  // Same production/test boundary the spec_linkage / coupling_delta gates draw
+  // (isTestFilePath in supply/gates/types.ts) — kept as one predicate so the
+  // two cannot drift apart.
   const isProductionLocation = (location: ReviewLocation): boolean =>
-    location.name !== "<anonymous>" &&
-    !/(^|\/)__tests__(\/|$)|\.(?:test|spec)\.[^/]+$/i.test(location.file);
+    location.name !== "<anonymous>" && !isTestFilePath(location.file);
 
   return {
     temporary: true,

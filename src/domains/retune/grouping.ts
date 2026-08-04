@@ -1,6 +1,8 @@
 /**
  * src/domains/retune/grouping.ts — Taxonomy → ownership derivations.
  *
+ * @spec ドメインビュー自己調整（domain re-tune）
+ *
  * The taxonomy (domain × module × {paths,names}) is the source of truth. This
  * module derives, mechanically and deterministically, the two things consumers
  * need from it:

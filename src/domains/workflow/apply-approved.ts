@@ -1,4 +1,8 @@
-/** Apply Gate-B-approved orphan domains and specs as one rollback-safe unit. */
+/**
+ * Apply Gate-B-approved orphan domains and specs as one rollback-safe unit.
+ *
+ * @spec 人間承認付きドメイン発見ワークフロー
+ */
 
 import { join } from "node:path";
 import type { NodeFilter } from "../../types.js";

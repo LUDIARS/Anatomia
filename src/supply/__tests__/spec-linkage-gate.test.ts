@@ -99,4 +99,34 @@ describe("spec_linkage minConfidence", () => {
     expect(r.suggestion).toContain("weakOne");
     expect(r.anchors).toHaveLength(2);
   });
+
+  it("matches file links across absolute vs repo-relative path forms", async () => {
+    const { graph, functions } = await buildFromSource(`void relPathFn() {}`, "src/a/b.cpp");
+    const r = await specLinkageGate(true).run({
+      changed: functions, graph,
+      links: [link("E:\\repo\\checkout\\src\\a\\b.cpp", 0.9)],
+    });
+    expect(r.pass).toBe(true);
+    expect(r.suggestion).toBeNull();
+  });
+
+  it("still matches a separator-less file link by exact path", async () => {
+    const { graph, functions } = await buildFromSource(`void rootFn() {}`, "index.ts");
+    const r = await specLinkageGate(true).run({
+      changed: functions, graph, links: [link("index.ts", 0.9)],
+    });
+    expect(r.pass).toBe(true);
+    expect(r.suggestion).toBeNull();
+  });
+
+  it("functions in test files are never orphans, even in strict mode", async () => {
+    const { graph, functions } = await buildFromSource(
+      `void itBody() {}`,
+      "/src/scenes/__tests__/derive.test.cpp",
+    );
+    const r = await specLinkageGate(true).run({ changed: functions, graph, links: [] });
+    expect(r.pass).toBe(true);
+    expect(r.suggestion).toBeNull();
+    expect(r.anchors).toEqual([]);
+  });
 });

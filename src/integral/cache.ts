@@ -1,6 +1,8 @@
 /**
  * src/integral/cache.ts — Phase C: the integral path cache.
  *
+ * @spec Integral Search — 3 層スコープ検索
+ *
  * The design notes that investigation-type queries recur AFTER the LLM's own
  * prompt cache has expired, so the graph paths an agent explored (and the
  * scope it judged) must be cached as RESULTS. This is that store: a content-

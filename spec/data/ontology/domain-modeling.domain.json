@@ -17,6 +17,9 @@
       "pathPattern": "(^|/)src/domains/authoring/[^/]+$"
     },
     {
+      "pathPattern": "(^|/)src/domains/workflow/[^/]+$"
+    },
+    {
       "pathPattern": "(^|/)src/domains/authoring/__tests__/[^/]+$"
     },
     {

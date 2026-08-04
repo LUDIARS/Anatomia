@@ -101,10 +101,60 @@ describe("T18 loadOntology", () => {
     expect(onto.domains.has("env-mech")).toBe(true);
   });
 
+  it("dataOnly ignores executable defs so repo-supplied dirs cannot run code", async () => {
+    tmp = await mkdtemp(join(tmpdir(), "anatomia-onto-"));
+    const jsonDef = {
+      name: "committed-mech",
+      description: "declarative def from the repo.",
+      presetRules: [],
+      templateRules: [],
+    };
+    await writeFile(join(tmp, "committed.json"), JSON.stringify(jsonDef), "utf8");
+    // An .mjs def executes at import time; under dataOnly it must not be read.
+    await writeFile(
+      join(tmp, "evil.mjs"),
+      "globalThis.__anatomiaOntologyPluginRan = true;\n" +
+        "export default { name: 'evil', description: 'x', presetRules: [], templateRules: [] };\n",
+      "utf8",
+    );
+
+    const safe = await loadOntology(tmp, { dataOnly: true });
+    expect(safe.domains.has("committed-mech")).toBe(true);
+    expect(safe.domains.has("evil")).toBe(false);
+    expect((globalThis as unknown as Record<string, unknown>)["__anatomiaOntologyPluginRan"])
+      .toBeUndefined();
+
+    // Default (operator-chosen dir) still loads executable defs.
+    const full = await loadOntology(tmp);
+    expect(full.domains.has("evil")).toBe(true);
+    delete (globalThis as unknown as Record<string, unknown>)["__anatomiaOntologyPluginRan"];
+  });
+
   it("rejects an invalid def", async () => {
     tmp = await mkdtemp(join(tmpdir(), "anatomia-onto-"));
     await writeFile(join(tmp, "bad.json"), JSON.stringify({ name: "x" }), "utf8");
     await expect(loadOntology(tmp)).rejects.toThrow();
+  });
+
+  it("skipInvalid drops only the bad file, so one stray .json costs no domains", async () => {
+    tmp = await mkdtemp(join(tmpdir(), "anatomia-onto-"));
+    const good = {
+      name: "surviving-mech",
+      description: "a valid def beside the junk.",
+      presetRules: [],
+      templateRules: [],
+    };
+    await writeFile(join(tmp, "good.json"), JSON.stringify(good), "utf8");
+    await writeFile(join(tmp, "notes.json"), JSON.stringify({ note: "not a def" }), "utf8");
+    await writeFile(join(tmp, "broken.json"), "{ this is not json", "utf8");
+
+    const onto = await loadOntology(tmp, { dataOnly: true, skipInvalid: true });
+    expect(onto.domains.has("surviving-mech")).toBe(true);
+    // Builtins must survive too — a stray file cannot empty the ontology.
+    expect(onto.domains.size).toBeGreaterThan(1);
+
+    // Without skipInvalid an operator-chosen dir still fails loudly.
+    await expect(loadOntology(tmp, { dataOnly: true })).rejects.toThrow();
   });
 
   it("rejects unassigned because it is a relation state, not a domain", async () => {

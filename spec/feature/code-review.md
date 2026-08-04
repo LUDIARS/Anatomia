@@ -23,6 +23,12 @@
 | `domainCoupling` | 異なる primary domain 間を跨ぐ edge 数 |
 | `orphans` | static caller が無い（`fanIn === 0`）関数。`main` と、Unityプロジェクト内の `MonoBehaviour` ライフサイクル関数は除外 |
 
+既知の限界（waiver）: static call graph はインスタンス経由のメソッド呼び出し
+（`store.put(...)` 等のディスパッチ）や `new` によるコンストラクタ起動を caller として
+解決しないため、クラスメソッド・コンストラクタは実際に使われていても `fanIn === 0` で
+orphan に載ることがある（例: `project/cache.ts` の CacheStore メソッド群）。orphan は
+「静的に到達を証明できない」印であって dead code の断定ではない。
+
 Unity補正は `Assets/` と `ProjectSettings/ProjectVersion.txt` が揃うプロジェクトだけで有効。
 対象関数のクラスが直接または継承鎖経由で `MonoBehaviour` を継承し、Unity 2021.3 の
 イベント関数名に一致した場合、エンジン所有のライフサイクル接続として解決する。

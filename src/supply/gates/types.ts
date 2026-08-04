@@ -6,6 +6,8 @@
  * it BLOCKS (verdict.pass requires it) or only WARNS.
  *
  * SRP: types + the common DiffInput shape only.
+ *
+ * @spec verify — 5 ゲート検証パイプライン
  */
 
 import type {
@@ -61,6 +63,22 @@ export interface Gate {
 /** Convenience: anchors of the changed functions (non-null ids). */
 export function changedAnchors(input: DiffInput): AnchorId[] {
   return input.changed.map((f) => f.id).filter((id): id is AnchorId => id !== null);
+}
+
+/**
+ * True when the path is test code (`__tests__/` directory or `*.test.* /
+ * *.spec.*` file). Test bodies orchestrate many helpers and assertions by
+ * design, so architectural gates (spec_linkage orphans, coupling_delta) treat
+ * them as verification artifacts, not production surfaces — the same
+ * production/test boundary `review/pr-diff.ts` draws for changed orphans.
+ */
+export function isTestFilePath(filePath: string): boolean {
+  return /(^|[\\/])__tests__([\\/]|$)|\.(?:test|spec)\.[^\\/]+$/i.test(filePath);
+}
+
+/** Changed functions that live in production (non-test) files. */
+export function productionChanged(input: DiffInput): FunctionNode[] {
+  return input.changed.filter((f) => !isTestFilePath(f.sourceRange.filePath));
 }
 
 /** Injected embedding client carrier for the duplication gate (mockable). */

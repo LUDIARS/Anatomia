@@ -2,6 +2,8 @@
  * Validate taxonomy domain identities at persisted-data and derivation
  * boundaries. A taxonomy domain becomes a DomainDef/ownership node, so relation
  * state sentinels are not valid names here.
+ *
+ * @spec ドメインビュー自己調整（domain re-tune）
  */
 
 import { assertDomainDefinitionName } from "../assignment.js";

@@ -1,6 +1,8 @@
 /**
  * src/domains/retune/register.ts — Step 4: register the taxonomy (mechanical).
  *
+ * @spec ドメインビュー自己調整（domain re-tune）
+ *
  * Writes three committed artifacts under the repo:
  *   - spec/data/ontology/<domain>.domain.json  — membership DomainDefs, loaded by
  *     loadOntology via the project's ontologyDir → drives the Domain View.
@@ -19,9 +21,14 @@ import { mkdir, writeFile, readdir, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import type { Taxonomy } from "./types.js";
 import { taxonomyToDomainDefs } from "./grouping.js";
+import { COMMITTED_ONTOLOGY_DIR_REL } from "../ontology.js";
 
-/** Ontology dir, relative to repo root (also the value to set as project.ontologyDir). */
-export const ONTOLOGY_DIR_REL = "spec/data/ontology";
+/**
+ * Ontology dir, relative to repo root (also the value to set as
+ * project.ontologyDir). Owned by the loader (domains/ontology.ts) so this
+ * writer and analyze()'s committed-ontology fallback stay on one path.
+ */
+export const ONTOLOGY_DIR_REL = COMMITTED_ONTOLOGY_DIR_REL;
 
 export interface RegisterResult {
   /** Repo-relative paths written. */
@@ -64,7 +71,7 @@ export function renderTaxonomyMd(t: Taxonomy): string {
 export async function registerTaxonomy(repoPath: string, taxonomy: Taxonomy): Promise<RegisterResult> {
   // Validate every derived DomainDef before creating or deleting any files.
   const defs = taxonomyToDomainDefs(taxonomy);
-  const ontologyDir = join(repoPath, "spec", "data", "ontology");
+  const ontologyDir = join(repoPath, ONTOLOGY_DIR_REL);
   await mkdir(ontologyDir, { recursive: true });
   await mkdir(join(repoPath, "spec", "feature"), { recursive: true });
 

@@ -28,6 +28,23 @@ presets + templates を述語（Predicate）にコンパイルし、グラフ上
 plugin dir（`ANATOMIA_PLUGIN_DIR` または明示 dir）配下の `.json` / `.mjs` から DomainDef を
 ロード・検証する。Project ごとに `ontologyDir` を持てる（→ data/project-cache.md）。
 
+`analyze()` の ontology 解決順は **明示 pluginDir > `ANATOMIA_PLUGIN_DIR` >
+リポジトリのコミット済み `spec/data/ontology/`**。最後のフォールバックは retune の
+register 規約（→ domain-retune.md）が書き出す成果物であり、`.anatomia/` のような
+ローカル専用 state を持たない ephemeral checkout（Revisor の PR レビュー worktree 等）
+でもプロジェクトの semantic domain が見えるようにするためのもの。
+
+このコミット済み dir は**解析対象リポの内容**＝未レビューの author 由来入力なので、
+`dataOnly` で **`.json` のみ**をロードする（`.mjs`/`.js` DomainDef は `import()` =
+解析プロセス内での任意コード実行になるため、operator が選んだ dir でだけ許可する）。
+
+同じ理由でこの dir は operator が選んだ plugin dir と違い**自動発見**であり、
+DomainDef 専用に整理されている保証がない。よって `skipInvalid` を併用し、壊れた／
+DomainDef でない `.json` 1 個の巻き添えで dir 全体のロードが throw → `analyze()` の
+domain フェーズごと握り潰されて**全ドメインが消える**ことを防ぐ（それはこの
+フォールバックが解こうとしている "no target domain" そのもの）。明示 dir /
+`ANATOMIA_PLUGIN_DIR` は従来どおり strict（設定ミスは表に出す）。
+
 これは現行 reader。T55/T68 後は `loadOntology` が読む DomainDef を knowledge log からの
 compatibility projection とし、builtin や plugin を暗黙の project domain にしない。
 `state-machine` は本物の project domain 用に予約し、builtin example は

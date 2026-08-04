@@ -12,6 +12,8 @@
  * worsen is not flagged) — this is the "delta" semantics.
  *
  * SRP: per-anchor threshold comparison only; threshold derivation is T26's job.
+ *
+ * @spec verify — 5 ゲート検証パイプライン
  */
 
 import type { AnchorId, GateResult } from "../../types.js";
@@ -19,7 +21,7 @@ import type { CodeGraphQuery } from "../../graph/query.js";
 import { isFlagged } from "../thresholds.js";
 import type { MetricKey } from "../metrics.js";
 import type { Gate, DiffInput } from "./types.js";
-import { changedAnchors } from "./types.js";
+import { productionChanged } from "./types.js";
 
 async function couplingOf(graph: CodeGraphQuery, id: AnchorId): Promise<number> {
   const c = await graph.fanCounts(id);
@@ -38,7 +40,12 @@ export function couplingDeltaGate(): Gate {
     severity: "warn",
     async run(input: DiffInput): Promise<GateResult> {
       const thresholds = input.thresholds;
-      const anchors = changedAnchors(input);
+      // Test bodies (it/describe closures) call many helpers by design; their
+      // coupling is not an architectural signal, so only production anchors
+      // are measured (isTestFilePath in types.ts).
+      const anchors = productionChanged(input)
+        .map((f) => f.id)
+        .filter((id): id is AnchorId => id !== null);
 
       // Without thresholds there is nothing repo-relative to compare against.
       if (!thresholds) {

@@ -10,6 +10,8 @@
  * compiling defs to predicates is detect.ts's job (T19).
  *
  * Reuses plugins/loader.ts (resolvePluginDir) for the env-var convention.
+ *
+ * @spec ドメイン検出（G3）
  */
 
 import { readdir } from "node:fs/promises";
@@ -54,6 +56,15 @@ export interface DomainDef {
 export interface DomainOntology {
   domains: Map<string, DomainDef>;
 }
+
+/**
+ * Repo-relative dir holding a project's COMMITTED DomainDefs — the artifact the
+ * retune `register` step writes (retune/register.ts re-exports this as
+ * ONTOLOGY_DIR_REL). `analyze()` falls back to it when no operator plugin dir
+ * is configured, so the loader owns the constant and the writer/reader sides
+ * cannot drift to different paths.
+ */
+export const COMMITTED_ONTOLOGY_DIR_REL = "spec/data/ontology";
 
 // ── Builtin domains ───────────────────────────────────────────────────────
 
@@ -130,8 +141,27 @@ function requireDomainDef(x: unknown, source: string): DomainDef {
   return x;
 }
 
-/** Load all DomainDefs from a directory (.json and .mjs files). */
-async function loadFromDir(dir: string): Promise<DomainDef[]> {
+/**
+ * Load all DomainDefs from a directory (.json and .mjs files).
+ *
+ * `dataOnly` skips the executable (.mjs/.js) defs: an .mjs def is `import()`ed,
+ * i.e. it runs arbitrary code in the analyzer's process. That is acceptable for
+ * an operator-chosen dir (ANATOMIA_PLUGIN_DIR / the local `.anatomia/domains`),
+ * but NOT for a dir whose contents come from the repo under analysis — an
+ * ephemeral pr-review worktree holds unreviewed, author-controlled files.
+ *
+ * `skipInvalid` makes one unparseable/invalid file lose only that file instead
+ * of the whole ontology. An operator-chosen dir stays strict (a typo there is
+ * a configuration error worth surfacing), but an AUTO-DISCOVERED dir is not
+ * curated for this purpose: a single stray `.json` next to the DomainDefs must
+ * not silently collapse detection to zero domains — the exact "no target
+ * domain" failure the committed-ontology fallback exists to prevent.
+ */
+async function loadFromDir(
+  dir: string,
+  dataOnly = false,
+  skipInvalid = false,
+): Promise<DomainDef[]> {
   let entries: string[];
   try {
     entries = await readdir(dir);
@@ -142,24 +172,47 @@ async function loadFromDir(dir: string): Promise<DomainDef[]> {
   for (const entry of entries) {
     const ext = extname(entry).toLowerCase();
     const full = join(dir, entry);
-    if (ext === ".json") {
-      const { readFile } = await import("node:fs/promises");
-      const raw = await readFile(full, "utf8");
-      const parsed = JSON.parse(raw);
-      const list = Array.isArray(parsed) ? parsed : [parsed];
-      for (const d of list) {
-        defs.push(requireDomainDef(d, full));
+    const fileDefs: DomainDef[] = [];
+    try {
+      if (ext === ".json") {
+        const { readFile } = await import("node:fs/promises");
+        const raw = await readFile(full, "utf8");
+        const parsed = JSON.parse(raw);
+        const list = Array.isArray(parsed) ? parsed : [parsed];
+        for (const d of list) {
+          fileDefs.push(requireDomainDef(d, full));
+        }
+      } else if (!dataOnly && (ext === ".mjs" || ext === ".js")) {
+        const mod = await import(pathToFileURL(full).href);
+        const exported = mod.default ?? mod.domain ?? mod.domains;
+        const list = Array.isArray(exported) ? exported : [exported];
+        for (const d of list) {
+          fileDefs.push(requireDomainDef(d, `export ${full}`));
+        }
       }
-    } else if (ext === ".mjs" || ext === ".js") {
-      const mod = await import(pathToFileURL(full).href);
-      const exported = mod.default ?? mod.domain ?? mod.domains;
-      const list = Array.isArray(exported) ? exported : [exported];
-      for (const d of list) {
-        defs.push(requireDomainDef(d, `export ${full}`));
-      }
+    } catch (err) {
+      if (!skipInvalid) throw err;
+      continue; // drop this file only; the rest of the dir still loads
     }
+    defs.push(...fileDefs);
   }
   return defs;
+}
+
+/** Options for {@link loadOntology}. */
+export interface LoadOntologyOptions {
+  /**
+   * Load only declarative (.json) defs, ignoring executable .mjs/.js ones. Set
+   * it whenever the dir's contents come from the analyzed repo rather than from
+   * the operator — see loadFromDir.
+   */
+  dataOnly?: boolean;
+  /**
+   * Drop individual files that fail to parse/validate instead of failing the
+   * whole load. Set it for an auto-discovered dir, where one stray `.json`
+   * must not cost the caller every domain — see loadFromDir.
+   */
+  skipInvalid?: boolean;
 }
 
 /**
@@ -167,8 +220,13 @@ async function loadFromDir(dir: string): Promise<DomainDef[]> {
  *
  * @param pluginDir explicit dir; if omitted, ANATOMIA_PLUGIN_DIR is used.
  *                  Plugin defs override builtins of the same name.
+ * @param options   `dataOnly` restricts the dir to declarative .json defs;
+ *                  `skipInvalid` drops unloadable files instead of throwing.
  */
-export async function loadOntology(pluginDir?: string): Promise<DomainOntology> {
+export async function loadOntology(
+  pluginDir?: string,
+  options: LoadOntologyOptions = {},
+): Promise<DomainOntology> {
   const domains = new Map<string, DomainDef>();
   for (const d of BUILTIN_DOMAINS) {
     assertDomainDefinitionName(d.name);
@@ -177,7 +235,11 @@ export async function loadOntology(pluginDir?: string): Promise<DomainOntology> 
 
   const dir = pluginDir ? resolve(pluginDir) : resolvePluginDir();
   if (dir) {
-    const pluginDefs = await loadFromDir(dir);
+    const pluginDefs = await loadFromDir(
+      dir,
+      options.dataOnly === true,
+      options.skipInvalid === true,
+    );
     for (const d of pluginDefs) domains.set(d.name, d); // override by name
   }
   return { domains };

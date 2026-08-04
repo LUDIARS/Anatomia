@@ -10,7 +10,8 @@
 
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { basename, extname, relative } from "node:path";
+import { basename, extname, join, relative } from "node:path";
+import { existsSync } from "node:fs";
 import type { Tree } from "web-tree-sitter";
 import { collectProjectFiles } from "./fs/walk.js";
 import { parse } from "./dag/parser.js";
@@ -29,7 +30,7 @@ import { resolveLanding } from "./supply/landing.js";
 import { landingInjections } from "./supply/detectors.js";
 import { rankExemplars, rankSpecClauses, RELEVANCE_VERSION } from "./supply/relevance.js";
 import { selectSiblings, verifyThresholds } from "./supply/verify-inputs.js";
-import { loadOntology } from "./domains/ontology.js";
+import { loadOntology, COMMITTED_ONTOLOGY_DIR_REL } from "./domains/ontology.js";
 import { detectDomains, partitionDetectionResults } from "./domains/detect.js";
 import { detectionCacheKey } from "./domains/cache.js";
 import { compileDomainRules } from "./domains/compile.js";
@@ -531,7 +532,26 @@ export async function analyze(
   let policyResults: DetectionResult[] = [];
   let rules: Rule[] = [];
   if (runDomains) try {
-    const ontology = await loadOntology(options.pluginDir);
+    // Ontology precedence: explicit pluginDir > ANATOMIA_PLUGIN_DIR (inside
+    // loadOntology) > the repo's committed `spec/data/ontology` (the retune
+    // register convention). The committed fallback is what lets ephemeral
+    // checkouts (Revisor PR review worktrees) see the project's semantic
+    // domains — local-only state like `.anatomia/` never exists there.
+    const committedOntologyDir = join(repoPath, COMMITTED_ONTOLOGY_DIR_REL);
+    const useCommitted =
+      options.pluginDir === undefined
+      && !process.env["ANATOMIA_PLUGIN_DIR"]
+      && existsSync(committedOntologyDir);
+    // The committed dir is content of the repo under analysis, which for a
+    // pr-review worktree is unreviewed author-controlled input — load it as
+    // DATA ONLY so a checked-in `.mjs` def cannot execute in this process.
+    // It is also AUTO-DISCOVERED rather than operator-chosen, so a stray or
+    // malformed `.json` there must cost only that file: without skipInvalid a
+    // single bad file throws, this whole phase is caught below, and the repo
+    // silently loses every domain — the failure the fallback exists to fix.
+    const ontology = useCommitted
+      ? await loadOntology(committedOntologyDir, { dataOnly: true, skipInvalid: true })
+      : await loadOntology(options.pluginDir);
     // Detection is O(domains × functions). Reuse the prior result when the code
     // identity (file paths + structural hashes) and ontology are unchanged — the
     // spec/config-only-edit case, where the fingerprint busts but the DAG does
