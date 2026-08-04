@@ -23,6 +23,7 @@ import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join, extname } from "node:path";
 import type { ConfiguredPreset, DomainDef } from "../ontology.js";
 import { assertDomainDefinitionName } from "../assignment.js";
+import { invalidRegexParams } from "../regex-source.js";
 import type { DomainDraft, EditableDomainDef } from "./types.js";
 
 /** Default per-repo domains dir (also a valid ontology pluginDir). */
@@ -138,11 +139,32 @@ export async function loadEditableDomains(dir: string): Promise<EditableDomainDe
   return (await loadEditableDomainDocuments(dir)).flatMap((document) => document.definitions);
 }
 
+/**
+ * 正規表現として壊れている preset 規則を落とす。
+ *
+ * draft は LLM 生成なので、JS が受け付けない書き方 (Python 由来の `(?i)` 等) が
+ * 混ざる。書き込む前に落としておかないと、読み込んだ側で全ドメインが失われる
+ * 事故になる。落としたことは黙らせず warn に出す。
+ */
+export function withValidRegexRules(def: EditableDomainDef): EditableDomainDef {
+  const kept = def.presetRules.filter((cfg) => {
+    const invalid = invalidRegexParams(cfg.params as Record<string, unknown>);
+    for (const { key, pattern, problem } of invalid) {
+      console.warn(
+        `[anatomia/domains] ${def.name}: ${key}="${pattern}" を落としました (${problem})`,
+      );
+    }
+    return invalid.length === 0;
+  });
+  return kept.length === def.presetRules.length ? def : { ...def, presetRules: kept };
+}
+
 /** Persist a single editable def to `<dir>/<slug>.json` (creates dir). */
 export async function saveEditableDomain(
   dir: string,
-  def: EditableDomainDef,
+  input: EditableDomainDef,
 ): Promise<string> {
+  const def = withValidRegexRules(input);
   assertDomainDefinitionName(def.name);
   await mkdir(dir, { recursive: true });
   const path = join(dir, domainFileName(def.name));
@@ -160,7 +182,8 @@ export async function saveEditableDomains(
   defs: EditableDomainDef[],
 ): Promise<string[]> {
   const byName = new Map<string, EditableDomainDef>();
-  for (const def of defs) {
+  for (const raw of defs) {
+    const def = withValidRegexRules(raw);
     assertDomainDefinitionName(def.name);
     if (byName.has(def.name)) throw new Error(`duplicate domain definition "${def.name}"`);
     byName.set(def.name, def);

@@ -17,6 +17,7 @@ import type { Rule } from "../types.js";
 import type { DomainOntology } from "./ontology.js";
 import { assertDomainDefinitionName } from "./assignment.js";
 import { buildPresetPredicate } from "./presets.js";
+import { invalidRegexParams } from "./regex-source.js";
 
 /**
  * Build a Rule for every preset rule in every domain. Domain rules default to
@@ -29,6 +30,18 @@ export function compileDomainRules(ontology: DomainOntology): Rule[] {
   for (const def of ontology.domains.values()) {
     assertDomainDefinitionName(def.name);
     def.presetRules.forEach((cfg, i) => {
+      // 壊れた正規表現は 1 規則の損失に閉じ込める。ここで throw させると
+      // 呼び出し側 (core.ts の domain detection) が全ドメインを捨ててしまい、
+      // 「ドメインを定義したのに対象ドメイン無し」という診断困難な状態になる。
+      const invalid = invalidRegexParams(cfg.params as Record<string, unknown>);
+      if (invalid.length > 0) {
+        for (const { key, pattern, problem } of invalid) {
+          console.warn(
+            `[anatomia/domains] ${def.name}/preset#${i} を無視しました: ${key}="${pattern}" は正規表現として不正です (${problem})`,
+          );
+        }
+        return;
+      }
       rules.push({
         id: `${def.name}/preset#${i}`,
         scope: "domain",

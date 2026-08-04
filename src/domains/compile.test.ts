@@ -61,6 +61,27 @@ describe("compileDomainRules", () => {
     expect(compileDomainRules({ domains: new Map() })).toEqual([]);
   });
 
+  it("drops only the rule whose regex is broken, keeping the rest of the ontology", () => {
+    const broken = ontology();
+    const def = broken.domains.get("two-rule")!;
+    broken.domains.set("two-rule", {
+      ...def,
+      presetRules: [
+        // Python 由来のインラインフラグ。JS の RegExp はここで throw する。
+        { preset: "couplingCap", params: { targetPattern: "(?i)log|logger", maxFanOut: 8 } },
+        { preset: "couplingCap", params: { targetPattern: "[Ss]ecret", maxFanOut: 8 } },
+      ],
+    });
+
+    const rules = compileDomainRules(broken);
+
+    // 壊れた 1 本だけが落ち、同じドメインの健全な規則も別ドメインも残る。
+    expect(rules.map((rule) => rule.id)).toEqual([
+      "ks-layer-spine/preset#0",
+      "two-rule/preset#1",
+    ]);
+  });
+
   it("rejects the unassigned relation sentinel as a domain definition", () => {
     const invalid = ontology();
     const def = invalid.domains.get("ks-layer-spine")!;

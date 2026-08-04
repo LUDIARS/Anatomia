@@ -29,6 +29,7 @@ import { evaluatePredicate } from "./engine.js";
 import { buildPresetPredicate } from "./presets.js";
 import { evaluateTemplate, makeTemplateResolver } from "./template.js";
 import { matchesFilter } from "./predicate.js";
+import { invalidRegexParams } from "./regex-source.js";
 import type { DomainDef, DomainOntology, DomainRole } from "./ontology.js";
 import { assertDomainDefinitionName } from "./assignment.js";
 
@@ -69,9 +70,17 @@ function collectFilters(pred: Predicate, out: NodeFilter[]): void {
   }
 }
 
-/** Compile a domain def's preset rules into predicates. */
+/**
+ * Compile a domain def's preset rules into predicates.
+ *
+ * 正規表現が壊れている規則は落とす。ここで例外を投げると呼び出し元がドメイン検出
+ * 全体を諦めるため、1 パターンの誤りで全ドメインが消える (実測: `(?i)auth` 1 つで
+ * 13 ドメイン全滅)。compile.ts と同じ方針。
+ */
 function compilePresetPredicates(def: DomainDef): Predicate[] {
-  return def.presetRules.map((cfg) => buildPresetPredicate(cfg.preset, cfg.params));
+  return def.presetRules
+    .filter((cfg) => invalidRegexParams(cfg.params as Record<string, unknown>).length === 0)
+    .map((cfg) => buildPresetPredicate(cfg.preset, cfg.params));
 }
 
 /** Namespace local template ids while preserving legacy already-qualified ids. */
