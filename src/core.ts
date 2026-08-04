@@ -153,6 +153,8 @@ export interface AnalyzeOptions {
    * clean graph, point specDirs at the spec tree for linkage.
    */
   specDirs?: string[];
+  /** Single write root used to route authored and generated OKF subtrees. */
+  knowledgeWriteRoot?: string;
   /**
    * Per-file analysis reuse: prior FileNodes keyed by absolute path. When a
    * file's current source SHA-256 equals the prior FileNode's `contentHash`, the
@@ -621,7 +623,13 @@ export async function analyze(
         : undefined;
       semanticLinked = embedClient !== undefined;
       const runLinkers = async (): Promise<SpecLinkResult> => {
-        const clauses = await parseSpecFiles(specPaths);
+        const knowledgeRoot = options.knowledgeWriteRoot;
+        const clauses = await parseSpecFiles(specPaths, knowledgeRoot ? {
+          generatedRoot: join(knowledgeRoot, "data", "generated", "anatomia"),
+          domainRoot: join(knowledgeRoot, "data", "domains"),
+          annotationRoot: join(knowledgeRoot, "data", "scene-annotations"),
+          projectId: repoName,
+        } : { projectId: repoName });
         const [explicit, structural, semantic] = await Promise.all([
           findExplicitLinks(clauses, sourcePaths),
           findStructuralLinks(clauses, sourcePaths),
@@ -642,7 +650,12 @@ export async function analyze(
         const specContents = await Promise.all(
           specPaths.map(async (p) => ({ path: p, content: await readFile(p, "utf8") })),
         );
-        const key = specLinkCacheKey(specContents, files, embedProviders?.embedModelId);
+        const key = specLinkCacheKey(
+          specContents,
+          files,
+          embedProviders?.embedModelId,
+          options.knowledgeWriteRoot,
+        );
         const hit = await specLinkCache.get(key);
         if (hit) {
           vgWrite("debug", "anatomia spec link cache hit", { repo: repoName, spec_files: specPaths.length });

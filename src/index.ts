@@ -56,3 +56,4 @@ export * from "./adapters/index.js";
 export * from "./dynamic/index.js";
 export * from "./plugins/index.js";
 export * from "./project/index.js";
+export * from "./knowledge/index.js";

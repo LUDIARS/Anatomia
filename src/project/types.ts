@@ -28,6 +28,8 @@ export interface Project {
    * rootPath=`<repo>/src`, specDirs=[`<repo>/spec`]).
    */
   specDirs?: string[];
+  /** Single repository-owned root for approved and generated knowledge artifacts. */
+  knowledgeWriteRoot?: string;
   /**
    * True when specDirs was AUTO-detected (project/spec-detect.ts) rather than
    * user-set. Auto values may be replaced by a fresh detection; user-set values
@@ -47,6 +49,7 @@ export interface ProjectInput {
   languages?: Lang[];
   ontologyDir?: string;
   specDirs?: string[];
+  knowledgeWriteRoot?: string;
 }
 
 /** The serializable shape persisted to projects.json. */

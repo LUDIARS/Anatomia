@@ -7,12 +7,16 @@
  * Routes:
  *   GET    /api/projects           list registered projects + selected id
  *   POST   /api/projects           register + analyze a new project
+ *                                  ({ name, rootPath, knowledgeWriteRoot? })
  *   DELETE /api/projects/:id       remove a project
  *   POST   /api/projects/:id/analyze   (re)analyze an existing project
  *   GET    /api/projects/:id/spec-config  where spec clauses come from
  *                                  (configured / auto / root / missing)
- *   PUT    /api/projects/:id/spec-config  set { specDirs: string[] } or
- *                                  clear with { specDirs: null } (→ auto-detect)
+ *   PUT    /api/projects/:id/spec-config  set { specDirs: string[] } and/or
+ *                                  { knowledgeWriteRoot: string }; either key
+ *                                  set to null clears it (specDirs → auto-detect).
+ *                                  Omitted keys are left untouched; at least one
+ *                                  of the two must be present.
  *
  * SRP: HTTP routing for project lifecycle. No analysis logic here.
  */
@@ -64,22 +68,22 @@ export function mountProjectRoutes(
     return c.json({ jobs: analyzeQueue.jobs(), active: analyzeQueue.active });
   });
 
-  // POST /api/projects — register + analyze { name, rootPath }
+  // POST /api/projects — register + analyze { name, rootPath, knowledgeWriteRoot? }
   app.post("/api/projects", async (c) => {
     if (!manager) {
       return c.json({ error: "project management requires manager mode" }, 501);
     }
-    let body: { name?: string; rootPath?: string };
+    let body: { name?: string; rootPath?: string; knowledgeWriteRoot?: string };
     try {
-      body = (await c.req.json()) as { name?: string; rootPath?: string };
+      body = (await c.req.json()) as { name?: string; rootPath?: string; knowledgeWriteRoot?: string };
     } catch {
       return c.json({ error: "invalid JSON body" }, 400);
     }
-    const { name, rootPath } = body;
+    const { name, rootPath, knowledgeWriteRoot } = body;
     if (!name || !rootPath) {
       return c.json({ error: "name and rootPath are required" }, 400);
     }
-    const project = await manager.addProject({ name, rootPath });
+    const project = await manager.addProject({ name, rootPath, knowledgeWriteRoot });
     const ctx = await manager.analyzeProject(project.id);
     if (onAfterAnalyze) try { onAfterAnalyze(ctx); } catch { /* pre-warm is optional */ }
     return c.json(
@@ -125,21 +129,33 @@ export function mountProjectRoutes(
       return c.json({ error: "project management requires manager mode" }, 501);
     }
     const id = c.req.param("id");
-    let body: { specDirs?: string[] | null };
+    let body: { specDirs?: string[] | null; knowledgeWriteRoot?: string | null };
     try {
-      body = (await c.req.json()) as { specDirs?: string[] | null };
+      body = (await c.req.json()) as { specDirs?: string[] | null; knowledgeWriteRoot?: string | null };
     } catch {
       return c.json({ error: "invalid JSON body" }, 400);
     }
-    if (body.specDirs !== null && !Array.isArray(body.specDirs)) {
+    if (body.specDirs !== undefined && body.specDirs !== null && !Array.isArray(body.specDirs)) {
       return c.json({ error: "specDirs must be an array of dirs, or null to clear" }, 400);
     }
     if (Array.isArray(body.specDirs) && body.specDirs.some((d) => typeof d !== "string" || !d.trim())) {
       return c.json({ error: "specDirs entries must be non-empty strings" }, 400);
     }
+    if (body.knowledgeWriteRoot !== undefined && body.knowledgeWriteRoot !== null
+      && (typeof body.knowledgeWriteRoot !== "string" || !body.knowledgeWriteRoot.trim())) {
+      return c.json({ error: "knowledgeWriteRoot must be a non-empty directory, or null to clear" }, 400);
+    }
+    if (body.specDirs === undefined && body.knowledgeWriteRoot === undefined) {
+      return c.json({ error: "specDirs or knowledgeWriteRoot is required" }, 400);
+    }
     try {
       const projectId = manager.resolveId(id);
-      await manager.updateSpecDirs(projectId, body.specDirs === null ? null : body.specDirs!);
+      if (body.specDirs !== undefined) {
+        await manager.updateSpecDirs(projectId, body.specDirs === null ? null : body.specDirs);
+      }
+      if (body.knowledgeWriteRoot !== undefined) {
+        await manager.updateKnowledgeWriteRoot(projectId, body.knowledgeWriteRoot);
+      }
       const status = await manager.ensureSpecConfig(projectId);
       return c.json({ projectId, ...status });
     } catch (err) {

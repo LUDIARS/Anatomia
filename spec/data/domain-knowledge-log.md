@@ -23,6 +23,11 @@ scene を、全 adapter が同じ意味で読めるようにする **目標永�
 planned contract であり、移行タスクは [`../../TASKS.md`](../../TASKS.md) の T50-T69 と
 [`../../docs/plan-okf-domain-scene-flow.md`](../../docs/plan-okf-domain-scene-flow.md) に置く。
 
+2026-08-04 に T51-T55 の永続基盤を `src/knowledge/` へ実装した。hash-chain replay/write と
+cardinality/hierarchy validation は canonical write path、Kuzu・旧 JSON はその state だけから作る
+read projection である。T56-T69 の提案生成、Gate、adapter 移行が未完了なため文書全体の状態は
+planned のままとする。
+
 狙いは「JSONL と Kuzu のどちらが正本か」を曖昧にしないことにある。
 
 - 人が編集・承認する仕様 OKF は domain の意味、境界、階層の **authoring source**。
@@ -238,6 +243,32 @@ canonical tables/manifest/OKFへ昇格させない。
 既存の `.anatomia/domains/*.json`、`spec/data/ontology/*.taxonomy.json`、
 `*.domain.json`、`*.screens.json`、`*.scenes.json` は移行中の compatibility projection とする。
 新規 write は knowledge transaction を通し、projection writer が必要な旧形式を更新する。
+
+## 実装モジュール (T51-T55)
+
+本節は planned contract の各責務を、2026-08-04 時点で実装した module へ割り当てる。
+canonical write path と read projection の境界がコード上どこに引かれているかを、
+この表以外の場所で推測しなくてよいようにする。
+
+| 責務 | module | 位置づけ |
+|---|---|---|
+| node / edge / transaction / manifest の型 | `src/knowledge/types.ts` | 契約 |
+| stable identity と alias、provisional 判定 | `src/knowledge/identity.ts` | canonical write path |
+| 単一 knowledgeWriteRoot の解決と project root 内包検証 | `src/knowledge/write-root.ts` | canonical write path |
+| frontmatter + semantic unit parser、routing、generated 除外 | `src/knowledge/okf-parser.ts` | authoring source の取り込み |
+| key 整列 JSON 直列化 (hash 入力の正規形) | `src/knowledge/canonical-json.ts` | canonical write path |
+| hash-chain JSONL の replay / expected head write / 階層・cardinality 検証 | `src/knowledge/log.ts` | canonical write path |
+| 未承認 proposal の log 外保管 | `src/knowledge/proposal-store.ts` | canonical write path の外側 |
+| ownership manifest による生成物の write-if-changed と stale 削除 | `src/knowledge/artifact-writer.ts` | projection の永続化 |
+| closure / ancestor / scene 逆引きの in-memory query | `src/knowledge/projection.ts` | read projection |
+| Kuzu materialization (log state のみが入力) | `src/knowledge/kuzu-projection.ts` | read projection |
+| taxonomy / domain / screens / scenes の旧 JSON 互換出力 | `src/knowledge/compatibility.ts` | compatibility projection |
+| generated subtree を除いた source fingerprint | `src/project/fingerprint.ts` | 再解析判定 |
+| knowledgeWriteRoot の登録・更新・永続 | `src/project/manager.ts` / `src/project/registry.ts` | project 設定 |
+| knowledgeWriteRoot の HTTP 設定面 | `src/adapters/web/routes/projects.ts` | adapter |
+
+read projection 側の module は log state だけを入力に取り、`writeKnowledgeTransaction` を
+呼ばない。逆に canonical write path の module は projection の出力を読まない。
 
 ## 関連
 

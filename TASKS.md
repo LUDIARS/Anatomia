@@ -152,16 +152,16 @@
 
 - **T50 neutral builtin policy identity** — `state-machine` を本物の project domain 用に予約し、
   builtin example を `transition-guard-example` へ変更。未解決は default domain でなく `unassigned`。
-- **T51 Anatomia OKF profile + stable identity** — AIFormat six types、routing 用
+- **T51 Anatomia OKF profile + stable identity** — implemented 2026-08-04。AIFormat six types、routing 用
   `x-anatomia.kind` + open extension、Domain/SpecClause/CodeSymbol/Scene ID・alias・revision evidence、
   単一 `knowledgeWriteRoot`。
-- **T52 precise OKF spec parser** — frontmatter + Markdown AST、list/table/modality/code ref、source range、
+- **T52 precise OKF spec parser** — implemented 2026-08-04。frontmatter + Markdown AST、list/table/modality/code ref、source range、
   explicit/provisional clause ID、generated subtree exclusion。
-- **T53 canonical knowledge transaction log** — hash-chain JSONL、expected head、atomic write/replay、
+- **T53 canonical knowledge transaction log** — implemented 2026-08-04。hash-chain JSONL、expected head、atomic write/replay、
   node/edge schema、proposal 分離、hierarchy/cardinality validation。
-- **T54 deterministic generated artifact writer** — ownership manifest、write-if-changed、atomic set replacement、
+- **T54 deterministic generated artifact writer** — implemented 2026-08-04。ownership manifest、write-if-changed、atomic set replacement、
   stale owned-file cleanup、source/output fingerprint 分離。
-- **T55 Kuzu + compatibility projections** — knowledge log を Kuzu へ再生成し、taxonomy/DomainDef/
+- **T55 Kuzu + compatibility projections** — implemented 2026-08-04。knowledge log を Kuzu へ再生成し、taxonomy/DomainDef/
   screens/scenes JSON を compatibility projection に降格。
 
 ## G12. spec → domain → code organization

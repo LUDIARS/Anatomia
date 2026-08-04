@@ -56,6 +56,16 @@ describe("specLinkContentKey / specLinkCacheKey", () => {
     expect(specLinkCacheKey(specs, [src("/r/x.ts", "X"), files[1]!])).not.toBe(base);
     expect(specLinkCacheKey(specs, [src("/r/moved.ts", "h1"), files[1]!])).not.toBe(base);
   });
+
+  it("changes on the knowledge write root, which alters clauses without touching files", () => {
+    const base = specLinkCacheKey(specs, files, undefined);
+    expect(specLinkCacheKey(specs, files, undefined, "/r/spec")).not.toBe(base);
+    expect(specLinkCacheKey(specs, files, undefined, "/r/docs/spec"))
+      .not.toBe(specLinkCacheKey(specs, files, undefined, "/r/spec"));
+    // Windows/POSIX separators must not fork the key for the same root.
+    expect(specLinkCacheKey(specs, files, undefined, "C:\\r\\spec"))
+      .toBe(specLinkCacheKey(specs, files, undefined, "C:/r/spec"));
+  });
 });
 
 describe("analyze specLinkCache reuse", () => {

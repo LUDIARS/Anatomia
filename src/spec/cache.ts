@@ -23,8 +23,12 @@ import { createHash } from "node:crypto";
 import { versionedKey, type CacheStore } from "../cache/store.js";
 import type { FileNode, Link, SpecClause } from "../types.js";
 
-/** BUMP when the linkers' semantics or SpecLinkResult's shape change. */
-export const SPEC_LINK_CACHE_VERSION = "1";
+/**
+ * BUMP when the linkers' semantics or SpecLinkResult's shape change.
+ * 2 — clauses are now semantic units from the OKF parser (new ids, unitKind,
+ *     structuralAddress, modality, …) rather than one clause per heading.
+ */
+export const SPEC_LINK_CACHE_VERSION = "2";
 
 /** A spec file's identity for keying: absolute path + raw content. */
 export interface SpecFileContent {
@@ -48,11 +52,18 @@ function sha256(text: string): string {
  * never perturbs the key, plus the embedder identity when the semantic
  * linker is active — a cached result that includes (or lacks) semantic links
  * must never be served to an analysis with a different embedding capability.
+ *
+ * `parserScope` folds the knowledge write root: it is a parser INPUT (it decides
+ * the generated/domain/annotation routing roots and therefore which documents
+ * yield clauses at all) that changes neither spec nor source file contents. The
+ * store is shared and process-lived, so without it a project re-analyzed after
+ * updateKnowledgeWriteRoot would be served the previous root's clauses.
  */
 export function specLinkContentKey(
   specFiles: SpecFileContent[],
   sourceFiles: FileNode[],
   embedderId?: string,
+  parserScope?: string,
 ): string {
   const specStamps = specFiles
     .map((f) => `${f.path.replace(/\\/g, "/")}\0${sha256(f.content)}`)
@@ -61,7 +72,8 @@ export function specLinkContentKey(
     .map((f) => `${f.path.replace(/\\/g, "/")}\0${f.contentHash ?? f.hash ?? ""}`)
     .sort();
   return sha256(
-    `${specStamps.join("\n")}\n\0\n${sourceStamps.join("\n")}\n\0\n${embedderId ?? "no-semantic"}`,
+    `${specStamps.join("\n")}\n\0\n${sourceStamps.join("\n")}\n\0\n${embedderId ?? "no-semantic"}`
+    + `\n\0\n${(parserScope ?? "no-knowledge-root").replace(/\\/g, "/")}`,
   );
 }
 
@@ -70,9 +82,10 @@ export function specLinkCacheKey(
   specFiles: SpecFileContent[],
   sourceFiles: FileNode[],
   embedderId?: string,
+  parserScope?: string,
 ): string {
   return versionedKey(
-    specLinkContentKey(specFiles, sourceFiles, embedderId),
+    specLinkContentKey(specFiles, sourceFiles, embedderId, parserScope),
     "spec-link",
     SPEC_LINK_CACHE_VERSION,
   );

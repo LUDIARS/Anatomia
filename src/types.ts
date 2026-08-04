@@ -371,12 +371,29 @@ export type LinkEvidence = "explicit" | "structural" | "semantic";
 /** A parsed clause from a spec document (e.g. a §-section or bullet). */
 export interface SpecClause {
   id: string;
+  /** Stable or provisional identity of the containing OKF document. */
+  documentId?: string;
+  /** True when authored metadata supplied the clause identity. */
+  explicitId?: boolean;
   /** Source file (spec/*.md, DESIGN.md, …). */
   sourceFile: string;
   /** Section heading path, e.g. "§4.5 / リンカ". */
   heading: string;
   /** Raw text of the clause. */
   text: string;
+  /** Markdown semantic unit used in the structural address. */
+  unitKind?: "heading" | "paragraph" | "list-item" | "table-row" | "definition" | "code-reference";
+  /** Heading ancestry + unit kind + sibling index; independent of body text. */
+  structuralAddress?: string;
+  /** 1-based lossless source line range. */
+  sourceLines?: { start: number; end: number };
+  /** Deterministic normalized-body revision evidence. */
+  revisionHash?: string;
+  modality?: "must" | "must-not" | "should" | "may" | "descriptive";
+  domainRefs?: string[];
+  symbolRefs?: string[];
+  codeReferences?: string[];
+  provenance?: { method: "markdown-ast"; sourceRevision: string };
   /** Embedding vector placeholder; filled by T24. */
   embedding: number[] | null;
 }

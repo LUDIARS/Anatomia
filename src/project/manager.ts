@@ -26,6 +26,8 @@ import type { SpecLinkResult } from "../spec/cache.js";
 import { recordAnalysis } from "../spec/stability.js";
 import { vgWrite, withVgSpan } from "../obs/vestigium.js";
 import { statSync } from "node:fs";
+import { join } from "node:path";
+import { resolveKnowledgeWriteRoot } from "../knowledge/write-root.js";
 import {
   detectSpecDirCandidates,
   hasMarkdownSources,
@@ -117,6 +119,12 @@ export class ProjectManager {
 
   /** Register a project and persist the registry. */
   async addProject(input: ProjectInput): Promise<Project> {
+    if (input.knowledgeWriteRoot) {
+      if (!statSyncDir(input.knowledgeWriteRoot)) {
+        throw new Error(`knowledge write root does not exist or is not a directory: ${input.knowledgeWriteRoot}`);
+      }
+      resolveKnowledgeWriteRoot(input);
+    }
     const p = this.registry.add(input);
     await this.save();
     vgWrite("info", "project added", { project: p.id, name: p.name });
@@ -152,6 +160,27 @@ export class ProjectManager {
       project: projectId,
       dirs: dirs ?? [],
       cleared: dirs === null,
+    });
+    return updated;
+  }
+
+  /** Set or clear the single repository-owned knowledge write root. */
+  async updateKnowledgeWriteRoot(id: string, root: string | null): Promise<Project> {
+    const projectId = this.resolveId(id);
+    const project = this.registry.get(projectId)!;
+    if (root && !statSyncDir(root)) {
+      throw new Error(`knowledge write root does not exist or is not a directory: ${root}`);
+    }
+    if (root) resolveKnowledgeWriteRoot({ ...project, knowledgeWriteRoot: root });
+    const updated = this.registry.update(projectId, {
+      knowledgeWriteRoot: root ?? undefined,
+    })!;
+    this.cache.invalidate(projectId);
+    await this.save();
+    vgWrite("info", "project knowledge write root updated", {
+      project: projectId,
+      root,
+      cleared: root === null,
     });
     return updated;
   }
@@ -226,9 +255,7 @@ export class ProjectManager {
     // persist specDirs, and specDirs is one of the fingerprint's config dirs.
     await this.ensureSpecConfig(projectId);
     const project = this.registry.get(projectId)!;
-    const fingerprint = await computeFingerprint(project.rootPath, {
-      configDirs: configDirsOf(project),
-    });
+    const fingerprint = await computeFingerprint(project.rootPath, fingerprintOptionsOf(project));
     return this.analyzeWith(projectId, project, fingerprint, opts.scope);
   }
 
@@ -296,6 +323,7 @@ export class ProjectManager {
       ...this.analyzeOptions,
       pluginDir: project.ontologyDir ?? this.analyzeOptions.pluginDir,
       specDirs: project.specDirs ?? this.analyzeOptions.specDirs,
+      knowledgeWriteRoot: resolvedKnowledgeRoot(project) ?? this.analyzeOptions.knowledgeWriteRoot,
       // Fingerprint changed → some file changed. Hand analyze() the prior
       // FileNodes so it only re-parses the ones whose content actually moved;
       // unchanged files are reused from the last (in-memory) context.
@@ -378,9 +406,7 @@ export class ProjectManager {
       // No snapshot yet → fall through to the blocking path (first analyze).
     }
 
-    const fingerprint = await computeFingerprint(project.rootPath, {
-      configDirs: configDirsOf(project),
-    });
+    const fingerprint = await computeFingerprint(project.rootPath, fingerprintOptionsOf(project));
 
     const cached = this.cache.getIfFresh(projectId, fingerprint);
     if (cached) {
@@ -414,9 +440,7 @@ export class ProjectManager {
     void (async () => {
       try {
         vgWrite("debug", "project summary revalidate start", { project: projectId });
-        const fingerprint = await computeFingerprint(project.rootPath, {
-          configDirs: configDirsOf(project),
-        });
+        const fingerprint = await computeFingerprint(project.rootPath, fingerprintOptionsOf(project));
         if (this.cache.getIfFresh(projectId, fingerprint)) return; // in-memory fresh
         const snap = await this.cache.readSnapshot(projectId);
         if (snap && snap.fingerprint === fingerprint) return; // disk already fresh
@@ -451,7 +475,7 @@ export class ProjectManager {
   async fingerprint(id?: string): Promise<string> {
     const projectId = this.resolveId(id);
     const project = this.registry.get(projectId)!;
-    return computeFingerprint(project.rootPath, { configDirs: configDirsOf(project) });
+    return computeFingerprint(project.rootPath, fingerprintOptionsOf(project));
   }
 
   /**
@@ -474,9 +498,7 @@ export class ProjectManager {
   ): Promise<T> {
     const projectId = this.resolveId(id);
     const project = this.registry.get(projectId)!;
-    const fingerprint = await computeFingerprint(project.rootPath, {
-      configDirs: configDirsOf(project),
-    });
+    const fingerprint = await computeFingerprint(project.rootPath, fingerprintOptionsOf(project));
 
     const cached = await this.cache.readArtifact<T>(projectId, name, fingerprint);
     if (cached !== null) {
@@ -504,7 +526,27 @@ function configDirsOf(project: Project): string[] {
   const dirs: string[] = [];
   if (project.ontologyDir) dirs.push(project.ontologyDir);
   if (project.specDirs) dirs.push(...project.specDirs);
+  if (project.knowledgeWriteRoot) dirs.push(project.knowledgeWriteRoot);
   return dirs;
+}
+
+function fingerprintOptionsOf(project: Project): { configDirs: string[]; excludeDirs: string[] } {
+  const knowledgeRoot = resolvedKnowledgeRoot(project);
+  return {
+    configDirs: configDirsOf(project),
+    excludeDirs: knowledgeRoot
+      ? [join(knowledgeRoot, "data", "generated", "anatomia")]
+      : [],
+  };
+}
+
+function resolvedKnowledgeRoot(project: Project): string | undefined {
+  try {
+    return resolveKnowledgeWriteRoot(project);
+  } catch {
+    // Read-only analysis remains valid when the repository has no safe write root.
+    return undefined;
+  }
 }
 
 /** True when the path exists and is a directory (validation for updateSpecDirs). */

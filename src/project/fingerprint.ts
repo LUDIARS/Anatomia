@@ -25,7 +25,7 @@
 
 import { createHash } from "node:crypto";
 import { stat, readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { collectProjectFiles } from "../fs/walk.js";
 
 /**
@@ -93,15 +93,16 @@ async function contentHash(full: string, size: number, mtimeMs: number): Promise
  */
 export async function computeFingerprint(
   rootPath: string,
-  opts: { configDirs?: string[] } = {},
+  opts: { configDirs?: string[]; excludeDirs?: string[] } = {},
 ): Promise<string> {
-  const stamps = await collectStamps(rootPath, SOURCE_EXTS);
+  const exclusions = (opts.excludeDirs ?? []).map((path) => resolve(path));
+  const stamps = await collectStamps(rootPath, SOURCE_EXTS, exclusions);
   const unityProjectVersion = await collectFileStamp(join(rootPath, ...UNITY_PROJECT_VERSION));
   if (unityProjectVersion) stamps.push(unityProjectVersion);
   // Config dirs (ontologyDir / specDirs) outside the code root: stamp their
   // .md/.mjs/.js/.json so config changes invalidate the cached analysis.
   for (const dir of opts.configDirs ?? []) {
-    stamps.push(...(await collectStamps(dir, CONFIG_EXTS)));
+    stamps.push(...(await collectStamps(dir, CONFIG_EXTS, exclusions)));
   }
   // A config dir nested under rootPath would double-count; de-dupe by path.
   const seen = new Set<string>();
@@ -122,12 +123,16 @@ function hashStamps(stamps: FileStamp[]): string {
   return h.digest("hex").slice(0, 32);
 }
 
-async function collectStamps(root: string, exts: Set<string>): Promise<FileStamp[]> {
+async function collectStamps(root: string, exts: Set<string>, exclusions: string[] = []): Promise<FileStamp[]> {
   const out: FileStamp[] = [];
   // Directory-pruning walk (fs/walk.ts): node_modules/dist/.git/.anatomia are
   // never descended into, so the fingerprint scan is O(source tree) not O(repo).
   const paths = await collectProjectFiles(root, exts);
   for (const full of paths) {
+    if (exclusions.some((excluded) => {
+      const child = relative(excluded, resolve(full));
+      return child === "" || (!child.startsWith("..") && !isAbsolute(child));
+    })) continue;
     const stamp = await collectFileStamp(full);
     if (stamp) out.push(stamp);
   }

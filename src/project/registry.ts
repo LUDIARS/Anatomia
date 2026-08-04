@@ -66,6 +66,7 @@ export class ProjectRegistry {
       languages: input.languages,
       ontologyDir: input.ontologyDir,
       specDirs: input.specDirs,
+      knowledgeWriteRoot: input.knowledgeWriteRoot,
       addedAt: existing?.addedAt ?? new Date().toISOString(),
     };
     this.byId.set(id, project);
@@ -80,7 +81,7 @@ export class ProjectRegistry {
    */
   update(
     id: string,
-    patch: Partial<Pick<Project, "name" | "languages" | "ontologyDir" | "specDirs" | "specDirsAuto">>,
+    patch: Partial<Pick<Project, "name" | "languages" | "ontologyDir" | "specDirs" | "specDirsAuto" | "knowledgeWriteRoot">>,
   ): Project | undefined {
     const existing = this.byId.get(id);
     if (!existing) return undefined;

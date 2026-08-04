@@ -4,6 +4,7 @@
  */
 
 export { parseMdFile, parseSpecFiles, slugify } from "./parse.js";
+export { parseOkfContent, parseOkfFile } from "../knowledge/okf-parser.js";
 export { findExplicitLinks } from "./explicit.js";
 export { findStructuralLinks } from "./structural.js";
 export type { EmbeddingClient } from "./semantic.js";

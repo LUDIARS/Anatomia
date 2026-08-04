@@ -2,8 +2,8 @@
  * Tests for T21 — parse.ts
  */
 
-import { describe, it, expect, afterEach } from "vitest";
-import { writeFile, unlink } from "node:fs/promises";
+import { describe, it, expect, afterEach, vi } from "vitest";
+import { mkdtemp, rm, writeFile, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseMdFile, parseSpecFiles, slugify } from "./parse.js";
@@ -137,5 +137,23 @@ describe("parseSpecFiles", () => {
     expect(headings).toContain("A");
     expect(headings).toContain("B");
     expect(headings).toContain("C");
+  });
+
+  it("skips one rejected document instead of zeroing every other file's clauses", async () => {
+    const ok = await writeTmp("isolation-ok.md", "# Good\ntext good");
+    const domainRoot = await mkdtemp(join(TMP, "anatomia-domain-root-"));
+    // Sits in the typed domain authoring root without x-anatomia.kind: domain,
+    // so the OKF parser fails closed on this document only.
+    const bad = join(domainRoot, "bad.md");
+    await writeFile(bad, "---\ntype: feature\n---\n# Bad\ntext bad", "utf8");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const clauses = await parseSpecFiles([ok, bad], { domainRoot });
+      expect(clauses.map((c) => c.heading)).toEqual(["Good"]);
+      expect(warn).toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+      await rm(domainRoot, { recursive: true, force: true });
+    }
   });
 });

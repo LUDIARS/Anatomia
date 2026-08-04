@@ -16,17 +16,25 @@ collectSpecFiles(.md) → parseSpecFiles → SpecClause[]
   → links = [...explicit, ...structural]
 ```
 
-planned OKF parser（T52）は Markdown AST、frontmatter、list/table/modality、explicit clause ID、
-source range を保持する。resolved `<knowledgeWriteRoot>/data/generated/anatomia/**` 配下または
-`x-anatomia.generated: true` の文書は `collectSpecFiles` から除外し、scene OKF が次回の
-authored spec input へ自己還流しない。domain/annotation subtree は専用 loader へ route する。
+OKF parser（T52、2026-08-04 実装）は frontmatter、list/table/definition/code fence、modality、
+explicit clause ID、source range を保持する（`src/knowledge/okf-parser.ts`）。resolved
+`<knowledgeWriteRoot>/data/generated/anatomia/**` 配下または `x-anatomia.generated: true` の
+文書は route が `generated` になり clause を出さないので、scene OKF が次回の authored spec
+input へ自己還流しない。domain/annotation subtree も同様に authored-spec 以外へ route する。
+
+typed authoring root（domain/annotation）に kind 不一致の文書があると、その文書は fail-closed
+で落とすが `parseSpecFiles` は残りのファイルを解析する。1 文書の不備でリポジトリ全体の
+リンクが 0 件に落ちるのを避けるため、per-file で隔離する。
 
 ### SpecClause
-Markdown を見出し単位で節に分解（`src/spec/parse.ts`）。`slugify` で URL-safe な
-ASCII slug を持つ。
+Markdown を semantic unit（heading / paragraph / list-item / table-row / definition /
+code-reference）へ分解する（`src/spec/parse.ts` → `src/knowledge/okf-parser.ts`）。見出し単位では
+なくなったので、1 文書から出る clause 数は旧 parser より多い。`slugify` は表示/URL 用の
+ASCII slug として残る。
 
-現行 slug は表示/URL 用。planned stable binding は explicit clause ID を優先し、無い場合だけ
-document ID + heading ancestry の provisional ID を使う。本文 hash、表示名、domain path を
+stable binding は explicit clause ID（`[id: x]` / `{#x}`）を優先し、無い場合だけ document ID +
+heading ancestry + unit kind + 兄弟 index の provisional structural address を使う。本文 hash
+（`revisionHash`）は改訂 evidence であって identity ではない。表示名、domain path も
 長期 identity にしない。
 
 ### Explicit リンク（`src/spec/explicit.ts`）
