@@ -38,7 +38,7 @@
  *   POST /api/projects/:id/flow/orphan-proposals  LLM detail + spec drafts (read-only)
  *   POST /api/projects/:id/flow/orphan-apply Gate B (confirmed specs → save → residual scan)
  *   GET  /api/projects/:id/flow/drafts list current editable domains for a project
- *   POST /api/flow/draft               repo-path or spec-file based draft (no project)
+ *   POST /api/flow/draft               Discord/repo-path/spec-file draft (no project)
  *   GET  /api/flow/drafts              list drafts from an explicit dir (?dir=)
  *
  * Dynamic trace routes (G8):
@@ -83,6 +83,7 @@ import { mountAdjustRoutes } from "./routes/adjust.js";
 import { mountTestSuggestionRoutes } from "./routes/test-suggestions.js";
 import { mountFlowRoutes } from "./routes/flow.js";
 import { mountDomainOrganizationRoutes } from "./routes/domain-organization.js";
+import { createDiscordAttachmentLoader } from "./discord-attachment.js";
 import { resolveIdleMs, checkIntervalMs, shouldShutdown } from "./idle.js";
 import { resolveProviders, envConfig } from "../../providers/index.js";
 import { generateCard } from "../../domains/card.js";
@@ -272,6 +273,7 @@ export function createApp(
     draftModelId: aux.retuneModelId,
     draftCache: resolveCacheStore<DomainDraft[]>(),
     orphanProposalCache: resolveCacheStore<OrphanDomainProposal>(),
+    discordAttachmentLoader: resolveDiscordAttachmentLoader(),
   });
 
   // ── Global LLM-cache stats route (A-3 measurement) ───────────────────────
@@ -504,6 +506,12 @@ function resolveAuxDeps(): {
     retuneModelId: retuneP.llmModelId,
     traceJsonl: readTraceFile(),
   };
+}
+
+/** Keep Discord credentials at the HTTP adapter boundary and out of flow responses. */
+function resolveDiscordAttachmentLoader() {
+  const token = process.env["ANATOMIA_DISCORD_BOT_TOKEN"]?.trim();
+  return token ? createDiscordAttachmentLoader({ botToken: token }) : undefined;
 }
 
 /**

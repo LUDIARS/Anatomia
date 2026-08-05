@@ -13,6 +13,7 @@ import {
 import * as domainWorkflow from "../../../domains/workflow/index.js";
 import type { ProjectManager } from "../../../project/manager.js";
 import { mountFlowRoutes } from "../routes/flow.js";
+import type { DiscordAttachmentLoader } from "../discord-attachment.js";
 
 const roots: string[] = [];
 
@@ -97,6 +98,114 @@ describe("domain discovery flow routes", () => {
     expect(body["proposalId"]).toMatch(/^[a-f0-9]{64}$/);
     expect(body["drafts"]).toBeInstanceOf(Array);
     await expect(access(outputDir)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("accepts a Discord forum attachment as a proposal-only spec source", async () => {
+    const root = await tempRoot();
+    const outputDir = join(root, "domains");
+    const download = vi.fn(async () => ({
+      id: "423456789012345678",
+      name: "feature.md",
+      size: 27,
+      contentType: "text/markdown",
+      sourceLabel: "discord://channel/message/attachment/feature.md",
+      text: "# Combat\n\nResolve attacks.\n",
+    }));
+    const discordAttachmentLoader: DiscordAttachmentLoader = { download };
+    const app = new Hono();
+    mountFlowRoutes(app, { manager: null, discordAttachmentLoader });
+
+    const response = await request(app, "/api/flow/draft", {
+      discordMessageUrl: "https://discord.com/channels/guild/thread/message",
+      dir: outputDir,
+      noLlm: true,
+    });
+
+    expect(response.status).toBe(200);
+    expect(download).toHaveBeenCalledWith({
+      messageUrl: "https://discord.com/channels/guild/thread/message",
+      attachmentId: undefined,
+      attachmentName: undefined,
+    });
+    expect(await response.json()).toMatchObject({
+      attachment: {
+        id: "423456789012345678",
+        name: "feature.md",
+        sourceLabel: "discord://channel/message/attachment/feature.md",
+      },
+    });
+    await expect(access(outputDir)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("reports missing Discord credentials without attempting a draft", async () => {
+    const app = new Hono();
+    mountFlowRoutes(app, { manager: null });
+
+    const response = await request(app, "/api/flow/draft", {
+      discordMessageUrl: "https://discord.com/channels/guild/thread/message",
+      dir: "unused",
+      noLlm: true,
+    });
+
+    expect(response.status).toBe(501);
+    expect(await response.json()).toMatchObject({
+      error: "Discord attachment download requires ANATOMIA_DISCORD_BOT_TOKEN",
+    });
+  });
+
+  it("snapshots a project-scoped Discord draft against the project, so Gate A accepts it", async () => {
+    const root = await tempRoot();
+    const context = {
+      ...emptyContext(root),
+      specClauses: [
+        {
+          id: "SPEC-COMBAT",
+          heading: "Combat",
+          text: "Resolve attacks.",
+          sourceFile: join(root, "spec", "combat.md"),
+          embedding: [],
+        },
+      ],
+    } as AnalysisContext;
+    const { manager } = managerFor(root, context);
+    const discordAttachmentLoader: DiscordAttachmentLoader = {
+      download: vi.fn(async () => ({
+        id: "423456789012345678",
+        name: "feature.md",
+        size: 30,
+        contentType: "text/markdown",
+        sourceLabel: "discord://channel/message/attachment/feature.md",
+        text: "# Logistics\n\nMove supplies.\n",
+      })),
+    };
+    const app = new Hono();
+    mountFlowRoutes(app, { manager, discordAttachmentLoader });
+
+    const fromProject = await request(app, "/api/projects/demo/flow/draft", { noLlm: true });
+    const fromDiscord = await request(app, "/api/projects/demo/flow/draft", {
+      discordMessageUrl: "https://discord.com/channels/guild/thread/message",
+      noLlm: true,
+    });
+
+    expect(fromDiscord.status).toBe(200);
+    const projectProposal = (await fromProject.json()) as { snapshotId: string };
+    const discordProposal = (await fromDiscord.json()) as {
+      snapshotId: string;
+      drafts: unknown[];
+      attachment: { name: string };
+    };
+    // Evidence differs (the attachment drives the drafts) but the snapshot must
+    // still describe the project, which is what Gate A revalidates.
+    expect(discordProposal.attachment.name).toBe("feature.md");
+    expect(discordProposal.snapshotId).toBe(projectProposal.snapshotId);
+
+    const applied = await request(app, "/api/projects/demo/flow/apply", {
+      confirmApply: true,
+      snapshotId: discordProposal.snapshotId,
+      drafts: discordProposal.drafts,
+      overrideNames: [],
+    });
+    expect(applied.status).toBe(200);
   });
 
   it("requires confirmation and a current snapshot before Gate A writes", async () => {

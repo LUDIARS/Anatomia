@@ -51,12 +51,13 @@ proposal / inspect は read-only、apply は人間確認と解析 snapshot の�
 
 | メソッド | パス | 内容 |
 |---|---|---|
-| POST | `/api/projects/:id/flow/draft` | spec→LLM ドメイン候補 + reconcile preview（保存しない） |
+| POST | `/api/projects/:id/flow/draft` | 解析済み spec または `discordMessageUrl` 添付→ドメイン候補 + reconcile preview（保存しない） |
 | POST | `/api/projects/:id/flow/apply` | Gate A。編集済み候補を `confirmApply` + `snapshotId` で適用し孤立調査へ進む |
 | GET | `/api/projects/:id/flow/orphans` | 未所属関数の全 `file:line`、module group、大群候補、閾値未満残余 |
 | POST | `/api/projects/:id/flow/orphan-proposals` | 選択した大群を LLM で詳細調査し、domain + feature spec draft を返す（保存しない） |
 | POST | `/api/projects/:id/flow/orphan-apply` | Gate B。人間補足済み候補だけを保存し、再解析した残余未所属一覧を返す |
 | GET | `/api/projects/:id/flow/drafts` | 現在保存されている editable domain definitions |
+| POST | `/api/flow/draft` | `discordMessageUrl`（または `repoPath` / `specPath`）から proposal。Discord/global 時は `dir` 必須 |
 
 `minGroupFunctions` は正の整数（既定 3）。`snapshotId` が現在解析と異なる場合は
 `409 stale_*`。Gate A / B で `confirmApply:true` が無ければ `409 human_confirmation_required`。
@@ -64,6 +65,8 @@ proposal / inspect は read-only、apply は人間確認と解析 snapshot の�
 Gate A の承認 marker が無い、または承認後に ontology が変わった状態で step 3 以降を呼ぶと
 `409 gate_a_required|gate_a_stale`。ファイル適用後の registry 同期・再解析だけが失敗した場合は、
 適用済み path と再解析要求を含む `202` を返し、適用そのものを失敗扱いに偽装しない。
+Discord 添付 mode は `ANATOMIA_DISCORD_BOT_TOKEN` が無ければ `501`。複数の Markdown/text 添付は
+`attachmentId` / `attachmentName` で一意選択し、曖昧なら `409`（→ feature/domain-authoring.md）。
 
 ## warm harness（per-edit / per-prompt フック）
 

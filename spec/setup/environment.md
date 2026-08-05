@@ -35,6 +35,7 @@ CLI / MCP の入口（`bin/anatomia.mjs` / `bin/anatomia-mcp.mjs`）は `.ts` �
 |---|---|
 | `ANATOMIA_HOME` | レジストリ（`projects.json`）と増分キャッシュ（`cache/`）の置き場所。未設定は `<cwd>/.anatomia`。`web --home <dir>` で上書き可（→ data/project-cache.md） |
 | `ANATOMIA_PLUGIN_DIR` | ドメインオントロジー plugin dir（`.json` / `.mjs`）。プロジェクト単位の `ontologyDir` でも指定可（→ feature/domain-detection.md） |
+| `ANATOMIA_DISCORD_BOT_TOKEN` | Web `/flow/draft` が Discord message/forum thread の Markdown/text 添付を取得する Bot token。message lookup 以外へ転送しない（→ feature/domain-authoring.md） |
 
 ### 実 LLM / embedder（任意）
 未設定なら hash-embedder + mock カードで動作（hermetic・API 不要）。実プロバイダを入れると

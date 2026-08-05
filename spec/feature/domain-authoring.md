@@ -126,11 +126,13 @@ mode) で利用可能。
 POST /api/projects/:id/flow/draft   -- 登録プロジェクトで proposal 合成（保存しない）
 POST /api/projects/:id/flow/apply   -- Gate A（confirmApply + snapshot 必須）
 GET  /api/projects/:id/flow/drafts  -- 現在の editable domains を一覧
-POST /api/flow/draft                -- repoPath または specPath から proposal 合成（保存しない）
+POST /api/flow/draft                -- Discord 添付 / repoPath / specPath から proposal 合成（保存しない）
 GET  /api/flow/drafts               -- 任意 dir のドメインを一覧 (?dir=<path>)
 ```
 
 **入力モード**:
+- `discordMessageUrl`: Discord メッセージまたは forum thread starter の Markdown/text 添付を
+  Bot で取得してパース（複数候補時は `attachmentId` または `attachmentName` が必須）
 - `repoPath`: 任意リポを `analyze()` してフル解析 → specClauses + filePaths
 - `specPath`: 単一 spec Markdown ファイルのパスを読んでパース → specClauses (filePaths=[])
 - `project`: 登録済みプロジェクト ID → `manager.getContext()` で解析済み結果を取得
@@ -143,11 +145,45 @@ Gate A で人間が確認した定義は既定で `source=manual` + 全 lock と
 説明・membership・card template を戻さない。再調整時は `overrideNames` で対象 domain だけを
 一時的に unlock し、適用直後に再び全 lock する。
 
-実走確認手順は runbook (3) を参照。URL フェッチ経路 (specUrl) は未実装。
+実走確認手順は runbook (3) を参照。一般 URL を取得する `specUrl` は意図的に提供しない。
 
-### (3) Discord フォーラム添付の実 DL — **未実装**
+### (3) Discord フォーラム添付の実 DL — **実装済** (#457, 2026-08-04)
 
-サーバ側に Discord 連携 (添付 URL 取得・DL) は無い。実トークンも要る → 別タスクに分離。
+取得境界の実装は [`src/adapters/web/discord-attachment.ts`](../../src/adapters/web/discord-attachment.ts)
+（`discord-attachment.ts`: URL 検証・Bot lookup・CDN allowlist・サイズ/UTF-8 検査）、HTTP 側の
+入力モード束ねは `src/adapters/web/routes/flow.ts`、token の解決は `src/adapters/web/server.ts`。
+
+Web server に `ANATOMIA_DISCORD_BOT_TOKEN` を設定し、Bot が閲覧可能なメッセージ URL または
+forum thread URL を `discordMessageUrl` に渡す。`/api/flow/draft` では `dir` も必須。登録済み
+project の route では project の既定 ontology dir を proposal 比較先として使い、返す `snapshotId`
+は添付ではなく **project の解析 snapshot** を指す（Gate A の stale 判定と同じ基準）。
+
+```json
+{
+  "discordMessageUrl": "https://discord.com/channels/<guild>/<thread>/<message>",
+  "attachmentId": "<省略可>",
+  "attachmentName": "feature.md",
+  "dir": "<global route では必須>",
+  "noLlm": true
+}
+```
+
+取得境界は次の通り。
+
+- message/thread URL は Discord HTTPS host と snowflake 形式だけを受理する。thread URL は starter
+  message（thread id と同じ message id）を参照する。
+- message lookup にだけ Bot Authorization を送り、添付 CDN へ credential を転送しない。
+- CDN は `cdn.discordapp.com` / `media.discordapp.net` のみ許可する。redirect が見える runtime では
+  hop ごとに、Node の fetch のように `redirect: "manual"` が不透明応答になる runtime では
+  `redirect: "follow"` で再取得した着地 origin を検証する。
+- `.md` / `.markdown` / `.txt` または Markdown/plain MIME の添付だけを対象にする。
+- 既定 5 MiB 上限を metadata・Content-Length・stream の三段で検査し、UTF-8 以外を拒否する。
+- proposal response は安全な添付 metadata と `discord://...` source label だけを返し、署名 URL と
+  Bot token は返さない。proposal-only / Gate A の人間承認境界は従来どおり。
+
+実 Bot token と実 forum thread を使う最終疎通は外部資格情報が必要なため未実施。実機確認では
+Bot に対象 channel の View Channel / Read Message History 権限を与え、proposal が返ること、
+Anatomia のログ・response に token / CDN 署名 URL が出ないことを確認する。
 
 ## 限界
 

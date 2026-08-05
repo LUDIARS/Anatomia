@@ -13,8 +13,9 @@
  * snapshot, so an LLM response can never silently overwrite the ontology.
  *
  * Input modes (priority order for /api/flow/draft):
- *   repoPath  — full repo analysis; specClauses + filePaths from analyze()
- *   specPath  — parse a single spec file; specClauses only, filePaths=[]
+ *   discordMessageUrl — download one Discord Markdown/text attachment
+ *   repoPath          — full repo analysis; specClauses + filePaths from analyze()
+ *   specPath          — parse a single spec file; specClauses only, filePaths=[]
  *
  * SRP: HTTP shaping + LLM/cache wiring. Synthesis stays in domains/authoring/.
  */
@@ -51,8 +52,13 @@ import {
   type ApprovedOrphanDomainProposal,
   type OrphanProposalCache,
 } from "../../../domains/workflow/index.js";
-import { parseMdFile } from "../../../spec/parse.js";
+import { parseMdFile, parseMdText } from "../../../spec/parse.js";
 import { analyze, type AnalysisContext } from "../../../core.js";
+import {
+  DiscordAttachmentError,
+  type DiscordAttachmentLoader,
+  type DownloadedDiscordAttachment,
+} from "../discord-attachment.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -65,6 +71,8 @@ export interface FlowRouteDeps {
   draftModelId?: string;
   draftCache?: DraftCache;
   orphanProposalCache?: OrphanProposalCache;
+  /** Optional Discord adapter. Absent until ANATOMIA_DISCORD_BOT_TOKEN is configured. */
+  discordAttachmentLoader?: DiscordAttachmentLoader;
 }
 
 interface DraftInputs {
@@ -90,6 +98,19 @@ interface DraftProposal {
     preserved: string[];
     total: number;
   };
+}
+
+interface DraftSource {
+  inputs: DraftInputs;
+  attachment?: AttachmentSummary;
+}
+
+interface AttachmentSummary {
+  id: string;
+  name: string;
+  size: number;
+  contentType: string | null;
+  sourceLabel: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -128,16 +149,21 @@ export function mountFlowRoutes(app: Hono, deps: FlowRouteDeps): void {
     const dir = project.ontologyDir ?? domainsDir(project.rootPath);
 
     try {
-      const ctx = await manager.getContext(id);
-      const inputs: DraftInputs = {
-        specClauses: ctx.specClauses ?? [],
-        filePaths: ctx.files.map((f) => f.path),
-        sourceAnchors: ctx.functions.flatMap((fn) => (fn.id ? [String(fn.id)] : [])),
-      };
-      const proposal = await proposeDrafts(inputs, dir, opts, deps);
-      return c.json({ project: project.id, dir, ...proposal });
+      // Gate A recomputes the snapshot from the project's own analysis, so an
+      // attachment-sourced draft must still be snapshotted against the project
+      // (otherwise every apply of a Discord draft would be a false `stale_*`).
+      const attachmentSource = hasDiscordSource(body)
+        ? await draftSourceFromDiscord(body, deps)
+        : null;
+      const projectInputs = draftInputsFromContext(await manager.getContext(id));
+      const source = attachmentSource ?? { inputs: projectInputs };
+      const proposal = await proposeDrafts(source.inputs, dir, opts, deps, projectInputs);
+      return c.json({ project: project.id, dir, ...sourceMetadata(source), ...proposal });
     } catch (err) {
-      return c.json({ error: err instanceof Error ? err.message : String(err) }, 500);
+      return c.json(
+        { error: err instanceof Error ? err.message : String(err) },
+        draftErrorStatus(err),
+      );
     }
   });
 
@@ -478,7 +504,7 @@ export function mountFlowRoutes(app: Hono, deps: FlowRouteDeps): void {
     }
   });
 
-  // POST /api/flow/draft — repo-path-based or spec-file-based draft (no project required).
+  // POST /api/flow/draft — Discord/repo-path/spec-file draft (no project required).
   app.post("/api/flow/draft", async (c) => {
     let body: Record<string, unknown>;
     try {
@@ -489,24 +515,24 @@ export function mountFlowRoutes(app: Hono, deps: FlowRouteDeps): void {
 
     const repoPath = typeof body["repoPath"] === "string" ? body["repoPath"] : null;
     const specPath = typeof body["specPath"] === "string" ? body["specPath"] : null;
+    const discordSource = hasDiscordSource(body);
 
-    if (!repoPath && !specPath) {
+    if (!discordSource && !repoPath && !specPath) {
       return c.json(
         {
           error:
-            "repoPath or specPath is required. " +
+            "discordMessageUrl, repoPath, or specPath is required. " +
             "For a registered project use POST /api/projects/:id/flow/draft instead.",
         },
         400,
       );
     }
 
-    const dir =
-      (typeof body["dir"] === "string" ? body["dir"] : null) ??
-      (repoPath ? domainsDir(repoPath) : null);
+    const explicitDir = typeof body["dir"] === "string" ? body["dir"] : null;
+    const dir = explicitDir ?? (!discordSource && repoPath ? domainsDir(repoPath) : null);
     if (!dir) {
       return c.json(
-        { error: "dir is required when specPath is used without repoPath" },
+        { error: "dir is required when discordMessageUrl or specPath is used without repoPath" },
         400,
       );
     }
@@ -514,23 +540,24 @@ export function mountFlowRoutes(app: Hono, deps: FlowRouteDeps): void {
     const opts = parseDraftOpts(body);
 
     try {
-      let inputs: DraftInputs;
-      if (repoPath) {
+      let source: DraftSource;
+      if (discordSource) {
+        source = await draftSourceFromDiscord(body, deps);
+      } else if (repoPath) {
         const ctx = await analyze(repoPath, { quiet: true });
-        inputs = {
-          specClauses: ctx.specClauses ?? [],
-          filePaths: ctx.files.map((f) => f.path),
-          sourceAnchors: ctx.functions.flatMap((fn) => (fn.id ? [String(fn.id)] : [])),
-        };
+        source = { inputs: draftInputsFromContext(ctx) };
       } else {
         // specPath mode: parse a single spec file; no module map.
         const clauses = await parseMdFile(specPath!);
-        inputs = { specClauses: clauses, filePaths: [], sourceAnchors: [] };
+        source = { inputs: { specClauses: clauses, filePaths: [], sourceAnchors: [] } };
       }
-      const proposal = await proposeDrafts(inputs, dir, opts, deps);
-      return c.json({ dir, ...proposal });
+      const proposal = await proposeDrafts(source.inputs, dir, opts, deps);
+      return c.json({ dir, ...sourceMetadata(source), ...proposal });
     } catch (err) {
-      return c.json({ error: err instanceof Error ? err.message : String(err) }, 500);
+      return c.json(
+        { error: err instanceof Error ? err.message : String(err) },
+        draftErrorStatus(err),
+      );
     }
   });
 }
@@ -557,11 +584,66 @@ function parseDraftOpts(body: Record<string, unknown>): DraftOpts {
   };
 }
 
+function hasDiscordSource(body: Record<string, unknown>): boolean {
+  return Object.prototype.hasOwnProperty.call(body, "discordMessageUrl");
+}
+
+async function draftSourceFromDiscord(
+  body: Record<string, unknown>,
+  deps: FlowRouteDeps,
+): Promise<DraftSource> {
+  const messageUrl = optionalString(body["discordMessageUrl"], "discordMessageUrl");
+  if (!messageUrl) {
+    throw new DiscordAttachmentError("discordMessageUrl is required", 400);
+  }
+  if (!deps.discordAttachmentLoader) {
+    throw new DiscordAttachmentError(
+      "Discord attachment download requires ANATOMIA_DISCORD_BOT_TOKEN",
+      501,
+    );
+  }
+  const downloaded = await deps.discordAttachmentLoader.download({
+    messageUrl,
+    attachmentId: optionalString(body["attachmentId"], "attachmentId"),
+    attachmentName: optionalString(body["attachmentName"], "attachmentName"),
+  });
+  return {
+    inputs: {
+      specClauses: parseMdText(downloaded.text, downloaded.sourceLabel),
+      filePaths: [],
+      sourceAnchors: [],
+    },
+    attachment: attachmentSummary(downloaded),
+  };
+}
+
+function attachmentSummary(downloaded: DownloadedDiscordAttachment): AttachmentSummary {
+  return {
+    id: downloaded.id,
+    name: downloaded.name,
+    size: downloaded.size,
+    contentType: downloaded.contentType,
+    sourceLabel: downloaded.sourceLabel,
+  };
+}
+
+function sourceMetadata(source: DraftSource): { attachment?: AttachmentSummary } {
+  return source.attachment ? { attachment: source.attachment } : {};
+}
+
+/**
+ * @param inputs           Evidence the drafts are synthesized from.
+ * @param snapshotInputs   Evidence the returned `snapshotId` covers; defaults to
+ *                         `inputs`. They differ when the drafts come from an
+ *                         external source (a Discord attachment) but the apply
+ *                         gate validates the snapshot against a project analysis.
+ */
 async function proposeDrafts(
   inputs: DraftInputs,
   dir: string,
   opts: DraftOpts,
   deps: FlowRouteDeps,
+  snapshotInputs: DraftInputs = inputs,
 ): Promise<DraftProposal> {
   let drafts: DomainDraft[] = opts.noLlm
     ? seedDraftsFromStructure(inputs)
@@ -574,7 +656,7 @@ async function proposeDrafts(
 
   const existing = await loadEditableDomains(dir);
   const reconciled = reconcileDrafts(existing, drafts);
-  const snapshotId = draftSnapshotId(inputs, existing);
+  const snapshotId = draftSnapshotId(snapshotInputs, existing);
   return {
     snapshotId,
     proposalId: stableHash({ snapshotId, drafts }),
@@ -657,6 +739,14 @@ function draftSnapshotId(inputs: DraftInputs, existing: EditableDomainDef[]): st
 
 function requiredString(value: unknown, name: string): string {
   if (typeof value !== "string" || !value.trim()) throw new Error(`${name} is required`);
+  return value.trim();
+}
+
+function optionalString(value: unknown, name: string): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "string" || !value.trim()) {
+    throw new DiscordAttachmentError(`${name} must be a non-empty string`, 400);
+  }
   return value.trim();
 }
 
@@ -834,6 +924,10 @@ async function investigateProjectOrphans(
 
 function flowErrorStatus(error: unknown): 400 | 409 {
   return error instanceof DomainDiscoveryGateError ? 409 : 400;
+}
+
+function draftErrorStatus(error: unknown): 400 | 404 | 409 | 413 | 415 | 500 | 501 | 502 {
+  return error instanceof DiscordAttachmentError ? error.statusCode : 500;
 }
 
 function errorMessage(error: unknown): string {

@@ -3,7 +3,7 @@
  */
 
 import type { SpecClause } from "../types.js";
-import { parseOkfFile, type OkfParserOptions } from "../knowledge/okf-parser.js";
+import { parseOkfContent, parseOkfFile, type OkfParserOptions } from "../knowledge/okf-parser.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -36,6 +36,15 @@ export async function parseMdFile(
   options: OkfParserOptions = {},
 ): Promise<SpecClause[]> {
   return (await parseOkfFile(filePath, { ...options, sourceFile })).clauses;
+}
+
+/** Parse Markdown already downloaded by a trusted adapter without a temporary file. */
+export function parseMdText(
+  content: string,
+  sourceFile: string,
+  options: OkfParserOptions = {},
+): SpecClause[] {
+  return parseOkfContent(content, sourceFile, { ...options, sourceFile }).clauses;
 }
 
 /**
