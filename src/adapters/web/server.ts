@@ -82,6 +82,7 @@ import { mountWebCacheRoutes } from "./routes/web-cache.js";
 import { mountAdjustRoutes } from "./routes/adjust.js";
 import { mountTestSuggestionRoutes } from "./routes/test-suggestions.js";
 import { mountFlowRoutes } from "./routes/flow.js";
+import { mountDomainOrganizationRoutes } from "./routes/domain-organization.js";
 import { resolveIdleMs, checkIntervalMs, shouldShutdown } from "./idle.js";
 import { resolveProviders, envConfig } from "../../providers/index.js";
 import { generateCard } from "../../domains/card.js";
@@ -219,6 +220,7 @@ export function createApp(
       }
     })();
   });
+  mountDomainOrganizationRoutes(app, manager);
 
   // ── Per-project analysis routes ──────────────────────────────────────────
   mountAnalysisRoutes(app, source);

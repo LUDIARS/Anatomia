@@ -1,7 +1,7 @@
 # Rewritten GitHub Main Diverged From Local Source
 
 - Date: 2026-08-05
-- Status: investigating
+- Status: fixed in working tree
 - Area: repository history / Revisor publication
 - Severity: release publication blocked; privacy-redacted history can be reintroduced by an incorrect merge
 
@@ -20,6 +20,9 @@ The divergence followed a remote history rewrite that replaced a private project
 - `c5ce12b` is an ancestor of local `main` (`ba083dd`). Local development added nine commits from 2026-07-30 through 2026-08-04.
 - The current GitHub tree contains zero occurrences of the removed identifier and 11 occurrences of `PrivateGame`. The current local tree still contains nine occurrences of the removed identifier across eight files.
 - Revisor #219 reported `GitHub 'main' is not contained in the local source of truth.` on 2026-08-05.
+- Revisor #225 then exposed a rewrite regression in `src/project/__tests__/project.test.ts`: the
+  privacy substitution changed the expected lowercase slug to the display-name casing, while
+  `slug()` correctly continued to return a lowercase identifier.
 
 ## Regression Context
 
@@ -27,7 +30,7 @@ The remote rewrite correctly removed the private identifier from published histo
 
 ## Cause
 
-The leading cause is an incomplete post-rewrite local migration: GitHub `main` was force-rewritten for privacy, while local `main` remained on the original object graph and accepted later commits.
+The leading cause is an incomplete post-rewrite local migration: GitHub `main` was force-rewritten for privacy, while local `main` remained on the original object graph and accepted later commits. The rewrite also performed a case-preserving literal replacement inside slug expectations, changing test data semantics.
 
 ## Fix Requirements
 
@@ -37,10 +40,11 @@ The leading cause is an incomplete post-rewrite local migration: GitHub `main` w
 - Confirm that the removed identifier is absent from the reconstructed tree and from every newly published commit.
 - Close or supersede stale Revisor #219/#220 state, remove any local-only prepared release tag after confirming it was not published, and resubmit the changes against the reconstructed base.
 - Rebase the dependent #680/#681 branches onto the reconstructed and reviewed base before submission.
+- Keep the neutral display name in test input, but assert the lowercase slug contract.
 
 ## Verification
 
-No runtime or unit tests were run during this investigation.
+Revisor #225 ran the registered suite: 1,225 tests passed and the rewritten slug expectation was the only failure. The expectation is corrected in the working tree and awaits the registered-suite rerun.
 
 Required repository checks:
 

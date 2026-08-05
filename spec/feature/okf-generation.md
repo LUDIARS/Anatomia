@@ -22,9 +22,9 @@ planned contract。domain と scene の feature は「何を生成するか」�
 実装は [`../../TASKS.md`](../../TASKS.md) の T51-T54/T58/T65 と
 [`../../docs/plan-okf-domain-scene-flow.md`](../../docs/plan-okf-domain-scene-flow.md) で管理する。
 
-2026-08-04 時点で T51-T55 の foundation は実装済みである。`src/knowledge/` が stable ID、
+2026-08-04 時点で T51-T62 の foundation と domain authoring workflow は実装済みである。`src/knowledge/` が stable ID、
 frontmatter + semantic-unit parser、canonical transaction log、ownership manifest writer、Kuzu と
-legacy compatibility projection を所有する。T56 以降の domain/scene authoring workflow は引き続き
+legacy compatibility projection を所有する。T63 以降の scene authoring workflow は引き続き
 planned であり、本 frontmatter の `status: planned` はそれらを含む feature 全体の状態を表す。
 
 ## 文書の役割

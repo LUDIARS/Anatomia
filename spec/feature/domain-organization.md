@@ -3,7 +3,7 @@ title: Anatomia domain organization
 type: feature
 service: anatomia
 domain: domain-modeling
-status: planned
+status: implemented
 tags:
   - domain
   - subdomain
@@ -18,7 +18,7 @@ x-anatomia:
 ## 目的と状態
 
 仕様から domain の意味と階層を起こし、その後にコードを精査・割当し、仕様とコードの乖離を
-補正する **目標ワークフローと整理 UI** の planned contract。永続形式は
+補正するワークフローと整理 UI の implemented contract。永続形式は
 [`../data/domain-knowledge-log.md`](../data/domain-knowledge-log.md)、OKF の解析・生成規約は
 [`okf-generation.md`](./okf-generation.md) を参照する。
 実装は [`../../TASKS.md`](../../TASKS.md) の T56-T62 と
@@ -199,6 +199,30 @@ detector config、source code、または表示注記 overlay である。
 
 互換 API は code migration が終わるまで current behavior を返してよいが、新規 write contract は
 knowledge transaction に一本化する。
+
+## implemented の範囲
+
+T56-T62 で実装済みなのは proposal 生成 (spec-only / assignment / drift / code-gap)、hierarchy
+validation、Gate A/B/C の atomic apply + rollback、`/domain-organization/:id` の review UI である。
+
+| 契約 | 実装 |
+|---|---|
+| spec-only domain proposal (T56) | `src/knowledge/domain/spec-proposals.ts` |
+| hierarchy editor + validator (T57) | `src/knowledge/domain/hierarchy.ts` |
+| Gate A: domain OKF + transaction (T58) | `src/knowledge/domain/gate-a.ts`、`src/knowledge/domain/domain-okf.ts` |
+| code assignment analyzer (T59) | `src/knowledge/domain/assignments.ts` |
+| code-only / spec-gap + drift 分類 (T60) | `src/knowledge/domain/code-gaps.ts`、`src/knowledge/domain/drift.ts` |
+| Gate B / semantic Gate C (T61) | `src/knowledge/domain/gate-b.ts`、`src/knowledge/domain/gate-c.ts` |
+| 整理 UI と HTTP 境界 (T62) | `src/adapters/web/routes/domain-organization.ts`、`src/adapters/web/domain-organization-page.ts`、`src/knowledge/domain/organization-view.ts` |
+
+`整理 UI` のうち次はまだ実装されておらず、後続 task で埋める。
+
+- drag による `subdomain-of` edge 提案と client-side の即時 validation
+  （現行は proposal card の parent select 経由で、validation は Gate A が返す）
+- collapsed subtree / ancestor 集約、layer・concern・scene activation の別表示
+- assignment の batch proposal と ambiguous / proposal-conflict / legacy-overlap / stale filter
+- projection preview（generated OKF / taxonomy / Kuzu / Web cache）と scene タブ
+- Gate C の UI 導線（API のみ提供。split/merge proposal は reconciliation endpoint から取得する）
 
 ## 関連
 

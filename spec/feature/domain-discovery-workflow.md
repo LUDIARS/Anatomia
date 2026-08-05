@@ -4,7 +4,7 @@
 
 本ファイルの既存 Gate A/B は現行実装の契約である。仕様だけから domain を確定し、その後に
 code assignment と乖離補正を行う目標拡張は
-[`domain-organization.md`](./domain-organization.md)（planned、T56-T62）を正本とする。
+[`domain-organization.md`](./domain-organization.md)（implemented、T56-T62）を正本とする。
 
 仕様と実装の両側からプロジェクト固有のドメインを発見する。ただし LLM と静的解析は
 **候補を提案するだけ**であり、人間が確認する前に ontology / taxonomy / feature spec を

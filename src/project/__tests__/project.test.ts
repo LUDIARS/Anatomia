@@ -46,8 +46,8 @@ afterAll(async () => {
 
 describe("ProjectRegistry", () => {
   it("derives a deterministic slug id from the name", () => {
-    expect(slug("PrivateGame")).toBe("PrivateGame");
-    expect(deriveId({ name: "PrivateGame", rootPath: "/a" })).toBe("PrivateGame");
+    expect(slug("PrivateGame")).toBe("privategame");
+    expect(deriveId({ name: "PrivateGame", rootPath: "/a" })).toBe("privategame");
   });
 
   it("registers, gets, lists and removes projects", () => {

@@ -166,19 +166,19 @@
 
 ## G12. spec → domain → code organization
 
-- **T56 spec-only domain proposals** — code/module map を混ぜず、仕様 clause だけから purpose/boundary/
+- **T56 spec-only domain proposals** — implemented 2026-08-04。code/module map を混ぜず、仕様 clause だけから purpose/boundary/
   source refs/parent 候補を生成。
-- **T57 domain hierarchy editor + validator** — immutable ID、child→parent `subdomain-of`、親最大1、
+- **T57 domain hierarchy editor + validator** — implemented 2026-08-04。immutable ID、child→parent `subdomain-of`、親最大1、
   cycle/dangling/aggregate assignment 検査。layer/concern/subscene は別軸。
-- **T58 Gate A OKF + log persistence** — source revision/snapshot/head を検証し、domain OKF +
+- **T58 Gate A OKF + log persistence** — implemented 2026-08-04。source revision/snapshot/head を検証し、domain OKF +
   knowledge transaction を一括 apply/rollback。
-- **T59 code assignment analyzer** — `assign-existing | move | unassign | abstain` と exact symbol evidence。
+- **T59 code assignment analyzer** — implemented 2026-08-04。`assign-existing | move | unassign | abstain` と exact symbol evidence。
   owner 1件 + related/consumer 複数を表現。
-- **T60 code-only/spec-gap + drift reconciliation** — emergent-domain/spec-gap/split/merge 候補と
+- **T60 code-only/spec-gap + drift reconciliation** — implemented 2026-08-04。emergent-domain/spec-gap/split/merge 候補と
   drift 分類。new domain は authored OKF + Gate A、split/merge は semantic Gate C へ戻す。
-- **T61 Gate B/C orchestrator** — Gate B の既存-domain assignment と Gate A 相当の semantic Gate C を
+- **T61 Gate B/C orchestrator** — implemented 2026-08-04。Gate B の既存-domain assignment と Gate A 相当の semantic Gate C を
   atomic transaction 化し、再解析した residual を返す。
-- **T62 domain organization Web UI** — domain canvas、typed edge、assignment evidence、before/after diff、
+- **T62 domain organization Web UI** — implemented 2026-08-04。domain canvas、typed edge、assignment evidence、before/after diff、
   revision conflict。生 JSON/即時 taxonomy CRUD を Gate command へ統一。
 
 ## G13. code-authoritative scenes
