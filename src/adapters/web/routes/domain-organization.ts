@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { extname, join, relative, resolve, sep } from "node:path";
+import { join, resolve, sep } from "node:path";
 import type { Hono } from "hono";
 import { ProjectManager } from "../../../project/manager.js";
 import { resolveKnowledgeWriteRoot } from "../../../knowledge/write-root.js";
@@ -15,9 +15,8 @@ import {
   proposeSemanticDomainChanges,
   type DomainDriftInput,
 } from "../../../knowledge/domain/drift.js";
-import { codeSymbolEntityId } from "../../../knowledge/identity.js";
+import { describeCodeSymbol } from "../../../knowledge/code-symbol.js";
 import type { CodeNode } from "../../../types.js";
-import type { CodeSymbolEvidence } from "../../../knowledge/domain/types.js";
 import type { AnalyzedCodeSymbol } from "../../../knowledge/domain/organization-view.js";
 import { domainOrganizationPage } from "../domain-organization-page.js";
 
@@ -51,10 +50,7 @@ function residual(manager: ProjectManager, projectId: string) {
   return async () => {
     manager.cache.invalidate(projectId);
     const context = await manager.analyzeProject(projectId);
-    return {
-      clauses: context.specClauses?.length ?? 0,
-      codeSymbols: (await context.graph.allNodes()).length,
-    };
+    return { clauses: context.specClauses?.length ?? 0, codeSymbols: (await context.graph.allNodes()).length };
   };
 }
 
@@ -73,40 +69,6 @@ function resolveOkfWrites(writeRoot: string, writes: GateCRequest["okfWrites"]):
   });
 }
 
-function sourceLanguage(sourcePath: string): string {
-  const extension = extname(sourcePath).toLowerCase();
-  if (extension === ".cs") return "c_sharp";
-  if (extension === ".tsx") return "tsx";
-  if (extension === ".ts") return "typescript";
-  if ([".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx"].includes(extension)) return "cpp";
-  return extension.replace(/^\./, "") || "unknown";
-}
-
-function analyzedSymbol(
-  projectId: string,
-  projectRoot: string,
-  node: CodeNode,
-  sourceRevision: string,
-): CodeSymbolEvidence & { anchorId: string } {
-  if (!node.id) throw new Error(`analyzed function has no anchor: ${node.name}`);
-  const sourcePath = relative(projectRoot, node.sourceRange.filePath).replace(/\\/g, "/");
-  const language = sourceLanguage(sourcePath);
-  const signatureShape = node.signatureShape ?? node.name;
-  return {
-    anchorId: String(node.id),
-    symbolId: codeSymbolEntityId(projectId, language, signatureShape, sourcePath),
-    language,
-    qualifiedName: node.name,
-    sourcePath,
-    startLine: node.sourceRange.start.line,
-    endLine: node.sourceRange.end.line,
-    signature: signatureShape,
-    signatureShape,
-    sourceRevision,
-    contentFingerprint: `anchor:${String(node.id)}`,
-  };
-}
-
 function organizationSymbols(
   projectId: string,
   projectRoot: string,
@@ -116,7 +78,7 @@ function organizationSymbols(
   return [...nodes]
     .filter((node) => node.id !== null)
     .map((node) => {
-      const symbol = analyzedSymbol(projectId, projectRoot, node, sourceRevision);
+      const symbol = describeCodeSymbol(projectId, projectRoot, node, sourceRevision);
       return {
         id: symbol.symbolId,
         anchorId: symbol.anchorId,
@@ -150,12 +112,13 @@ export function mountDomainOrganizationRoutes(app: Hono, manager: ProjectManager
       const resolved = paths(manager, c.req.param("id"));
       const context = await manager.getContext(resolved.projectId);
       const revision = await revisions(manager, resolved.projectId);
+      const codeNodes = await context.graph.allNodes();
       return c.json(buildDomainOrganizationView(
         await readLog(resolved.knowledgeLogPath),
         organizationSymbols(
           resolved.projectId,
           resolved.project.rootPath,
-          await context.graph.allNodes(),
+          codeNodes,
           revision.sourceRevision,
         ),
       ));
@@ -196,7 +159,7 @@ export function mountDomainOrganizationRoutes(app: Hono, manager: ProjectManager
       if (!codeNode) throw new Error(`unknown code anchor ${body.anchorId}`);
       const revision = await revisions(manager, resolved.projectId);
       const state = await readLog(resolved.knowledgeLogPath);
-      const symbol = analyzedSymbol(resolved.projectId, resolved.project.rootPath, codeNode, revision.sourceRevision);
+      const symbol = describeCodeSymbol(resolved.projectId, resolved.project.rootPath, codeNode, revision.sourceRevision);
       const beforeOwner = [...state.edges.values()]
         .find((edge) => edge.kind === "domain-owns-code" && edge.to === symbol.symbolId)?.from ?? null;
       const { anchorId: _anchorId, ...evidence } = symbol;

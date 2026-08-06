@@ -66,6 +66,7 @@ const EDGE_ENDPOINTS: Record<KnowledgeEdgeKind, readonly [KnowledgeNodeKind, Kno
   "domain-relates-spec": ["domain", "spec-clause"],
   "domain-owns-code": ["domain", "code-symbol"],
   "domain-uses-code": ["domain", "code-symbol"],
+  "code-relates-spec": ["code-symbol", "spec-clause"],
   "scene-contains": ["scene", "scene-element"],
   "subscene-of": ["scene", "scene"],
   "scene-transitions-to": ["scene", "scene"],

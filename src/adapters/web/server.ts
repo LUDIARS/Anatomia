@@ -235,9 +235,8 @@ export function createApp(
   // ── Domain-view route (per-domain focus + spec-derived JP descriptions) ───
   mountDomainViewRoute(app, source);
 
-  // ── Integral-search + module routes (3-layer scoped retrieval + 機能 eval) ─
-  // The trace source feeds the scene layer (局面) when it holds frames.
-  mountIntegralRoutes(app, source, { ...resolveIntegralDeps(), traceSource: trace });
+  // ── Integral-search + module routes (canonical scene manifest + 機能 eval) ─
+  mountIntegralRoutes(app, source, resolveIntegralDeps());
 
   // ── Access-pattern route (heuristic singleton/locator/facade + accessors) ──
   mountPatternRoutes(app, source);
@@ -252,11 +251,9 @@ export function createApp(
     manager,
     searchLlm: aux.searchLlm,
     searchModelId: aux.searchModelId,
-    traceJsonl: aux.traceJsonl,
-    traceSource: trace,
   });
 
-  // ── Adjustment routes: domain/module/scene CRUD + granularity retune ───────
+  // ── Adjustment routes: domain/module commands + scene read compatibility ──
   mountAdjustRoutes(app, {
     manager,
     retuneLlm: aux.retuneLlm,
@@ -463,23 +460,7 @@ function resolveIntegralDeps(): IntegralRouteDeps {
     judgeLlm: providers.llm,
     judgeModelId: providers.llmModelId,
     pathCache,
-    traceJsonl: readTraceFile(),
   };
-}
-
-/**
- * A recorded game trace (ANATOMIA_TRACE_FILE) lights up the scene layer on the
- * warm server without a live transport. Read once at wiring time; a missing /
- * unreadable file just leaves scenes empty (graceful).
- */
-function readTraceFile(): string | undefined {
-  const traceFile = process.env["ANATOMIA_TRACE_FILE"];
-  if (!traceFile || !traceFile.trim()) return undefined;
-  try {
-    return readFileSync(traceFile.trim(), "utf8");
-  } catch {
-    return undefined;
-  }
 }
 
 /**
@@ -493,7 +474,6 @@ function resolveAuxDeps(): {
   searchModelId: string;
   retuneLlm: ReturnType<typeof resolveProviders>["llm"];
   retuneModelId: string;
-  traceJsonl: string | undefined;
 } {
   const searchModel = process.env["ANATOMIA_SEARCH_MODEL"] || "claude-haiku-4-5";
   const searchP = resolveProviders({ ...envConfig(), llmModel: searchModel });
@@ -504,7 +484,6 @@ function resolveAuxDeps(): {
     searchModelId: searchP.llmModelId,
     retuneLlm: retuneP.llm,
     retuneModelId: retuneP.llmModelId,
-    traceJsonl: readTraceFile(),
   };
 }
 

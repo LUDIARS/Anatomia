@@ -22,6 +22,8 @@ beforeAll(async () => {
   home = await mkdtemp(join(tmpdir(), "anatomia-views-home-"));
   root = await mkdtemp(join(tmpdir(), "anatomia-views-root-"));
   await mkdir(join(root, "src"), { recursive: true });
+  const knowledgeWriteRoot = join(root, "spec");
+  await mkdir(knowledgeWriteRoot, { recursive: true });
   await writeFile(
     join(root, "src", "a.cpp"),
     "void one() { }\nvoid two() { one(); }\n",
@@ -31,7 +33,16 @@ beforeAll(async () => {
     homeDir: home,
     analyzeOptions: { quiet: true },
   });
-  await mgr.addProject({ name: "Views", rootPath: root });
+  await mgr.addProject({ name: "Views", rootPath: root, knowledgeWriteRoot });
+  const app = createApp(mgr);
+  const sync = await app.fetch(
+    new Request("http://localhost/api/projects/views/scenes/sync", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ confirmSync: true, expectedHead: null }),
+    }),
+  );
+  expect(sync.status, await sync.text()).toBe(200);
 });
 
 afterAll(async () => {

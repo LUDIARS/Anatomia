@@ -14,6 +14,7 @@ export type KnowledgeEdgeKind =
   | "domain-relates-spec"
   | "domain-owns-code"
   | "domain-uses-code"
+  | "code-relates-spec"
   | "scene-contains"
   | "subscene-of"
   | "scene-transitions-to"

@@ -183,14 +183,14 @@
 
 ## G13. code-authoritative scenes
 
-- **T63 scene source inventory + stable identity** — code/asset/route/workflow の `SceneDefinitionSeed` と
-  trace-only `SceneObservation` を分離し、native ID 優先・alias/tombstone・provenance を保持。
-- **T64 exact scene graph derivation** — SceneElement、entry/contains/transition、direct/reached CodeSymbol、
-  derived Domain、reached code 由来 SpecClause edge。
-- **T65 scene knowledge sync + generated OKF** — definition source の explicit sync transaction、
+- **T63 scene source inventory + stable identity** — implemented 2026-08-04。code/asset/route/workflow の
+  `SceneDefinitionSeed` と trace-only `SceneObservation` を分離し、native ID 優先・alias/tombstone・provenance を保持。
+- **T64 exact scene graph derivation** — implemented 2026-08-04。SceneElement、entry/contains/transition、
+  direct/reached CodeSymbol、derived Domain、reached code 由来 SpecClause edge。
+- **T65 scene knowledge sync + generated OKF** — implemented 2026-08-04。definition source の explicit sync transaction、
   scene manifest、edge JSONL、
   `type: data` scene OKF、deterministic regeneration/self-ingestion guard。
-- **T66 unified scene consumers + inspection UI** — CLI/MCP/Web/Integral/web-cache を revision/schema 検証付き
+- **T66 unified scene consumers + inspection UI** — implemented 2026-08-04。CLI/MCP/Web/Integral/web-cache を revision/schema 検証付き
   共通 manifest reader へ。
   manual scene override を廃止し、表示 annotation だけ移行。
 

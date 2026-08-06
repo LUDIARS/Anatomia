@@ -180,6 +180,8 @@ domain を `implementationStatus=missing` のまま正しく保持する。
 
 #### T63 scene source inventory and stable identity
 
+Status: implemented 2026-08-04.
+
 - static code、engine asset、route/workflow を `SceneDefinitionSeed` へ正規化する。
 - trace は既存 scene へだけ付く `SceneObservation` に分け、unmatched phase は provisional diagnostic にする。
 - native GUID / explicit annotation / route / qualified entry / deterministic fallback の優先順。
@@ -189,6 +191,8 @@ domain を `implementationStatus=missing` のまま正しく保持する。
 
 #### T64 exact scene graph derivation
 
+Status: implemented 2026-08-04.
+
 - SceneElement、entry、contains、transition、exact direct/reached CodeSymbol を保持する。
 - CodeSymbol ownership から active Domain を導出する。
 - reached code の spec link からだけ SpecClause relation を導出する。
@@ -196,6 +200,8 @@ domain を `implementationStatus=missing` のまま正しく保持する。
 受入: domain 全体を過大に scene spec へ結ばず、unreachable function に fake scene を与えない。
 
 #### T65 scene knowledge sync and generated OKF
+
+Status: implemented 2026-08-04.
 
 - definition source 由来の canonical scene records だけを `replace-derived-set` transaction で sync。
 - scene manifest、edge JSONL、scene OKF を deterministic writer で生成する。
@@ -205,6 +211,8 @@ domain を `implementationStatus=missing` のまま正しく保持する。
 次の spec input/fingerprint に入らない。
 
 #### T66 unified scene consumers and inspection UI
+
+Status: implemented 2026-08-04.
 
 - CLI / MCP / Web / Integral / web-cache を `knowledgeHead` / source revision / schema を検証する
   scene manifest reader へ統一する。

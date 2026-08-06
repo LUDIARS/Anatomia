@@ -11,11 +11,10 @@
 
 ## 層の境界 (DESIGN 課題2)
 
-typed stable ID と canonical Scene の記述は planned contract（T55/T66）。現行 Integral は既存
-`AnchorId` / `SceneRef` と、adapter が渡す `SceneModel` を消費する。現行の供給元はトレース
-（`sceneModelFromTraceFile` / `sceneModelFromTrace`）だけで、CLI `integral` は
-`emptySceneModel()` を渡す（`src/adapters/cli.ts` / `src/adapters/web/routes/integral.ts`）。
-目標の scene authority は [scene derivation](./scene-derivation.md)、実装順は
+typed stable ID と canonical Scene manifest reader は T55/T66 で実装済み。登録 project の CLI / Web Integral は
+revision/schema 検証済み manifest を `SceneModel` compatibility view に変換して消費する。trace ingest は
+canonical definition を作らない observation/migration source として独立している。
+scene authority は [scene derivation](./scene-derivation.md)、実装順は
 [`../../docs/plan-okf-domain-scene-flow.md`](../../docs/plan-okf-domain-scene-flow.md) を参照する。
 
 同じ typed knowledge graph 上の **直交する分割**。CodeSymbol は Anchor ID evidence、
@@ -53,7 +52,7 @@ interface IntegralQuery {
    - `function` … seeds + グラフ半径 (maxHops, 両方向)
    - `module` … + seed の属する機能まるごと
    - `domain` … + seed が属するドメイン
-   - `scene` … + その function/domain を activate する scene（T66 後は canonical manifest）
+   - `scene` … + その function/domain を activate する canonical scene
    - `scene-adjacent` (既定) … + シーン内の**他**ドメイン
 3. `maxNodes` / `budgetMs` を超えたら停止し `truncated` + `stopReason` を立てる
    (**サイレントな打ち切り禁止**)。
@@ -92,11 +91,9 @@ fingerprint によってソース変更で失効し、judgeInput によって do
 
 ## 限界
 
-- **現行**: Integral のシーン層はトレース録画が要る。トレース未供給なら空シーンに
-  **graceful 縮退**し、構造+機能+ドメインで動く（`scenesFromPhaseSignatures` で局面学習に接続可）。
-  `scenes/derive.ts` の静的シーンは web-cache / `anatomia scenes` 側の消費で、Integral には未配線。
-- **planned**（T66）: シーン層を code/asset から静的に構築し、trace 録画を必須にしない。
-  detector 未対応時だけ空シーンへ縮退し、trace phase は canonical scene への observation
-  evidence として接続する。
+- **現行**: 登録 project の Integral は code/asset から explicit sync された canonical manifest を読み、
+  trace 録画を必須にしない。manifest missing/stale は黙って空シーンへ縮退せずエラーとして返す。
+  unregistered one-off 解析と `trace ingest` は legacy compatibility 経路である。
+- trace phase は canonical scene identity を新規作成せず、既存 scene へだけ observation evidence として接続する。
 - 機能粒度は決定的構造単位(再クラスタリングしない)。低凝集は signal として surface。
 - 呼び出し解決の偽辺(汎用名)は構造グラフ側の既知限界([[static-analysis]])を継承。

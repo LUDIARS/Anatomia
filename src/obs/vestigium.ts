@@ -14,7 +14,24 @@
  *  - **ctx に機微情報 (token / PII / コード/プロンプトの生データ) を入れない** (Vestigium redact ルール)。
  *    メタデータ (project / ns / hit / pass / gate 名 / 件数) のみ渡す。
  */
-import { install, type Vestigium } from "@ludiars/vestigium";
+import { createRequire } from "node:module";
+
+interface Vestigium {
+  writer: {
+    write(entry: { level: VgLevel; msg: string; ctx?: Record<string, unknown> }): void;
+  };
+  shutdown(): Promise<void>;
+}
+
+interface VestigiumModule {
+  install(options: {
+    serviceCode: string;
+    captureConsole: boolean;
+    retentionDays: number;
+  }): Vestigium;
+}
+
+const requireVestigium = createRequire(import.meta.url);
 
 let vg: Vestigium | null = null;
 let crashHandlersInstalled = false;
@@ -36,6 +53,7 @@ export function initVestigium(options: InitVestigiumOptions = {}): void {
   }
   const captureConsole = options.captureConsole ?? true;
   try {
+    const { install } = requireVestigium("@ludiars/vestigium") as VestigiumModule;
     vg = install({
       serviceCode: "anatomia",
       captureConsole,

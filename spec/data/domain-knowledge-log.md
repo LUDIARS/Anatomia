@@ -23,9 +23,9 @@ scene を、全 adapter が同じ意味で読めるようにする **目標永�
 planned contract であり、移行タスクは [`../../TASKS.md`](../../TASKS.md) の T50-T69 と
 [`../../docs/plan-okf-domain-scene-flow.md`](../../docs/plan-okf-domain-scene-flow.md) に置く。
 
-2026-08-04 に T51-T62 の永続基盤と domain organization flow を `src/knowledge/` へ実装した。hash-chain replay/write と
+2026-08-04 に T51-T66 の永続基盤、domain organization flow、code-authoritative scene sync を `src/knowledge/` へ実装した。hash-chain replay/write と
 cardinality/hierarchy validation は canonical write path、Kuzu・旧 JSON はその state だけから作る
-read projection である。T63-T69 の scene knowledge と adapter 移行が未完了なため文書全体の状態は
+read projection である。T67-T69 の共通 application service・legacy migration・統合計測が未完了なため文書全体の状態は
 planned のままとする。
 
 狙いは「JSONL と Kuzu のどちらが正本か」を曖昧にしないことにある。

@@ -1,11 +1,11 @@
 /**
- * src/adapters/web/routes/adjust.ts — Domain / module / scene adjustment routes.
+ * src/adapters/web/routes/adjust.ts — Domain/module adjustment routes.
  *
- * The adjustment view edits the curated model:
+ * The adjustment view edits taxonomy and reads canonical scene knowledge:
  *   GET  /api/projects/:id/adjust/model    current { taxonomy, scenes }
  *   POST /api/projects/:id/adjust/domain   add | delete | rename a domain
  *   POST /api/projects/:id/adjust/module   add | delete | rename | move | addPath
- *   POST /api/projects/:id/adjust/scene    add | delete a scene (局面)
+ *   POST /api/projects/:id/adjust/scene    removed (returns 410)
  *   POST /api/projects/:id/adjust/retune   run the granularity auto-flow (retune)
  *
  * Domain/module edits mutate the taxonomy and SAVE through taxonomy-store, which
@@ -44,8 +44,7 @@ import {
   type DomainOrganizationInput,
   type DomainOrganizationResult,
 } from "../../../domains/organize/index.js";
-import { loadScenes, saveScenes } from "../../../scenes/store.js";
-import type { SceneRef } from "../../../integral/scene.js";
+import { readProjectSceneInspection } from "../../../knowledge/scene/index.js";
 
 export interface AdjustRouteDeps {
   manager: ProjectManager | null;
@@ -75,11 +74,22 @@ export function mountAdjustRoutes(app: Hono, deps: AdjustRouteDeps): void {
       return c.json({ error: `no such project "${id}"` }, 404);
     }
     if (!project) return c.json({ error: `no such project "${id}"` }, 404);
-    const [taxonomy, scenes] = await Promise.all([
-      loadTaxonomy(project.rootPath, project.name),
-      loadScenes(project.rootPath, project.name),
-    ]);
-    return c.json({ taxonomy: taxonomy ?? emptyTaxonomy(project.name), scenes });
+    const taxonomy = await loadTaxonomy(project.rootPath, project.name);
+    try {
+      const inspection = await readProjectSceneInspection(project);
+      return c.json({ taxonomy: taxonomy ?? emptyTaxonomy(project.name), scenes: inspection.scenes, sceneStatus: {
+        knowledgeHead: inspection.manifest.knowledgeHead,
+        sourceRevision: inspection.manifest.sourceRevision,
+        stale: inspection.stale,
+        staleReasons: inspection.staleReasons,
+      } });
+    } catch (error) {
+      return c.json({
+        taxonomy: taxonomy ?? emptyTaxonomy(project.name),
+        scenes: [],
+        sceneStatus: { stale: true, staleReasons: [error instanceof Error ? error.message : String(error)] },
+      });
+    }
   });
 
   // POST adjust/domain — add | delete | rename.
@@ -147,45 +157,12 @@ export function mountAdjustRoutes(app: Hono, deps: AdjustRouteDeps): void {
     });
   });
 
-  // POST adjust/scene — add | delete a manual scene.
+  // Authoritative scene identity/edges come from code/asset sync, never manual CRUD.
   app.post("/api/projects/:id/adjust/scene", async (c) => {
     if (!manager) return c.json({ error: "adjustment requires manager mode" }, 501);
-    const id = c.req.param("id");
-    let project;
-    try {
-      project = resolveProject(manager, id);
-    } catch {
-      return c.json({ error: `no such project "${id}"` }, 404);
-    }
-    if (!project) return c.json({ error: `no such project "${id}"` }, 404);
-    let body: Record<string, unknown>;
-    try {
-      body = (await c.req.json()) as Record<string, unknown>;
-    } catch {
-      return c.json({ error: "invalid JSON body" }, 400);
-    }
-    const action = String(body["action"] ?? "");
-    const sceneId = String(body["id"] ?? "").trim();
-    if (!sceneId) return c.json({ error: "id is required" }, 400);
-    const scenes = await loadScenes(project.rootPath, project.name);
-    if (action === "add") {
-      const domains = Array.isArray(body["domains"])
-        ? (body["domains"] as unknown[]).map(String)
-        : [];
-      const label = typeof body["label"] === "string" ? (body["label"] as string) : undefined;
-      const next: SceneRef = { id: sceneId, label, domains: [...new Set(domains)].sort() };
-      const existing = scenes.findIndex((s) => s.id === sceneId);
-      if (existing >= 0) scenes[existing] = next;
-      else scenes.push(next);
-    } else if (action === "delete") {
-      const idx = scenes.findIndex((s) => s.id === sceneId);
-      if (idx < 0) return c.json({ error: `no such scene "${sceneId}"` }, 404);
-      scenes.splice(idx, 1);
-    } else {
-      return c.json({ error: `unknown scene action "${action}"` }, 400);
-    }
-    await saveScenes(project.rootPath, project.name, scenes);
-    return c.json({ ok: true, scenes });
+    return c.json({
+      error: "manual scene CRUD was removed; edit code/asset definitions and run /scenes/sync. Only display annotations are authorable.",
+    }, 410);
   });
 
   // POST adjust/domain-organization - build/apply a human-authored taxonomy plan.

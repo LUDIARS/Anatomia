@@ -31,13 +31,10 @@ import { PrepareQueue } from "../../../web-cache/prepare-queue.js";
 import { WEB_VIEWS } from "../../../web-cache/types.js";
 import type { WebViewName, SearchCorpus } from "../../../web-cache/types.js";
 import { searchCorpus } from "../../../web-cache/search.js";
-import { loadScenes, mergeSceneModel } from "../../../scenes/store.js";
-import { deriveScenes } from "../../../scenes/derive.js";
-import { detectScreens } from "../../../screens/index.js";
-import { sceneModelFromTraceFile } from "../../../dynamic/record/ingest.js";
-import { sceneModelFromTrace, type SceneModel, type SceneRef } from "../../../integral/scene.js";
-import type { TraceSource } from "../../../dynamic/viz/trace-source.js";
-import type { AnalysisContext } from "../../../core.js";
+import type { SceneModel } from "../../../integral/scene.js";
+import { sceneModelFromInspection } from "../../../scenes/canonical.js";
+import { readProjectSceneInspection } from "../../../knowledge/scene/index.js";
+import type { Project } from "../../../project/types.js";
 
 /** Dependencies for the web-cache routes. */
 export interface WebCacheRouteDeps {
@@ -47,36 +44,15 @@ export interface WebCacheRouteDeps {
   searchLlm?: LLMClient;
   /** Resolved search model id ("stub-llm" → no real key → search refused). */
   searchModelId?: string;
-  /** Recorded-trace JSONL (ANATOMIA_TRACE_FILE) feeding the scene layer. */
-  traceJsonl?: string;
-  /** Live/recorded trace source feeding the scene layer. */
-  traceSource?: TraceSource;
 }
 
 const VIEW_SET = new Set<WebViewName>(WEB_VIEWS);
 
-/** Resolve the scene model for a prepare run: manual scenes override discovered scenes. */
-async function resolveSceneModel(
-  deps: WebCacheRouteDeps,
-  repoPath: string,
-  project: string,
-  ctx: AnalysisContext,
-): Promise<SceneModel> {
-  const [manual, screenGraph] = await Promise.all([
-    loadScenes(repoPath, project),
-    detectScreens(ctx),
-  ]);
-  // Reachability derivation (scenes/derive.ts): each screen scene carries the
-  // domains of its whole call closure, not just its own file — so the
-  // scene-modules view lines up with what the scene actually activates.
-  const screenScenes = (await deriveScenes(ctx, screenGraph)).scenes;
-  let traceScenes: SceneRef[] = [];
-  if (deps.traceJsonl) {
-    traceScenes = sceneModelFromTraceFile(deps.traceJsonl, ctx.domains ?? []).scenes();
-  } else if (deps.traceSource) {
-    traceScenes = sceneModelFromTrace(deps.traceSource).scenes();
-  }
-  return mergeSceneModel(manual, [...screenScenes, ...traceScenes]);
+/** All prepared views consume the same revision-validated canonical manifest. */
+async function resolveSceneModel(project: Project): Promise<SceneModel> {
+  const inspection = await readProjectSceneInspection(project);
+  if (inspection.stale) throw new Error(`scene manifest is stale: ${inspection.staleReasons.join(", ")}`);
+  return sceneModelFromInspection(inspection);
 }
 
 export function mountWebCacheRoutes(app: Hono, deps: WebCacheRouteDeps): void {
@@ -91,7 +67,7 @@ export function mountWebCacheRoutes(app: Hono, deps: WebCacheRouteDeps): void {
     setPhase("analyzing");
     const ctx = await manager!.getContext(projectId);
     const fingerprint = await manager!.fingerprint(projectId);
-    const sceneModel = await resolveSceneModel(deps, project.rootPath, project.name, ctx);
+    const sceneModel = await resolveSceneModel(project);
     setPhase("building views");
     const bundle = await buildWebCacheBundle(ctx, { sceneModel });
     setPhase("writing");

@@ -5,7 +5,7 @@
  *   - a view is 409 (not-prepared) until prepare-web-cache builds the bundle;
  *   - prepare then serves every view + a fresh (non-stale) manifest;
  *   - search/retune fail FAST (501) with only the stub LLM — no silent fallback;
- *   - domain/module/scene adjustments mutate the taxonomy + scenes on disk.
+ *   - domain/module adjustments mutate taxonomy while manual scene CRUD stays removed.
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { mkdtemp, rm, writeFile, mkdir, readFile } from "node:fs/promises";
@@ -32,6 +32,8 @@ beforeAll(async () => {
   home = await mkdtemp(join(tmpdir(), "anatomia-webcache-home-"));
   root = await mkdtemp(join(tmpdir(), "anatomia-webcache-fixture-"));
   await mkdir(join(root, "src"), { recursive: true });
+  const knowledgeWriteRoot = join(root, "spec");
+  await mkdir(knowledgeWriteRoot, { recursive: true });
   await writeFile(
     join(root, "src", "a.ts"),
     "export function foo() { bar(); }\nfunction bar() { }\n",
@@ -41,9 +43,11 @@ beforeAll(async () => {
     homeDir: home,
     analyzeOptions: { quiet: true },
   });
-  const p = await mgr.addProject({ name: "Fixture", rootPath: root });
+  const p = await mgr.addProject({ name: "Fixture", rootPath: root, knowledgeWriteRoot });
   pid = p.id;
   app = createApp(mgr);
+  const sync = await post("/scenes/sync", { confirmSync: true, expectedHead: null });
+  expect(sync.status, await sync.text()).toBe(200);
 });
 
 afterAll(async () => {
@@ -154,7 +158,7 @@ describe("prepared web cache: gate → prepare → serve", () => {
   });
 });
 
-describe("adjustment: domain / module / scene CRUD", () => {
+describe("adjustment: domain / module commands and canonical scene boundary", () => {
   it("adds a domain + module and reflects them in the model", async () => {
     const d = await post("/adjust/domain", { action: "add", name: "Combat", description: "戦闘" });
     expect(d.status).toBe(200);
@@ -191,14 +195,10 @@ describe("adjustment: domain / module / scene CRUD", () => {
     expect(combat.modules.some((x: { name: string }) => x.name === "waves")).toBe(false);
   });
 
-  it("adds + deletes a manual scene", async () => {
+  it("rejects removed manual scene CRUD", async () => {
     const add = await post("/adjust/scene", { action: "add", id: "boss", label: "Boss", domains: ["combat"] });
-    expect(add.status).toBe(200);
-    expect((await add.json()).scenes.some((s: { id: string }) => s.id === "boss")).toBe(true);
-
-    const del = await post("/adjust/scene", { action: "delete", id: "boss" });
-    expect(del.status).toBe(200);
-    expect((await del.json()).scenes.some((s: { id: string }) => s.id === "boss")).toBe(false);
+    expect(add.status).toBe(410);
+    expect((await add.json()).error).toMatch(/manual scene CRUD was removed/i);
   });
 
   it("applies a domain organization draft to the taxonomy", async () => {

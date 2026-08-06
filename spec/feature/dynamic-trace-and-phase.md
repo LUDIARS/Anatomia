@@ -5,7 +5,7 @@
 静的 DAG に、実行時の挙動（どのゾーンがいつ active か = 局面）を重ねる層。
 「You-are-here」を静的着地点に加えて動的な現在地（phase）で示すための機構。
 
-planned contract（T63-T66）では、trace が作る phase/scene は **runtime observation** であり、
+T63-T66 の canonical scene contract では、trace が作る phase/scene は **runtime observation** であり、
 code / engine asset が定義する canonical
 scene identity、composition、transition を上書きしない。同じ stable scene ID へ対応できる場合は
 origin=`trace-observation`、trace/source revision、observed anchors を provenance として加える。
@@ -16,8 +16,8 @@ origin=`trace-observation`、trace/source revision、observed anchors を proven
 **録画経路は CLI まで配線済み**: `anatomia trace plan`（マーカー注入計画）/
 `anatomia trace ingest`（録画 JSONL → scene 化）が使える
 （→ [trace-recording.md](./trace-recording.md)、運用手順は `docs/trace-operations.md`）。
-warm サーバは `ANATOMIA_TRACE_FILE`（起動時 1 回読み）で scene 層を点灯できる。
-現行 ingest は trace から直接 `SceneModel` を作るため、上記 definition/observation 分離は未実装。
+`anatomia trace ingest` は trace から直接 `SceneModel` を作る legacy compatibility 経路である。
+canonical sync/query は `SceneDefinitionSeed` と `SceneObservation` を分離し、trace から scene identity を作らない。
 **ライブストリーム（socket/UDP）は未配線**: `LiveTraceSource` / `createTraceReceiver` は
 部品のみで、production に source factory が存在しない。
 

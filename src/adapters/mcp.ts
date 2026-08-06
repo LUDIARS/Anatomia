@@ -57,6 +57,7 @@ import type { AnalysisContext, Landing } from "../core.js";
 import type { ContextBundle, Verdict, AnchorId } from "../types.js";
 import type { Project } from "../project/types.js";
 import type { Providers } from "../providers/index.js";
+import { readProjectSceneInspection, type SceneInspection } from "../knowledge/scene/index.js";
 
 // ---------------------------------------------------------------------------
 // Context resolution: either a fixed ctx (legacy) or a ProjectManager.
@@ -112,6 +113,7 @@ export interface ToolHandlers {
     noLlm?: boolean;
     only?: string[];
   }): Promise<{ drafts: DomainDraft[] }>;
+  "anatomia.scenes"(args: { project?: string }): Promise<SceneInspection>;
   "anatomia.projects.list"(): Promise<{ projects: Project[]; selected: string | null }>;
   "anatomia.projects.add"(args: {
     name: string;
@@ -233,6 +235,12 @@ export function createHandlers(
         drafts = drafts.filter((d) => wanted.has(d.name));
       }
       return { drafts };
+    },
+
+    async "anatomia.scenes"({ project }) {
+      const mgr = requireManager(source);
+      const id = mgr.resolveId(project);
+      return readProjectSceneInspection(mgr.get(id)!);
     },
 
     async "anatomia.projects.list"() {
@@ -400,6 +408,16 @@ export class AnatomiaServer {
 
     // Project-management tools are only registered when a registry is present.
     if (!this.hasManager) return;
+
+    this.server.tool(
+      "anatomia.scenes",
+      "Read the revision-validated canonical scene manifest without mutating the repository.",
+      { project: z.string().optional().describe("Project id (defaults to selected)") },
+      async ({ project }) => {
+        const result = await h["anatomia.scenes"]({ project });
+        return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
+      },
+    );
 
     this.server.tool(
       "anatomia.projects.list",

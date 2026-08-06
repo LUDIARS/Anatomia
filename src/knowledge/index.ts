@@ -9,4 +9,6 @@ export * from "./artifact-writer.js";
 export * from "./projection.js";
 export * from "./kuzu-projection.js";
 export * from "./compatibility.js";
+export * from "./code-symbol.js";
 export * from "./domain/index.js";
+export * from "./scene/index.js";

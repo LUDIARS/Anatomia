@@ -385,6 +385,38 @@ describe("GET /api/projects/:id/vis-data (single-context)", () => {
   });
 });
 
+describe("legacy scene consumers (single-context)", () => {
+  it("serves the in-memory scene compatibility shape without a manifest", async () => {
+    const res = await singleApp.fetch(new Request("http://localhost/api/projects/fixture/scenes"));
+    expect(res.status).toBe(200);
+    const body = await res.json() as { derived: unknown; manual: unknown[]; merged: unknown[] };
+    expect(body.derived).toBeDefined();
+    expect(Array.isArray(body.manual)).toBe(true);
+    expect(Array.isArray(body.merged)).toBe(true);
+  });
+
+  it("runs Integral with the explicit empty-scene compatibility model", async () => {
+    const res = await singleApp.fetch(new Request("http://localhost/api/integral", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        entry: { ref: "alpha", scope: "function" },
+        range: { climb: "module" },
+      }),
+    }));
+    expect(res.status).toBe(200);
+  });
+
+  it("keeps canonical sync unavailable without a registered project", async () => {
+    const res = await singleApp.fetch(new Request("http://localhost/api/projects/fixture/scenes/sync", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ confirmSync: true, expectedHead: null }),
+    }));
+    expect(res.status).toBe(501);
+  });
+});
+
 describe("GET / (single-context)", () => {
   it("returns HTML page", async () => {
     const res = await singleApp.fetch(new Request("http://localhost/"));

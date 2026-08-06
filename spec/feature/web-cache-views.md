@@ -128,8 +128,8 @@ POST /api/projects/:id/adjust/retune       粒度自動フロー (retune) 起動
 編集/retune 後は解析キャッシュを invalidate し project.ontologyDir を更新。
 web キャッシュは stale になる (UI が再生成を促す)。
 
-上記 direct taxonomy/manual scene CRUD は現行互換であり、planned contract の権威境界ではない。
-T62/T66 で次へ移行する。
+上記 direct taxonomy/manual scene CRUD は migration source の説明であり、権威境界ではない。
+T62/T66 で次へ移行済みである。
 
 - Adjust は [domain organization](./domain-organization.md) の read model + proposal + diff + Gate
   command を使い、生 taxonomy JSON を編集正本にしない。

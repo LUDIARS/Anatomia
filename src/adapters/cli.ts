@@ -79,6 +79,8 @@ import { detectScreens } from "../screens/index.js";
 import type { ScreenGraph } from "../screens/index.js";
 import { deriveScenes, type DerivedSceneGraph } from "../scenes/derive.js";
 import { loadScenes, mergeSceneModel } from "../scenes/store.js";
+import { sceneModelFromInspection } from "../scenes/canonical.js";
+import { readProjectSceneInspection } from "../knowledge/scene/index.js";
 import { ProjectManager } from "../project/manager.js";
 import { exportGraphHtml } from "./web/export.js";
 import { startServer } from "./web/server.js";
@@ -810,34 +812,39 @@ async function runDomainReview(
 }
 
 /**
- * scenes subcommand — derive the scene layer (call-graph reachability from each
- * screen) and merge manually-curated scenes over it. With --project the derived
- * part is served from the fingerprint-keyed artifact cache (the scene cache);
- * manual scenes are merged at read time so editing spec/data/<p>.scenes.json is
- * visible without a re-analysis.
+ * scenes subcommand — registered projects read the revision-validated canonical
+ * scene manifest. The unregistered one-off path retains the legacy in-memory
+ * derivation until project migration assigns a knowledgeWriteRoot.
  */
 async function runScenes(args: CliArgs): Promise<{ exitCode: number; output: string }> {
-  let repoPath: string;
-  let projectName: string;
-  let derived: DerivedSceneGraph;
   if (args.project) {
     const mgr = await ProjectManager.load();
     const projectId = mgr.resolveId(args.project);
     const project = mgr.get(projectId)!;
-    repoPath = project.rootPath;
-    projectName = project.name;
-    // Fold a custom depth cap into the artifact name so capped and full
-    // derivations never cross-serve from the same cache slot.
-    const artifactName = args.sceneMaxDepth ? `scenes-derived-d${args.sceneMaxDepth}` : "scenes-derived";
-    derived = await mgr.cachedArtifact(projectId, artifactName, async (ctx) =>
-      deriveScenes(ctx, await detectScreens(ctx), { maxDepth: args.sceneMaxDepth }),
-    );
-  } else {
-    const ctx = await analyze(args.repoPath);
-    repoPath = args.repoPath;
-    projectName = basename(args.repoPath);
-    derived = await deriveScenes(ctx, await detectScreens(ctx), { maxDepth: args.sceneMaxDepth });
+    let inspection;
+    try { inspection = await readProjectSceneInspection(project); }
+    catch (error) {
+      return { exitCode: 1, output: `scene manifest unavailable: ${error instanceof Error ? error.message : String(error)}` };
+    }
+    if (args.json) return { exitCode: inspection.stale ? 1 : 0, output: JSON.stringify(inspection, null, 2) };
+    const lines = [
+      `シーン: ${inspection.scenes.length} canonical scenes — head ${inspection.manifest.knowledgeHead}`,
+      `source ${inspection.manifest.sourceRevision} / schema ${inspection.manifest.projectionSchema}${inspection.stale ? ` / STALE: ${inspection.staleReasons.join(", ")}` : ""}`,
+    ];
+    for (const scene of inspection.scenes) {
+      lines.push(
+        `  [${scene.kind}] ${scene.id}  direct ${scene.entryCodeSymbolIds.length}`
+        + ` / reached ${scene.reachedCodeSymbolIds.length}`
+        + `  domains: ${scene.activeDomainIds.join(", ") || "-"}`
+        + `  source: ${scene.sourceAnchor.path}:${scene.sourceAnchor.startLine}`,
+      );
+    }
+    return { exitCode: inspection.stale ? 1 : 0, output: lines.join("\n") };
   }
+  const ctx = await analyze(args.repoPath);
+  const repoPath = args.repoPath;
+  const projectName = basename(args.repoPath);
+  const derived: DerivedSceneGraph = await deriveScenes(ctx, await detectScreens(ctx), { maxDepth: args.sceneMaxDepth });
   const manual = await loadScenes(repoPath, projectName);
   const merged = mergeSceneModel(manual, derived.scenes).scenes();
   if (args.json) {
@@ -1073,10 +1080,22 @@ async function runIntegralCli(args: CliArgs): Promise<{ exitCode: number; output
   }
   let ctx: AnalysisContext;
   let fingerprint = "nofp";
+  let scenes = emptySceneModel();
   if (args.project) {
     const mgr = await ProjectManager.load();
-    ctx = await mgr.getContext(args.project);
-    fingerprint = await mgr.fingerprint(args.project);
+    const projectId = mgr.resolveId(args.project);
+    const project = mgr.get(projectId)!;
+    ctx = await mgr.getContext(projectId);
+    fingerprint = await mgr.fingerprint(projectId);
+    try {
+      const inspection = await readProjectSceneInspection(project);
+      if (inspection.stale) {
+        return { exitCode: 1, output: `scene manifest is stale: ${inspection.staleReasons.join(", ")}` };
+      }
+      scenes = sceneModelFromInspection(inspection);
+    } catch (error) {
+      return { exitCode: 1, output: `scene manifest unavailable: ${error instanceof Error ? error.message : String(error)}` };
+    }
   } else {
     ctx = await analyze(args.repoPath);
   }
@@ -1101,7 +1120,7 @@ async function runIntegralCli(args: CliArgs): Promise<{ exitCode: number; output
   }
 
   const report = await runIntegral(ctx, query, {
-    scenes: emptySceneModel(),
+    scenes,
     moduleEval: evaluation,
     fingerprint,
     llm,

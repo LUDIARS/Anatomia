@@ -28,6 +28,8 @@ export interface WebContextSource {
   summary(projectId?: string, opts?: { stale?: boolean }): Promise<SummaryCounts>;
   /** All registered projects (or a synthetic single-entry list). */
   projects(): Project[];
+  /** Resolve a real registry entry; legacy single-context mode returns null. */
+  registeredProject(projectId?: string): Project | null;
   /** The currently selected project id, or null. */
   selected(): string | null;
   /** The source fingerprint for a project (for content-keyed derived caches). */
@@ -59,6 +61,10 @@ export function webContextSourceFrom(
       summary: (projectId?: string, opts?: { stale?: boolean }) =>
         src.summary(projectId, opts),
       projects: () => src.list(),
+      registeredProject: (projectId?: string) => {
+        try { return src.get(src.resolveId(projectId)) ?? null; }
+        catch { return null; }
+      },
       selected: () => src.selected,
       fingerprint: (projectId?: string) => src.fingerprint(projectId),
       cachedArtifact: (projectId, name, build) =>
@@ -80,6 +86,7 @@ export function webContextSourceFrom(
     // serve stale — always summarise the in-memory context directly.
     summary: async () => summarize(src),
     projects: () => [single],
+    registeredProject: () => null,
     selected: () => singleId,
     fingerprint: async () => "nofp",
     // Legacy single-context mode has no project home/fingerprint to key a disk
