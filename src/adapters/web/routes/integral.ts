@@ -23,7 +23,11 @@ import type { Hono } from "hono";
 import { runIntegral } from "../../../integral/run.js";
 import { emptySceneModel, type SceneModel } from "../../../integral/scene.js";
 import { sceneModelFromInspection } from "../../../scenes/canonical.js";
-import { readProjectSceneInspection } from "../../../knowledge/scene/index.js";
+import {
+  KnowledgeApplicationService,
+  knowledgePortFromManager,
+} from "../../../knowledge/application/index.js";
+import type { ProjectManager } from "../../../project/manager.js";
 import type { IntegralCache } from "../../../integral/cache.js";
 import type { IntegralQuery, IntegralScope } from "../../../integral/types.js";
 import { evaluateModulesFromGraph } from "../../../modules/evaluate.js";
@@ -40,6 +44,8 @@ export interface IntegralRouteDeps {
   judgeModelId?: string;
   /** Persistent integral path cache (survives restarts when file/redis backed). */
   pathCache?: IntegralCache;
+  /** Project manager for canonical knowledge reads. Null in single-context mode. */
+  manager?: ProjectManager | null;
 }
 
 const SCOPES = new Set<IntegralScope>(["function", "domain", "scene"]);
@@ -96,9 +102,12 @@ export function mountIntegralRoutes(app: Hono, source: WebContextSource, deps: I
 
     const registered = source.registeredProject(project);
     let scenes: SceneModel = emptySceneModel();
-    if (registered) {
+    if (registered && deps.manager) {
       try {
-        const inspection = await readProjectSceneInspection(registered);
+        const application = new KnowledgeApplicationService(
+          knowledgePortFromManager(deps.manager, registered.id),
+        );
+        const inspection = await application.scenes.query();
         if (inspection.stale) return c.json({ error: "scene manifest is stale", reasons: inspection.staleReasons }, 409);
         scenes = sceneModelFromInspection(inspection);
       } catch (error) {

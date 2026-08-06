@@ -17,15 +17,14 @@ x-anatomia:
 ## 目的と状態
 
 Anatomia が読む human-authored OKF と、Anatomia が書く generated OKF の境界を固定する
-planned contract。domain と scene の feature は「何を生成するか」を定め、本仕様は
+target contract。domain と scene の feature は「何を生成するか」を定め、本仕様は
 「OKF をどう解析・描画・更新するか」だけを所有する。
 実装は [`../../TASKS.md`](../../TASKS.md) の T51-T54/T58/T65 と
 [`../../docs/plan-okf-domain-scene-flow.md`](../../docs/plan-okf-domain-scene-flow.md) で管理する。
 
-2026-08-04 時点で T51-T66 の foundation、domain authoring workflow、scene projection workflow は実装済みである。`src/knowledge/` が stable ID、
+2026-08-04 時点で T51-T68 の foundation、domain authoring workflow、scene projection workflow、adapter migration は実装済みである。`src/knowledge/` が stable ID、
 frontmatter + semantic-unit parser、canonical transaction log、ownership manifest writer、Kuzu と
-legacy compatibility projection を所有する。T67 以降の adapter/migration 統合作業は引き続き
-planned であり、本 frontmatter の `status: planned` はそれらを含む feature 全体の状態を表す。
+legacy compatibility projection を所有する。T69 の executable integration fixture と実測 baseline は未完了である。
 
 ## 文書の役割
 

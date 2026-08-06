@@ -111,22 +111,15 @@ POST /api/projects/:id/web/search          { query } → LLM 検索結果
 
 ## 現行調整サブシステム (E, migration source)
 
-curated な taxonomy (`spec/data/<project>.taxonomy.json`, DomainPlan→ModulePlan)
-が編集の正本。編集→保存で `registerTaxonomy` が ontology DomainDefs + taxonomy +
-spec doc を再生成 = **仕様の調整も自動**。粒度調整は retune の自動フロー
-(`domains/retune` pipeline) をそのまま起動。シーンは手動定義
-(`spec/data/<project>.scenes.json`) を trace 由来とマージ。
+curated taxonomy、DomainDef、manual scenes は migration source として保持するが編集の正本ではない。
+canonical domain/scene は knowledge application service が command/query し、web-cache は同じ
+revision 検証済み scene manifest を読む。
 
-```
-GET  /api/projects/:id/adjust/model        { taxonomy, scenes }
-POST /api/projects/:id/adjust/domain       add | delete | rename
-POST /api/projects/:id/adjust/module       add | delete | rename | move | addPath
-POST /api/projects/:id/adjust/scene        add | delete
-POST /api/projects/:id/adjust/retune       粒度自動フロー (retune) 起動
-```
+`GET /api/projects/:id/adjust/model` は retained legacy taxonomy と canonical scene の比較用 read model。
+旧 `POST /adjust/{domain,module,scene,domain-organization,retune}` は 410 を返し、write は
+domain organization Gate A/B/C と scene explicit sync に統一する。
 
-編集/retune 後は解析キャッシュを invalidate し project.ontologyDir を更新。
-web キャッシュは stale になる (UI が再生成を促す)。
+Gate/sync 後は knowledge head と source revision により web cache の stale/rebuild 状態を判定する。
 
 上記 direct taxonomy/manual scene CRUD は migration source の説明であり、権威境界ではない。
 T62/T66 で次へ移行済みである。

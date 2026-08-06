@@ -139,6 +139,18 @@ describe("POST /api/integral", () => {
   });
 });
 
+describe("POST /api/projects/:id/scenes/sync", () => {
+  it("returns 404 for an unknown project", async () => {
+    const app = createApp(mgr);
+    const res = await app.fetch(new Request("http://localhost/api/projects/nope/scenes/sync", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ confirmSync: true, expectedHead: null }),
+    }));
+    expect(res.status).toBe(404);
+  });
+});
+
 describe("GET /api/projects/:id/branch-diff", () => {
   it("degrades to available:false outside a git repo", async () => {
     const app = createApp(mgr);

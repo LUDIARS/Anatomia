@@ -196,11 +196,11 @@
 
 ## G14. adapters / migration / integration
 
-- **T67 common knowledge application service** — domain/scene command/query を共有し、CLI/MCP/Web の
-  validation・conflict・rebuild status を統一。
-- **T68 legacy migration** — ontologyDir/taxonomy/DomainDef/screens/manual scenes を inventoryし、
-  dry-run + conflict report + replay可能 transaction で移行。
-- **T69 integration fixtures + quality metrics** — spec-only/code-only/mixed/rename/conflict/scene/trace fixture、
+- **T67 common knowledge application service** — implemented 2026-08-04。domain/scene command/query を共有し、
+  CLI/MCP/Web の validation・conflict・rebuild status を統一。
+- **T68 legacy migration** — implemented 2026-08-04。ontologyDir/taxonomy/DomainDef/screens/manual scenes を inventoryし、
+  dry-run + conflict report + source/head 再検証 + replay可能 transaction で移行。元 artifact は保持。
+- **T69 integration fixtures + quality metrics** — metric calculation と scenario catalog は実装済み。spec-only/code-only/mixed/rename/conflict/scene/trace の executable fixture と実測 baseline は未完了。
   parser精度、ID安定性、assignment evidence、replay/再生成決定性を計測。
 
 ---

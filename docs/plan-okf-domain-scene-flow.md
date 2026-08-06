@@ -225,12 +225,16 @@ Status: implemented 2026-08-04.
 
 #### T67 common knowledge application service
 
+Status: implemented 2026-08-04.
+
 - domain/scene command と query を application service に集約する。
 - CLI / MCP / Web は同じ validation、revision conflict、rebuild status を返す。
 
 受入: adapter ごとに別の write path / merge rule が存在しない。
 
 #### T68 legacy migration
+
+Status: implemented 2026-08-04.
 
 - `.anatomia/domains`、taxonomy、DomainDef、screens、manual scenes を inventory。
 - stable ID を割当て、conflict report と dry-run diff を出す。
@@ -239,6 +243,8 @@ Status: implemented 2026-08-04.
 受入: dry-run 無しの破壊移行をせず、元 artifact を保持したまま replay 可能な migration transaction を作る。
 
 #### T69 integration fixtures and quality metrics
+
+Status: partial 2026-08-04. Metric calculation and the scenario catalog are implemented; executable integration fixtures and measured baselines remain pending.
 
 - spec-only、code-only、mixed、renamed、hierarchy conflict、scene rename、trace enrichment fixture。
 - parser precision/recall、ID stability、assignment evidence、replay determinism、regeneration diff を計測する。

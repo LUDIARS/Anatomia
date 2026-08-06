@@ -1,411 +1,48 @@
-/**
- * src/adapters/web/routes/adjust.ts — Domain/module adjustment routes.
- *
- * The adjustment view edits taxonomy and reads canonical scene knowledge:
- *   GET  /api/projects/:id/adjust/model    current { taxonomy, scenes }
- *   POST /api/projects/:id/adjust/domain   add | delete | rename a domain
- *   POST /api/projects/:id/adjust/module   add | delete | rename | move | addPath
- *   POST /api/projects/:id/adjust/scene    removed (returns 410)
- *   POST /api/projects/:id/adjust/retune   run the granularity auto-flow (retune)
- *
- * Domain/module edits mutate the taxonomy and SAVE through taxonomy-store, which
- * re-registers the ontology DomainDefs + the taxonomy spec doc — so spec is
- * adjusted automatically (「仕様の調整も自動で行う」). Retune is the same
- * auto-search flow (`npm run retune`) the user referenced for granularity. Both
- * invalidate the analysis cache so the next prepare re-analyzes.
- *
- * Retune fails FAST on the stub LLM (no silent no-op) — feedback_no_silent_fallback.
- *
- * SRP: HTTP shaping + persistence wiring. Mutations use taxonomy-ops; the run
- * lives in domains/retune.
- */
+/** Read-only legacy Adjust compatibility; all authoritative writes use knowledge Gate commands. */
+// @implements SPEC-knowledge-adapter-migration
 
 import type { Context, Hono } from "hono";
 import type { ProjectManager } from "../../../project/manager.js";
-import type { LLMClient } from "../../../domains/card.js";
-import type { Taxonomy } from "../../../domains/retune/types.js";
-import {
-  kebab,
-  emptyTaxonomy,
-  findOrCreateDomain,
-  findOrCreateModule,
-  addDir,
-} from "../../../domains/retune/taxonomy-ops.js";
-import { loadTaxonomy, saveTaxonomy } from "../../../domains/retune/taxonomy-store.js";
-import { runRetuneOnContext } from "../../../domains/retune/index.js";
-import { buildDomainReview } from "../../../review/index.js";
-import { callLlmJson } from "../../../domains/retune/llm.js";
-import {
-  applyDomainOrganization,
-  applyDomainOrganizationEdits,
-  buildDomainOrganization,
-  buildDomainOrganizationPrompt,
-  type DomainOrganizationEdits,
-  type DomainOrganizationInput,
-  type DomainOrganizationResult,
-} from "../../../domains/organize/index.js";
-import { readProjectSceneInspection } from "../../../knowledge/scene/index.js";
+import { emptyTaxonomy } from "../../../domains/retune/taxonomy-ops.js";
+import { loadTaxonomy } from "../../../domains/retune/taxonomy-store.js";
+import { KnowledgeApplicationService, knowledgePortFromManager } from "../../../knowledge/application/index.js";
 
-export interface AdjustRouteDeps {
-  manager: ProjectManager | null;
-  /** LLM for retune. Absent / stub → retune fails fast. */
-  retuneLlm?: LLMClient;
-  retuneModelId?: string;
+export interface AdjustRouteDeps { manager: ProjectManager | null }
+
+function removed(c: Context) {
+  return c.json({
+    error: "legacy direct write was removed; use /domain-organization Gate A/B/C or /scenes/sync",
+  }, 410);
 }
 
-/** Resolve a project + its repo path, or null. */
-function resolveProject(manager: ProjectManager, id: string) {
-  const projectId = manager.resolveId(id);
-  const project = manager.get(projectId);
-  return project ?? null;
-}
-
+/** The old panel may still read this model while T68 source artifacts are retained. */
 export function mountAdjustRoutes(app: Hono, deps: AdjustRouteDeps): void {
-  const { manager } = deps;
-
-  // GET adjust/model — current editable model.
   app.get("/api/projects/:id/adjust/model", async (c) => {
-    if (!manager) return c.json({ error: "adjustment requires manager mode" }, 501);
-    const id = c.req.param("id");
-    let project;
+    if (!deps.manager) return c.json({ error: "adjustment requires manager mode" }, 501);
+    let port: ReturnType<typeof knowledgePortFromManager>;
     try {
-      project = resolveProject(manager, id);
-    } catch {
-      return c.json({ error: `no such project "${id}"` }, 404);
-    }
-    if (!project) return c.json({ error: `no such project "${id}"` }, 404);
-    const taxonomy = await loadTaxonomy(project.rootPath, project.name);
-    try {
-      const inspection = await readProjectSceneInspection(project);
-      return c.json({ taxonomy: taxonomy ?? emptyTaxonomy(project.name), scenes: inspection.scenes, sceneStatus: {
-        knowledgeHead: inspection.manifest.knowledgeHead,
-        sourceRevision: inspection.manifest.sourceRevision,
-        stale: inspection.stale,
-        staleReasons: inspection.staleReasons,
-      } });
+      port = knowledgePortFromManager(deps.manager, c.req.param("id"));
     } catch (error) {
-      return c.json({
-        taxonomy: taxonomy ?? emptyTaxonomy(project.name),
-        scenes: [],
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 404);
+    }
+    const taxonomy = await loadTaxonomy(port.project.rootPath, port.project.name);
+    const application = new KnowledgeApplicationService(port);
+    try {
+      const inspection = await application.scenes.query();
+      return c.json({ taxonomy: taxonomy ?? emptyTaxonomy(port.project.name), scenes: inspection.scenes, sceneStatus: {
+        knowledgeHead: inspection.manifest.knowledgeHead, sourceRevision: inspection.manifest.sourceRevision,
+        stale: inspection.stale, staleReasons: inspection.staleReasons,
+      }, authoritativeWrites: "knowledge-gates" });
+    } catch (error) {
+      return c.json({ taxonomy: taxonomy ?? emptyTaxonomy(port.project.name), scenes: [],
         sceneStatus: { stale: true, staleReasons: [error instanceof Error ? error.message : String(error)] },
-      });
+        authoritativeWrites: "knowledge-gates" });
     }
   });
 
-  // POST adjust/domain — add | delete | rename.
-  app.post("/api/projects/:id/adjust/domain", async (c) => {
-    return mutateTaxonomy(c, deps, async (t, body) => {
-      const action = String(body.action ?? "");
-      const name = String(body.name ?? "");
-      if (!name) throw new Error("name is required");
-      if (action === "add") {
-        findOrCreateDomain(t, name, String(body.description ?? ""));
-      } else if (action === "delete") {
-        const id = kebab(name);
-        t.domains = t.domains.filter((d) => d.name !== id);
-      } else if (action === "rename") {
-        const newName = kebab(String(body.newName ?? ""));
-        if (!newName) throw new Error("newName is required for rename");
-        const d = t.domains.find((x) => x.name === kebab(name));
-        if (!d) throw new Error(`no such domain "${name}"`);
-        d.name = newName;
-        if (body.description !== undefined) d.description = String(body.description);
-      } else {
-        throw new Error(`unknown domain action "${action}"`);
-      }
-    });
-  });
-
-  // POST adjust/module — add | delete | rename | move | addPath.
-  app.post("/api/projects/:id/adjust/module", async (c) => {
-    return mutateTaxonomy(c, deps, async (t, body) => {
-      const action = String(body.action ?? "");
-      const domainName = kebab(String(body.domain ?? ""));
-      const name = String(body.name ?? "");
-      const domain = t.domains.find((x) => x.name === domainName);
-      if (!domain) throw new Error(`no such domain "${body.domain}"`);
-      if (!name) throw new Error("name is required");
-      if (action === "add") {
-        const m = findOrCreateModule(domain, name, String(body.description ?? ""));
-        if (typeof body.path === "string" && body.path) addDir(m, body.path);
-      } else if (action === "delete") {
-        const id = kebab(name);
-        domain.modules = domain.modules.filter((m) => m.name !== id);
-      } else if (action === "rename") {
-        const newName = kebab(String(body.newName ?? ""));
-        if (!newName) throw new Error("newName is required for rename");
-        const m = domain.modules.find((x) => x.name === kebab(name));
-        if (!m) throw new Error(`no such module "${name}"`);
-        m.name = newName;
-        if (body.description !== undefined) m.description = String(body.description);
-      } else if (action === "addPath") {
-        const m = domain.modules.find((x) => x.name === kebab(name));
-        if (!m) throw new Error(`no such module "${name}"`);
-        if (typeof body.path !== "string" || !body.path) throw new Error("path is required");
-        addDir(m, body.path);
-      } else if (action === "move") {
-        const target = t.domains.find((x) => x.name === kebab(String(body.newDomain ?? "")));
-        if (!target) throw new Error(`no such target domain "${body.newDomain}"`);
-        const id = kebab(name);
-        const idx = domain.modules.findIndex((m) => m.name === id);
-        if (idx < 0) throw new Error(`no such module "${name}"`);
-        const [m] = domain.modules.splice(idx, 1);
-        target.modules.push(m!);
-      } else {
-        throw new Error(`unknown module action "${action}"`);
-      }
-    });
-  });
-
-  // Authoritative scene identity/edges come from code/asset sync, never manual CRUD.
-  app.post("/api/projects/:id/adjust/scene", async (c) => {
-    if (!manager) return c.json({ error: "adjustment requires manager mode" }, 501);
-    return c.json({
-      error: "manual scene CRUD was removed; edit code/asset definitions and run /scenes/sync. Only display annotations are authorable.",
-    }, 410);
-  });
-
-  // POST adjust/domain-organization - build/apply a human-authored taxonomy plan.
-  app.post("/api/projects/:id/adjust/domain-organization", async (c) => {
-    if (!manager) return c.json({ error: "adjustment requires manager mode" }, 501);
-    const id = c.req.param("id");
-    let project;
-    try {
-      project = resolveProject(manager, id);
-    } catch {
-      return c.json({ error: `no such project "${id}"` }, 404);
-    }
-    if (!project) return c.json({ error: `no such project "${id}"` }, 404);
-
-    let body: Record<string, unknown>;
-    try {
-      body = (await c.req.json()) as Record<string, unknown>;
-    } catch {
-      return c.json({ error: "invalid JSON body" }, 400);
-    }
-
-    const taxonomy = await loadTaxonomy(project.rootPath, project.name);
-    const input = domainOrganizationInput(body, project.name, taxonomy);
-    const edits = body["edits"] as DomainOrganizationEdits | undefined;
-    const draft = applyDomainOrganizationEdits(buildDomainOrganization(input), edits);
-    const prompt = buildDomainOrganizationPrompt(input, draft);
-
-    let result: DomainOrganizationResult = draft;
-    if (body["runLlm"] === true) {
-      if (!deps.retuneLlm || deps.retuneModelId === "stub-llm") {
-        return c.json(
-          {
-            error: "domain organization requires a real LLM when runLlm is true",
-            draft,
-            prompt,
-          },
-          501,
-        );
-      }
-      try {
-        result = applyDomainOrganizationEdits(
-          await callLlmJson<DomainOrganizationResult>(deps.retuneLlm, prompt),
-          edits,
-        );
-      } catch (err) {
-        return c.json(
-          {
-            error: "domain organization LLM failed",
-            detail: err instanceof Error ? err.message : String(err),
-            draft,
-            prompt,
-          },
-          502,
-        );
-      }
-    }
-
-    if (body["apply"] !== true) {
-      return c.json({ draft, prompt, result: body["runLlm"] === true ? result : undefined });
-    }
-
-    if (!isConfirmed(body)) {
-      return c.json(
-        {
-          error: "human_confirmation_required",
-          detail: "Set confirmApply:true or humanConfirmation.confirmed:true after reviewing the domain organization draft.",
-          draft,
-          prompt,
-          result,
-        },
-        409,
-      );
-    }
-
-    try {
-      const applied = await applyDomainOrganization(project.rootPath, project.name, result, {
-        removeDomains: droppedDomainTargets(edits),
-      });
-      project.ontologyDir = applied.ontologyDir;
-      await manager.save();
-      manager.cache.invalidate(project.id);
-      return c.json({ draft, prompt, result, apply: applied });
-    } catch (err) {
-      return c.json({ error: err instanceof Error ? err.message : String(err), draft, prompt, result }, 500);
-    }
-  });
-
-  // POST adjust/retune - granularity auto-flow (the retune pipeline).
-  app.post("/api/projects/:id/adjust/retune", async (c) => {
-    if (!manager) return c.json({ error: "adjustment requires manager mode" }, 501);
-    if (!deps.retuneLlm || deps.retuneModelId === "stub-llm") {
-      return c.json(
-        {
-          error:
-            "retune requires a real LLM. LUDIARS runs the claude CLI (claude -p, no API key) — " +
-            "ensure `claude` is on PATH, or set ANATOMIA_LLM_BACKEND to a non-stub backend. No silent no-op.",
-        },
-        501,
-      );
-    }
-    const id = c.req.param("id");
-    let project;
-    try {
-      project = resolveProject(manager, id);
-    } catch {
-      return c.json({ error: `no such project "${id}"` }, 404);
-    }
-    if (!project) return c.json({ error: `no such project "${id}"` }, 404);
-    let body: Record<string, unknown> = {};
-    try {
-      body = (await c.req.json()) as Record<string, unknown>;
-    } catch {
-      /* options are optional */
-    }
-    const options = {
-      largePercentile: numOpt(body["largePercentile"]),
-      maxModulesPerDomain: numOpt(body["maxModulesPerDomain"]),
-      minNodesPerModule: numOpt(body["minNodesPerModule"]),
-      now: new Date().toISOString(),
-    };
-    try {
-      const ctx = await manager.getContext(id);
-      // review → retune 還流: run the deterministic domain review first so the
-      // split/merge LLM prompts carry cohesion/drift/overlap evidence.
-      const reviewFindings = await buildDomainReview(ctx);
-      const report = await runRetuneOnContext(ctx, {
-        project: project.name,
-        llm: deps.retuneLlm,
-        options,
-        reviewFindings,
-      });
-      // Point the project at the regenerated ontology + drop the stale analysis.
-      project.ontologyDir = report.ontologyDir;
-      await manager.save();
-      manager.cache.invalidate(project.id);
-      return c.json({
-        project: project.id,
-        iteration: report.iteration,
-        domains: report.taxonomy.domains.length,
-        modules: report.taxonomy.domains.reduce((n, d) => n + d.modules.length, 0),
-        written: report.written,
-        haltForHuman: report.haltForHuman,
-        humanReviewNotes: report.humanReviewNotes,
-        steps: report.steps,
-      });
-    } catch (err) {
-      return c.json({ error: err instanceof Error ? err.message : String(err) }, 500);
-    }
-  });
-
-  /**
-   * Shared taxonomy-mutation handler: load (or seed) the taxonomy, apply `mutate`,
-   * save (re-registers ontology + spec), and invalidate the analysis cache.
-   */
-  async function mutateTaxonomy(
-    c: Context,
-    d: AdjustRouteDeps,
-    mutate: (t: Taxonomy, body: Record<string, unknown>) => Promise<void>,
-  ) {
-    if (!d.manager) return c.json({ error: "adjustment requires manager mode" }, 501);
-    const id = c.req.param("id") ?? "";
-    let project;
-    try {
-      project = resolveProject(d.manager, id);
-    } catch {
-      return c.json({ error: `no such project "${id}"` }, 404);
-    }
-    if (!project) return c.json({ error: `no such project "${id}"` }, 404);
-    let body: Record<string, unknown>;
-    try {
-      body = (await c.req.json()) as Record<string, unknown>;
-    } catch {
-      return c.json({ error: "invalid JSON body" }, 400);
-    }
-    const taxonomy = (await loadTaxonomy(project.rootPath, project.name)) ?? emptyTaxonomy(project.name);
-    try {
-      await mutate(taxonomy, body);
-    } catch (err) {
-      return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
-    }
-    const result = await saveTaxonomy(project.rootPath, taxonomy);
-    project.ontologyDir = result.ontologyDir;
-    await d.manager.save();
-    d.manager.cache.invalidate(project.id);
-    return c.json({ ok: true, taxonomy, written: result.written });
-  }
-}
-
-function numOpt(v: unknown): number | undefined {
-  return typeof v === "number" && Number.isFinite(v) ? v : undefined;
-}
-
-function domainOrganizationInput(
-  body: Record<string, unknown>,
-  projectName: string,
-  taxonomy: Taxonomy | null,
-): DomainOrganizationInput {
-  return {
-    project: stringOpt(body["project"]) ?? projectName,
-    serviceName: stringOpt(body["serviceName"]) ?? projectName,
-    serviceDescription: stringOpt(body["serviceDescription"]),
-    specs: records(body["specs"]).map((spec, index) => ({
-      id: stringOpt(spec["id"]) ?? stringOpt(spec["code"]),
-      title: stringOpt(spec["title"]) ?? `Spec ${index + 1}`,
-      path: stringOpt(spec["path"]),
-      text: stringOpt(spec["text"]) ?? stringOpt(spec["body"]) ?? "",
-    })).filter((spec) => spec.text.length > 0),
-    existingDomains: Array.isArray(body["existingDomains"])
-      ? records(body["existingDomains"]).map((domain) => ({
-        name: stringOpt(domain["name"]) ?? "",
-        description: stringOpt(domain["description"]) ?? null,
-      })).filter((domain) => domain.name.length > 0)
-      : (taxonomy?.domains ?? []).map((domain) => ({
-        name: domain.name,
-        description: domain.description,
-      })),
-    uxAnswers: records(body["uxAnswers"]).map((answer) => ({
-      questionId: stringOpt(answer["questionId"]) ?? "",
-      answer: stringOpt(answer["answer"]) ?? "",
-    })).filter((answer) => answer.questionId.length > 0 && answer.answer.length > 0),
-    generatedAt: stringOpt(body["generatedAt"]),
-  };
-}
-
-function isConfirmed(body: Record<string, unknown>): boolean {
-  const human = body["humanConfirmation"];
-  return body["confirmApply"] === true ||
-    (human != null && typeof human === "object" && (human as Record<string, unknown>)["confirmed"] === true);
-}
-
-function droppedDomainTargets(edits: DomainOrganizationEdits | undefined): string[] {
-  return (edits?.domains ?? [])
-    .filter((edit) => edit.drop === true)
-    .map((edit) => edit.match.trim())
-    .filter(Boolean);
-}
-
-function records(value: unknown): Array<Record<string, unknown>> {
-  return Array.isArray(value)
-    ? value.filter((item): item is Record<string, unknown> => item != null && typeof item === "object")
-    : [];
-}
-
-function stringOpt(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+  app.post("/api/projects/:id/adjust/domain", removed);
+  app.post("/api/projects/:id/adjust/module", removed);
+  app.post("/api/projects/:id/adjust/scene", removed);
+  app.post("/api/projects/:id/adjust/domain-organization", removed);
+  app.post("/api/projects/:id/adjust/retune", removed);
 }

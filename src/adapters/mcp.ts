@@ -57,7 +57,9 @@ import type { AnalysisContext, Landing } from "../core.js";
 import type { ContextBundle, Verdict, AnchorId } from "../types.js";
 import type { Project } from "../project/types.js";
 import type { Providers } from "../providers/index.js";
-import { readProjectSceneInspection, type SceneInspection } from "../knowledge/scene/index.js";
+import type { SceneInspection } from "../knowledge/scene/index.js";
+import { KnowledgeApplicationService, knowledgePortFromManager } from "../knowledge/application/index.js";
+import type { LegacyMigrationPlan } from "../knowledge/migration/index.js";
 
 // ---------------------------------------------------------------------------
 // Context resolution: either a fixed ctx (legacy) or a ProjectManager.
@@ -114,6 +116,8 @@ export interface ToolHandlers {
     only?: string[];
   }): Promise<{ drafts: DomainDraft[] }>;
   "anatomia.scenes"(args: { project?: string }): Promise<SceneInspection>;
+  "anatomia.knowledge.status"(args: { project?: string }): Promise<Awaited<ReturnType<KnowledgeApplicationService["status"]>>>;
+  "anatomia.knowledge.migration.plan"(args: { project?: string }): Promise<LegacyMigrationPlan>;
   "anatomia.projects.list"(): Promise<{ projects: Project[]; selected: string | null }>;
   "anatomia.projects.add"(args: {
     name: string;
@@ -239,8 +243,17 @@ export function createHandlers(
 
     async "anatomia.scenes"({ project }) {
       const mgr = requireManager(source);
-      const id = mgr.resolveId(project);
-      return readProjectSceneInspection(mgr.get(id)!);
+      return new KnowledgeApplicationService(knowledgePortFromManager(mgr, project)).scenes.query();
+    },
+
+    async "anatomia.knowledge.status"({ project }) {
+      const mgr = requireManager(source);
+      return new KnowledgeApplicationService(knowledgePortFromManager(mgr, project)).status();
+    },
+
+    async "anatomia.knowledge.migration.plan"({ project }) {
+      const mgr = requireManager(source);
+      return new KnowledgeApplicationService(knowledgePortFromManager(mgr, project)).planLegacyMigration();
     },
 
     async "anatomia.projects.list"() {
@@ -415,6 +428,26 @@ export class AnatomiaServer {
       { project: z.string().optional().describe("Project id (defaults to selected)") },
       async ({ project }) => {
         const result = await h["anatomia.scenes"]({ project });
+        return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
+      },
+    );
+
+    this.server.tool(
+      "anatomia.knowledge.status",
+      "Read canonical knowledge head, source revision, and projection rebuild status.",
+      { project: z.string().optional().describe("Project id (defaults to selected)") },
+      async ({ project }) => {
+        const result = await h["anatomia.knowledge.status"]({ project });
+        return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
+      },
+    );
+
+    this.server.tool(
+      "anatomia.knowledge.migration.plan",
+      "Dry-run legacy knowledge migration; reports inventory, conflicts, diff operations, and retained originals.",
+      { project: z.string().optional().describe("Project id (defaults to selected)") },
+      async ({ project }) => {
+        const result = await h["anatomia.knowledge.migration.plan"]({ project });
         return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
       },
     );

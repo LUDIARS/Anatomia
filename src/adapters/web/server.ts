@@ -236,13 +236,13 @@ export function createApp(
   mountDomainViewRoute(app, source);
 
   // ── Integral-search + module routes (canonical scene manifest + 機能 eval) ─
-  mountIntegralRoutes(app, source, resolveIntegralDeps());
+  mountIntegralRoutes(app, source, { ...resolveIntegralDeps(), manager });
 
   // ── Access-pattern route (heuristic singleton/locator/facade + accessors) ──
   mountPatternRoutes(app, source);
 
   // ── Screen-composition route (auto-learned UI screens + contains/navigatesTo) ──
-  mountScreenRoutes(app, source);
+  mountScreenRoutes(app, source, manager);
 
   // ── Prepared web-display cache: build + serve every view + LLM search ──────
   // The panel renders ONLY from these prepared files (no cache → 409 → prompt).
@@ -256,8 +256,6 @@ export function createApp(
   // ── Adjustment routes: domain/module commands + scene read compatibility ──
   mountAdjustRoutes(app, {
     manager,
-    retuneLlm: aux.retuneLlm,
-    retuneModelId: aux.retuneModelId,
   });
 
   // ── Augur bridge: ask for test suggestions for the selected project ────────
@@ -266,8 +264,8 @@ export function createApp(
   // ── 学習フロー routes: domains draft synthesis via HTTP ───────────────────
   mountFlowRoutes(app, {
     manager,
-    draftLlm: aux.retuneLlm,
-    draftModelId: aux.retuneModelId,
+    draftLlm: aux.draftLlm,
+    draftModelId: aux.draftModelId,
     draftCache: resolveCacheStore<DomainDraft[]>(),
     orphanProposalCache: resolveCacheStore<OrphanDomainProposal>(),
     discordAttachmentLoader: resolveDiscordAttachmentLoader(),
@@ -464,26 +462,25 @@ function resolveIntegralDeps(): IntegralRouteDeps {
 }
 
 /**
- * Resolve the auxiliary LLM deps for the web-cache + adjustment routes: a Haiku
- * client for search (free-text → ranked results) and a (Sonnet) client for the
- * retune granularity flow. Both fail fast at the route when only the stub LLM is
+ * Resolve auxiliary LLM dependencies for web-cache search and Gate proposal drafting.
+ * They fail fast at the route when only the stub LLM is
  * configured (no API key) — never a silent substring/no-op fallback.
  */
 function resolveAuxDeps(): {
   searchLlm: ReturnType<typeof resolveProviders>["llm"];
   searchModelId: string;
-  retuneLlm: ReturnType<typeof resolveProviders>["llm"];
-  retuneModelId: string;
+  draftLlm: ReturnType<typeof resolveProviders>["llm"];
+  draftModelId: string;
 } {
   const searchModel = process.env["ANATOMIA_SEARCH_MODEL"] || "claude-haiku-4-5";
   const searchP = resolveProviders({ ...envConfig(), llmModel: searchModel });
-  const retuneModel = process.env["ANATOMIA_RETUNE_MODEL"] || "claude-sonnet-4-6";
-  const retuneP = resolveProviders({ ...envConfig(), llmModel: retuneModel });
+  const draftModel = process.env["ANATOMIA_RETUNE_MODEL"] || "claude-sonnet-4-6";
+  const draftP = resolveProviders({ ...envConfig(), llmModel: draftModel });
   return {
     searchLlm: searchP.llm,
     searchModelId: searchP.llmModelId,
-    retuneLlm: retuneP.llm,
-    retuneModelId: retuneP.llmModelId,
+    draftLlm: draftP.llm,
+    draftModelId: draftP.llmModelId,
   };
 }
 

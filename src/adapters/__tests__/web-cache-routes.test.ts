@@ -4,11 +4,11 @@
  * End-to-end for the prepared web-display cache + adjustment routes:
  *   - a view is 409 (not-prepared) until prepare-web-cache builds the bundle;
  *   - prepare then serves every view + a fresh (non-stale) manifest;
- *   - search/retune fail FAST (501) with only the stub LLM — no silent fallback;
- *   - domain/module adjustments mutate taxonomy while manual scene CRUD stays removed.
+ *   - LLM search fails fast (501) with only the stub LLM — no silent fallback;
+ *   - legacy reads remain available while all legacy direct writes stay removed.
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { mkdtemp, rm, writeFile, mkdir, readFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createApp } from "../web/server.js";
@@ -24,7 +24,7 @@ let pid: string;
 let priorBackend: string | undefined;
 
 beforeAll(async () => {
-  // Force the offline stub backend so the LLM-gated routes (search / retune) hit
+  // Force the offline stub backend so the LLM-gated search route hits
   // their fail-fast guard deterministically — without a key the backend would
   // otherwise infer to the real claude-cli (subscription) and try to run it.
   priorBackend = process.env["ANATOMIA_LLM_BACKEND"];
@@ -158,83 +158,21 @@ describe("prepared web cache: gate → prepare → serve", () => {
   });
 });
 
-describe("adjustment: domain / module commands and canonical scene boundary", () => {
-  it("adds a domain + module and reflects them in the model", async () => {
-    const d = await post("/adjust/domain", { action: "add", name: "Combat", description: "戦闘" });
-    expect(d.status).toBe(200);
-    expect((await d.json()).taxonomy.domains.some((x: { name: string }) => x.name === "combat")).toBe(true);
-
-    const m = await post("/adjust/module", {
-      action: "add",
-      domain: "combat",
-      name: "Spawner",
-      path: "src",
-    });
-    expect(m.status).toBe(200);
-
-    const model = await (await get("/adjust/model")).json();
-    const combat = model.taxonomy.domains.find((x: { name: string }) => x.name === "combat");
-    expect(combat.modules.some((x: { name: string }) => x.name === "spawner")).toBe(true);
-
-    // The taxonomy file was written under the repo (spec adjusted automatically).
-    const tax = JSON.parse(
-      await readFile(join(root, "spec", "data", "Fixture.taxonomy.json"), "utf8"),
-    );
-    expect(tax.domains.some((x: { name: string }) => x.name === "combat")).toBe(true);
-  });
-
-  it("renames then deletes a module", async () => {
-    await post("/adjust/module", { action: "rename", domain: "combat", name: "Spawner", newName: "Waves" });
-    let model = await (await get("/adjust/model")).json();
-    let combat = model.taxonomy.domains.find((x: { name: string }) => x.name === "combat");
-    expect(combat.modules.some((x: { name: string }) => x.name === "waves")).toBe(true);
-
-    await post("/adjust/module", { action: "delete", domain: "combat", name: "Waves" });
-    model = await (await get("/adjust/model")).json();
-    combat = model.taxonomy.domains.find((x: { name: string }) => x.name === "combat");
-    expect(combat.modules.some((x: { name: string }) => x.name === "waves")).toBe(false);
-  });
-
-  it("rejects removed manual scene CRUD", async () => {
-    const add = await post("/adjust/scene", { action: "add", id: "boss", label: "Boss", domains: ["combat"] });
-    expect(add.status).toBe(410);
-    expect((await add.json()).error).toMatch(/manual scene CRUD was removed/i);
-  });
-
-  it("applies a domain organization draft to the taxonomy", async () => {
-    const res = await post("/adjust/domain-organization", {
-      serviceName: "Fixture",
-      serviceDescription: "Users capture work notes.",
-      specs: [{ title: "Worklog Capture", text: "# Worklog Capture\n- Save a note in src/worklog." }],
-      uxAnswers: [
-        { questionId: "service:actor", answer: "Maintainers" },
-        { questionId: "service:success", answer: "The note is visible." },
-        { questionId: "worklog-capture:domain-boundary", answer: "Save and list work notes." },
-        { questionId: "worklog-capture:domain-success", answer: "The saved note can be found." },
-      ],
-      edits: {
-        domains: [{ match: "worklog-capture", pathHints: ["(^|/)src/worklog(/|$)"], nameHints: ["(Worklog|Capture)"] }],
-      },
-      apply: true,
-      confirmApply: true,
-    });
+describe("adjustment: retained read model and removed direct writes", () => {
+  it("serves the retained taxonomy as a read-only migration source", async () => {
+    const res = await get("/adjust/model");
     expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.apply.taxonomy.domains.some((x: { name: string }) => x.name === "worklog-capture")).toBe(true);
-
-    const tax = JSON.parse(await readFile(join(root, "spec", "data", "Fixture.taxonomy.json"), "utf8"));
-    const domain = tax.domains.find((x: { name: string }) => x.name === "worklog-capture");
-    expect(domain.modules[0].names).toEqual(["(Worklog|Capture)"]);
+    const model = await res.json();
+    expect(model.taxonomy).toBeDefined();
+    expect(model.authoritativeWrites).toBe("knowledge-gates");
   });
 
-  it("rejects an invalid domain action (400)", async () => {
-    const res = await post("/adjust/domain", { action: "frobnicate", name: "x" });
-    expect(res.status).toBe(400);
-  });
-
-  it("retune fails fast (501) on the stub LLM — no silent no-op", async () => {
-    const res = await post("/adjust/retune", {});
-    expect(res.status).toBe(501);
-    expect((await res.json()).error).toMatch(/real LLM|API key/i);
-  });
+  it.each(["domain", "module", "scene", "domain-organization", "retune"])(
+    "rejects the removed %s direct-write route",
+    async (route) => {
+      const res = await post(`/adjust/${route}`, {});
+      expect(res.status).toBe(410);
+      expect((await res.json()).error).toMatch(/legacy direct write was removed/i);
+    },
+  );
 });

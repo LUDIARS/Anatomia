@@ -33,8 +33,7 @@ import type { WebViewName, SearchCorpus } from "../../../web-cache/types.js";
 import { searchCorpus } from "../../../web-cache/search.js";
 import type { SceneModel } from "../../../integral/scene.js";
 import { sceneModelFromInspection } from "../../../scenes/canonical.js";
-import { readProjectSceneInspection } from "../../../knowledge/scene/index.js";
-import type { Project } from "../../../project/types.js";
+import { KnowledgeApplicationService, knowledgePortFromManager } from "../../../knowledge/application/index.js";
 
 /** Dependencies for the web-cache routes. */
 export interface WebCacheRouteDeps {
@@ -49,8 +48,8 @@ export interface WebCacheRouteDeps {
 const VIEW_SET = new Set<WebViewName>(WEB_VIEWS);
 
 /** All prepared views consume the same revision-validated canonical manifest. */
-async function resolveSceneModel(project: Project): Promise<SceneModel> {
-  const inspection = await readProjectSceneInspection(project);
+async function resolveSceneModel(manager: ProjectManager, projectId: string): Promise<SceneModel> {
+  const inspection = await new KnowledgeApplicationService(knowledgePortFromManager(manager, projectId)).scenes.query();
   if (inspection.stale) throw new Error(`scene manifest is stale: ${inspection.staleReasons.join(", ")}`);
   return sceneModelFromInspection(inspection);
 }
@@ -67,7 +66,7 @@ export function mountWebCacheRoutes(app: Hono, deps: WebCacheRouteDeps): void {
     setPhase("analyzing");
     const ctx = await manager!.getContext(projectId);
     const fingerprint = await manager!.fingerprint(projectId);
-    const sceneModel = await resolveSceneModel(project);
+    const sceneModel = await resolveSceneModel(manager!, projectId);
     setPhase("building views");
     const bundle = await buildWebCacheBundle(ctx, { sceneModel });
     setPhase("writing");

@@ -80,7 +80,7 @@ import type { ScreenGraph } from "../screens/index.js";
 import { deriveScenes, type DerivedSceneGraph } from "../scenes/derive.js";
 import { loadScenes, mergeSceneModel } from "../scenes/store.js";
 import { sceneModelFromInspection } from "../scenes/canonical.js";
-import { readProjectSceneInspection } from "../knowledge/scene/index.js";
+import { KnowledgeApplicationService, knowledgePortFromManager } from "../knowledge/application/index.js";
 import { ProjectManager } from "../project/manager.js";
 import { exportGraphHtml } from "./web/export.js";
 import { startServer } from "./web/server.js";
@@ -95,10 +95,8 @@ import { resolveCacheStore } from "../cache/resolve.js";
 import {
   domainsDir,
   loadEditableDomains,
-  saveEditableDomains,
   synthesizeDomainDrafts,
   seedDraftsFromStructure,
-  reconcileDrafts,
   type DomainDraft,
 } from "../domains/authoring/index.js";
 import { generateCppHeader, generateCppPatches, type DomainEntryPoint } from "../dynamic/inject-cpp.js";
@@ -126,6 +124,7 @@ export type ProjectAction = "add" | "list" | "remove" | "analyze" | "spec";
 export type DomainsAction = "draft" | "list" | "reconstruct" | "suggest";
 export type TraceAction = "plan" | "ingest";
 export type LinksAction = "list" | "ratify" | "candidates";
+export type KnowledgeAction = "status" | "migration-plan";
 
 export interface CliArgs {
   subcommand:
@@ -148,6 +147,7 @@ export interface CliArgs {
     | "trace"
     | "screens"
     | "scenes"
+    | "knowledge"
     | "links";
   repoPath: string;
   /** For cache-stats: path to the JSONL transcript (defaults to ANATOMIA_CACHE_LOG). */
@@ -170,6 +170,8 @@ export interface CliArgs {
   json?: boolean;
   /** --project <id>: target a registered project. */
   project?: string;
+  /** For knowledge: shared service status or read-only legacy migration plan. */
+  knowledgeAction?: KnowledgeAction;
   /** For export-graph: output file path. */
   output?: string;
   /** project subcommand details. */
@@ -259,10 +261,11 @@ export function parseArgs(argv: string[]): CliArgs {
     subcommand !== "trace" &&
     subcommand !== "screens" &&
     subcommand !== "scenes" &&
+    subcommand !== "knowledge" &&
     subcommand !== "links"
   ) {
     throw new Error(
-      `Unknown subcommand "${subcommand ?? ""}". Expected: verify | context | where | find | callers | callees | review | spec-review | domain-review | pr-review | project | export-graph | web | cache-stats | integral | domains | trace | screens | scenes | links`,
+      `Unknown subcommand "${subcommand ?? ""}". Expected: verify | context | where | find | callers | callees | review | spec-review | domain-review | pr-review | project | export-graph | web | cache-stats | integral | domains | trace | screens | scenes | knowledge | links`,
     );
   }
 
@@ -285,6 +288,10 @@ export function parseArgs(argv: string[]): CliArgs {
 
   if (subcommand === "links") {
     return parseLinksArgs(args);
+  }
+
+  if (subcommand === "knowledge") {
+    return parseKnowledgeArgs(args);
   }
 
   // The `web` subcommand has its own flag set.
@@ -582,6 +589,25 @@ function parseLinksArgs(args: string[]): CliArgs {
   };
 }
 
+function parseKnowledgeArgs(args: string[]): CliArgs {
+  const action = args.shift();
+  if (action !== "status" && action !== "migration-plan") {
+    throw new Error(`Unknown knowledge action "${action ?? ""}". Expected: status | migration-plan`);
+  }
+  let project: string | undefined;
+  let json = false;
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "--project" || args[i] === "-p") {
+      const value = args[++i];
+      if (!value || value.startsWith("-")) throw new Error("knowledge --project requires an id");
+      project = value;
+    }
+    else if (args[i] === "--json" || args[i] === "-j") json = true;
+    else throw new Error(`Unknown knowledge option "${args[i]}"`);
+  }
+  return { subcommand: "knowledge", repoPath: process.cwd(), project, json, knowledgeAction: action };
+}
+
 // ---------------------------------------------------------------------------
 // Human summary for verify
 // ---------------------------------------------------------------------------
@@ -629,6 +655,10 @@ export async function runCli(
 
   if (args.subcommand === "links") {
     return runLinks(args);
+  }
+
+  if (args.subcommand === "knowledge") {
+    return runKnowledge(args);
   }
 
   if (args.subcommand === "spec-review") {
@@ -820,9 +850,8 @@ async function runScenes(args: CliArgs): Promise<{ exitCode: number; output: str
   if (args.project) {
     const mgr = await ProjectManager.load();
     const projectId = mgr.resolveId(args.project);
-    const project = mgr.get(projectId)!;
     let inspection;
-    try { inspection = await readProjectSceneInspection(project); }
+    try { inspection = await new KnowledgeApplicationService(knowledgePortFromManager(mgr, projectId)).scenes.query(); }
     catch (error) {
       return { exitCode: 1, output: `scene manifest unavailable: ${error instanceof Error ? error.message : String(error)}` };
     }
@@ -864,6 +893,22 @@ async function runScenes(args: CliArgs): Promise<{ exitCode: number; output: str
     lines.push(`  [${scene.kind}] ${scene.id}  ${extras.join("  ")}`);
   }
   return { exitCode: 0, output: lines.join("\n") };
+}
+
+async function runKnowledge(args: CliArgs): Promise<{ exitCode: number; output: string }> {
+  const manager = await ProjectManager.load();
+  const application = new KnowledgeApplicationService(knowledgePortFromManager(manager, args.project));
+  if (args.knowledgeAction === "migration-plan") {
+    const plan = await application.planLegacyMigration();
+    return { exitCode: plan.canApply ? 0 : 1, output: JSON.stringify(plan, null, 2) };
+  }
+  const status = await application.status();
+  if (args.json) return { exitCode: status.rebuildRequired ? 1 : 0, output: JSON.stringify(status, null, 2) };
+  return {
+    exitCode: status.rebuildRequired ? 1 : 0,
+    output: `knowledge ${status.projectId}: head ${status.knowledgeHead ?? "<empty>"} / scene ${status.sceneProjection}`
+      + (status.staleReasons.length > 0 ? ` / ${status.staleReasons.join(", ")}` : ""),
+  };
 }
 
 /** Human-readable summary of a detected screen composition. */
@@ -1084,11 +1129,10 @@ async function runIntegralCli(args: CliArgs): Promise<{ exitCode: number; output
   if (args.project) {
     const mgr = await ProjectManager.load();
     const projectId = mgr.resolveId(args.project);
-    const project = mgr.get(projectId)!;
     ctx = await mgr.getContext(projectId);
     fingerprint = await mgr.fingerprint(projectId);
     try {
-      const inspection = await readProjectSceneInspection(project);
+      const inspection = await new KnowledgeApplicationService(knowledgePortFromManager(mgr, projectId)).scenes.query();
       if (inspection.stale) {
         return { exitCode: 1, output: `scene manifest is stale: ${inspection.staleReasons.join(", ")}` };
       }
@@ -1183,8 +1227,14 @@ async function runDomains(args: CliArgs): Promise<{ exitCode: number; output: st
     return { exitCode: 0, output: lines.join("\n") };
   }
 
-  // suggest / draft / reconstruct: analyze -> synthesise. Only draft/reconstruct
-  // reconcile and save; suggest is read-only.
+  if (args.domainsAction !== "suggest") {
+    return {
+      exitCode: 1,
+      output: "direct DomainDef write was removed; use the domain-organization Gate A/B/C workflow. Existing files remain migration inputs.",
+    };
+  }
+
+  // suggest is the only remaining synthesis path and is read-only.
   const ctx = args.project
     ? await mgr!.getContext(projectId)
     : await analyze(repoRoot);
@@ -1221,38 +1271,7 @@ async function runDomains(args: CliArgs): Promise<{ exitCode: number; output: st
     return { exitCode: 0, output: lines.join("\n") };
   }
 
-  const existing = await loadEditableDomains(dir);
-  const result = reconcileDrafts(existing, drafts, { force: args.force });
-  await saveEditableDomains(dir, result.merged);
-
-  // Wire the project's ontologyDir to the domains dir so detection loads them.
-  if (mgr && projectId && !mgr.get(projectId)!.ontologyDir) {
-    const proj = mgr.get(projectId)!;
-    (proj as { ontologyDir?: string }).ontologyDir = dir;
-    await mgr.save();
-  }
-
-  if (args.json) {
-    return { exitCode: 0, output: JSON.stringify({ dir, ...summarizeReconcile(result) }, null, 2) };
-  }
-  const s = summarizeReconcile(result);
-  return {
-    exitCode: 0,
-    output:
-      `domains ${args.domainsAction} → ${dir}\n` +
-      `  drafted: ${drafts.length}  added: ${s.added.length}  updated: ${s.updated.length}  preserved: ${s.preserved.length}\n` +
-      (s.added.length ? `  + ${s.added.join(", ")}\n` : "") +
-      (s.updated.length ? `  ~ ${s.updated.join(", ")}\n` : "") +
-      `  total on disk: ${result.merged.length}`,
-  };
-}
-
-function summarizeReconcile(r: ReturnType<typeof reconcileDrafts>): {
-  added: string[];
-  updated: string[];
-  preserved: string[];
-} {
-  return { added: r.added, updated: r.updated, preserved: r.preserved };
+  throw new Error("unreachable domains action");
 }
 
 // ---------------------------------------------------------------------------

@@ -37,6 +37,16 @@
             "(^|/)src/modules/[^/]+$",
             "(^|/)src/modules/__tests__/[^/]+$"
           ]
+        },
+        {
+          "name": "knowledge-model",
+          "description": "canonical domain/scene knowledge application、migration、quality contracts（src/knowledge）",
+          "paths": [
+            "(^|/)src/knowledge/[^/]+$",
+            "(^|/)src/knowledge/application/[^/]+$",
+            "(^|/)src/knowledge/migration/[^/]+$",
+            "(^|/)src/knowledge/quality/[^/]+$"
+          ]
         }
       ]
     },

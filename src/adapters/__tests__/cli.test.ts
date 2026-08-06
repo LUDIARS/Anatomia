@@ -66,6 +66,14 @@ describe("parseArgs", () => {
     expect(args.json).toBe(true);
   });
 
+  it("parses knowledge actions and rejects ambiguous options", () => {
+    expect(parseArgs(["knowledge", "status", "--project", "fixture", "--json"]))
+      .toMatchObject({ subcommand: "knowledge", knowledgeAction: "status", project: "fixture", json: true });
+    expect(parseArgs(["knowledge", "migration-plan", "-p", "fixture"]).knowledgeAction).toBe("migration-plan");
+    expect(() => parseArgs(["knowledge", "status", "--project"])).toThrow(/requires an id/);
+    expect(() => parseArgs(["knowledge", "status", "--unknown"])).toThrow(/Unknown knowledge option/);
+  });
+
   it("parses spec-review", () => {
     const args = parseArgs(["spec-review", "--repo", "/r", "--json"]);
     expect(args.subcommand).toBe("spec-review");

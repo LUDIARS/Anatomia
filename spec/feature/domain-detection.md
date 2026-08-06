@@ -45,8 +45,8 @@ domain フェーズごと握り潰されて**全ドメインが消える**こと
 フォールバックが解こうとしている "no target domain" そのもの）。明示 dir /
 `ANATOMIA_PLUGIN_DIR` は従来どおり strict（設定ミスは表に出す）。
 
-これは現行 reader。T55/T68 後は `loadOntology` が読む DomainDef を knowledge log からの
-compatibility projection とし、builtin や plugin を暗黙の project domain にしない。
+これは legacy reader。T55/T68 により `loadOntology` が読む DomainDef は knowledge log への
+migration input / compatibility projection となり、builtin や plugin を暗黙の project domain にしない。
 `state-machine` は本物の project domain 用に予約し、builtin example は
 `transition-guard-example` を使う。builtin は `role=policy` として `AnalysisContext.policyResults` に分離し、
 rule/violation は保持するが、`AnalysisContext.domains`、domain 件数、primary owner、card、scene、

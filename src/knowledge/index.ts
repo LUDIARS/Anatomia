@@ -12,3 +12,6 @@ export * from "./compatibility.js";
 export * from "./code-symbol.js";
 export * from "./domain/index.js";
 export * from "./scene/index.js";
+export * from "./migration/index.js";
+export * from "./application/index.js";
+export * from "./quality/index.js";

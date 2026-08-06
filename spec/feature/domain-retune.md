@@ -82,15 +82,15 @@ leftover を網羅的に module 化して step 4 で直ちに committed artifact
 通常の spec 起点発見には [domain-discovery-workflow.md](./domain-discovery-workflow.md) を使う。
 同フローは retune を内部呼び出しせず、Gate A / Gate B の前に ontology / spec を書かない。
 
-## planned migration
+## migration 後の位置付け
 
-T56-T62 後、retune は semantic domain/taxonomy を直接 commit する通常 write path ではなく、
+T56-T68 後、retune は semantic domain/taxonomy を直接 commit する通常 write path ではなく、
 code cluster、split、merge、module grouping の **proposal generator** に降格する。
 
 - flat `domains[] → modules[]` は UI/compatibility projection とし、subdomain は
   knowledge log の child→parent typed edge で表す。
 - directory / function cluster は assignment evidence。domain purpose / boundary を自動確定しない。
-- step 4 の direct write は Gate B/C transaction に置換する。
+- legacy Adjust/retune direct write endpoint は 410 とし、Gate B/C transaction に置換する。
 - taxonomy / DomainDef / generated Markdown は knowledge log からの projection とする。
 
 目標契約は [domain organization](./domain-organization.md) と

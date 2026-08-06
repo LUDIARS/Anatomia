@@ -83,14 +83,13 @@ Web の proposal 経路では reconcile は preview にだけ使い、Gate A ま
 
 - CLI: `anatomia domains <suggest|draft|list|reconstruct> --project <id>
   [--no-llm] [--only a,b] [--force] [--dir <path>] [--json]`
-- `suggest` は read-only。`draft` / `reconstruct` は人間が明示して実行する legacy apply
-  操作であり、対話フローでは Web の Gate A API を使う。
-- 保存先 = `<repoRoot>/.anatomia/domains/`(= ontology pluginDir)。draft 時に
-  project.ontologyDir 未設定なら自動で配線。ファイル名は名前ハッシュ付きで衝突回避。
+- `suggest` / `list` は read-only。`draft` / `reconstruct` の direct write は T68 で廃止し、
+  Web/agent と同じ Gate A API を使う。
+- 既存 `<repoRoot>/.anatomia/domains/` は削除せず migration input として保持する。
 
-planned write path は `<knowledgeWriteRoot>/data/domains/*.md` +
+canonical write path は `<knowledgeWriteRoot>/data/domains/*.md` +
 `<knowledgeWriteRoot>/data/domain-map/*.knowledge.jsonl`。
-`.anatomia/domains` への direct write は T68 完了までの legacy compatibility とする。
+`.anatomia/domains` への direct write は行わない。
 
 ## ライブ / E2E 検証 runbook (#364)
 

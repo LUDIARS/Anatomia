@@ -11,7 +11,11 @@
     { "pathPattern": "(^|/)src/domains/workflow/[^/]+$" },
     { "pathPattern": "(^|/)src/domains/authoring/__tests__/[^/]+$" },
     { "pathPattern": "(^|/)src/modules/[^/]+$" },
-    { "pathPattern": "(^|/)src/modules/__tests__/[^/]+$" }
+    { "pathPattern": "(^|/)src/modules/__tests__/[^/]+$" },
+    { "pathPattern": "(^|/)src/knowledge/[^/]+$" },
+    { "pathPattern": "(^|/)src/knowledge/application/[^/]+$" },
+    { "pathPattern": "(^|/)src/knowledge/migration/[^/]+$" },
+    { "pathPattern": "(^|/)src/knowledge/quality/[^/]+$" }
   ],
   "cardTemplate": "Summarise the domain-modeling domain."
 }

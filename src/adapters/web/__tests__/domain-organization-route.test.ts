@@ -57,6 +57,21 @@ async function view(app: ReturnType<typeof createApp>): Promise<DomainOrganizati
 }
 
 describe("domain organization routes", () => {
+  it.each([
+    ["GET", "/api/projects/missing/domain-organization"],
+    ["GET", "/api/projects/missing/knowledge/status"],
+    ["POST", "/api/projects/missing/knowledge/migration/plan"],
+    ["POST", "/api/projects/missing/knowledge/migration/apply"],
+  ])("returns 404 for an unknown project on %s %s", async (method, path) => {
+    const app = createApp(mgr);
+    const res = await app.fetch(new Request(`http://localhost${path}`, {
+      method,
+      headers: { "content-type": "application/json" },
+      body: method === "POST" ? "{}" : undefined,
+    }));
+    expect(res.status).toBe(404);
+  });
+
   it("drives spec proposal → Gate A → assignment → Gate B over HTTP", async () => {
     const app = createApp(mgr);
 
@@ -149,6 +164,39 @@ describe("domain organization routes", () => {
     });
     expect(res.status).toBe(400);
     expect((await res.json() as { error: string }).error).toMatch(/escapes knowledgeWriteRoot/);
+  });
+
+  it("rejects a client-supplied migration plan", async () => {
+    const app = createApp(mgr);
+    const planResponse = await app.fetch(new Request("http://localhost/api/projects/org/knowledge/migration/plan", {
+      method: "POST",
+    }));
+    expect(planResponse.status).toBe(200);
+    const plan = await planResponse.json() as { sourceFingerprint: string; expectedHead: string | null };
+    expect(JSON.stringify(plan)).not.toContain(root);
+    const applyResponse = await app.fetch(new Request("http://localhost/api/projects/org/knowledge/migration/apply", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        confirmApply: true,
+        expectedSourceFingerprint: plan.sourceFingerprint,
+        expectedHead: plan.expectedHead,
+        plan: { ...plan, annotationWrites: [{ path: "../../forged.md", content: "forged" }] },
+      }),
+    }));
+    expect(applyResponse.status).toBe(400);
+    expect((await applyResponse.json() as { error: string }).error).toMatch(/server-generated/);
+
+    const canonicalApply = await app.fetch(new Request("http://localhost/api/projects/org/knowledge/migration/apply", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        confirmApply: true,
+        expectedSourceFingerprint: plan.sourceFingerprint,
+        expectedHead: plan.expectedHead,
+      }),
+    }));
+    expect(canonicalApply.status).toBe(200);
   });
 
   it("requires manager mode", async () => {

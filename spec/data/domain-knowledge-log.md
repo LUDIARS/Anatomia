@@ -19,14 +19,14 @@ x-anatomia:
 ## 目的と状態
 
 本仕様は、仕様から起こした domain、コードとの割当、subdomain 関係、コードから導出した
-scene を、全 adapter が同じ意味で読めるようにする **目標永続契約**である。実装前の
-planned contract であり、移行タスクは [`../../TASKS.md`](../../TASKS.md) の T50-T69 と
+scene を、全 adapter が同じ意味で読めるようにする canonical 永続契約である。実装タスクは
+[`../../TASKS.md`](../../TASKS.md) の T50-T69 と
 [`../../docs/plan-okf-domain-scene-flow.md`](../../docs/plan-okf-domain-scene-flow.md) に置く。
 
-2026-08-04 に T51-T66 の永続基盤、domain organization flow、code-authoritative scene sync を `src/knowledge/` へ実装した。hash-chain replay/write と
+2026-08-04 に T51-T68 の永続基盤、domain organization flow、code-authoritative scene sync、共通 application service、
+legacy dry-run migration を `src/knowledge/` へ実装した。hash-chain replay/write と
 cardinality/hierarchy validation は canonical write path、Kuzu・旧 JSON はその state だけから作る
-read projection である。T67-T69 の共通 application service・legacy migration・統合計測が未完了なため文書全体の状態は
-planned のままとする。
+read projection である。T69 の executable integration fixture と実測 baseline は未完了なため、文書全体の状態は planned のままとする。
 
 狙いは「JSONL と Kuzu のどちらが正本か」を曖昧にしないことにある。
 
