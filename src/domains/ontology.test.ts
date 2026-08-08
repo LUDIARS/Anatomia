@@ -22,6 +22,9 @@ describe("T18 BUILTIN_DOMAINS", () => {
     const example = BUILTIN_DOMAINS.find((domain) => domain.name === "transition-guard-example");
     expect(example?.templateRules.map((rule) => rule.id))
       .toEqual(["no-direct-mutate"]);
+    expect(example?.presetRules).toEqual([
+      { preset: "noCycle", params: { scopePattern: "Transition$" } },
+    ]);
   });
 });
 

@@ -81,10 +81,15 @@ export const BUILTIN_DOMAINS: DomainDef[] = [
     description:
       "State held behind transition functions; state mutation only via *Transition/*Apply; no forbidden direct mutation.",
     presetRules: [
-      {
-        preset: "stateAccessPath",
-        params: { statePattern: "State$", allowedCallerPattern: "Transition|Apply|Reduce" },
-      },
+      // NOTE: a stateAccessPath(statePattern:"State$") preset used to live here,
+      // but stateAccessPath's `to` filter matches by FUNCTION NAME (byName in
+      // presets.ts), not by whether a node is actual state data. Any function
+      // ending in "State" — e.g. a transition function itself like
+      // `updateState` — matched as a false-positive "state node access"
+      // violation with severity=error, blocking Revisor's merge gate on
+      // ordinary code. stateAccessPath needs a real state-node marker (a tag,
+      // not a name suffix) before it can be reintroduced; until then this
+      // domain keeps only the cycle check.
       { preset: "noCycle", params: { scopePattern: "Transition$" } },
     ],
     templateRules: [
