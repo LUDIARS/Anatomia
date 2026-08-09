@@ -106,6 +106,20 @@ export async function findStructuralLinks(
     keywords: extractKeywords(`${clause.heading} ${clause.text}`),
   }));
 
+  // Inverted index keyword -> clauses carrying it. Jaccard is zero for a pair
+  // that shares no keyword, and MIN_SCORE is above zero, so such a pair can
+  // never produce a link — scoring every (file, clause) pair spent almost all
+  // of its time proving that. The index yields exactly the pairs that CAN
+  // score, leaving the emitted links identical.
+  const clausesByKeyword = new Map<string, number[]>();
+  clauseKeywords.forEach((entry, index) => {
+    for (const keyword of entry.keywords) {
+      const bucket = clausesByKeyword.get(keyword);
+      if (bucket) bucket.push(index);
+      else clausesByKeyword.set(keyword, [index]);
+    }
+  });
+
   await Promise.all(
     codeFiles.map(async (filePath) => {
       // Keywords from file path/name.
@@ -123,7 +137,14 @@ export async function findStructuralLinks(
 
       const fileKw = new Set([...pathKw, ...exportedKw]);
 
-      for (const { clause, keywords: clauseKw } of clauseKeywords) {
+      const candidates = new Set<number>();
+      for (const keyword of fileKw) {
+        const bucket = clausesByKeyword.get(keyword);
+        if (bucket) for (const index of bucket) candidates.add(index);
+      }
+
+      for (const index of candidates) {
+        const { clause, keywords: clauseKw } = clauseKeywords[index]!;
         const score = jaccard(fileKw, clauseKw);
         if (score >= MIN_SCORE) {
           const confidence = Math.min(
