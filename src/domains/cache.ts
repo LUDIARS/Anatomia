@@ -10,7 +10,8 @@
  * result by code identity + ontology lets that path reuse the prior result.
  *
  * Key = versionedKey(dagContentKey(files), hashOntology(ontology), VERSION).
- *   dagContentKey folds each file's PATH and structural Merkle hash — so a
+ *   dagContentKey folds each file's PATH and raw source hash (falling back to a
+ *   structural Merkle hash for hand-built nodes) — so a
  *   content edit OR a rename (path-pattern domain rules depend on paths) busts
  *   it. hashOntology folds the domain defs — so an ontology/plugin edit busts it.
  *
@@ -35,8 +36,16 @@ export function hashOntology(ontology: DomainOntology): string {
 }
 
 /** Cache key for a detectDomains result over `files` with `ontology`. */
-export function detectionCacheKey(files: FileNode[], ontology: DomainOntology): string {
-  // Code identity (path + structural hash) shared with the graph cache, folded
+export function detectionCacheKey(
+  files: FileNode[],
+  ontology: DomainOntology,
+  repoRoot?: string,
+): string {
+  // Code identity (path + source hash) shared with the graph cache, folded
   // with the ontology so an ontology edit also busts detection.
-  return versionedKey(filesContentKey(files), hashOntology(ontology), DETECTION_CACHE_VERSION);
+  return versionedKey(
+    filesContentKey(files, repoRoot),
+    hashOntology(ontology),
+    DETECTION_CACHE_VERSION,
+  );
 }

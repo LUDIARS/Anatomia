@@ -35,7 +35,9 @@ const AC_SUBSET = "E:/Document/Ars/AdventureCube/src/combat";
 
 describe("analyze() — mini fixture (always runs)", () => {
   it("runs the full chain and produces a non-empty graph", async () => {
-    const ctx = await analyze(FIXTURE, { quiet: true });
+    // Builtin example policies are opt-in; this test is about the G1→G5 chain
+    // running end to end, so it asks for them explicitly.
+    const ctx = await analyze(FIXTURE, { quiet: true, builtins: "all" });
 
     // Discovery + parse + extract + hash.
     expect(ctx.files.length).toBeGreaterThan(0);
@@ -105,7 +107,9 @@ describe("analyze() — mini fixture (always runs)", () => {
   // happen AFTER edge extraction (phase 2) and domain template matching
   // (phase 4), and must not disturb anything that runs off the graph.
   it("frees parse trees but leaves graph edges + domains intact", async () => {
-    const ctx = await analyze(FIXTURE, { quiet: true });
+    // `builtins: "all"` gives phase 4 a policy to match, which is what pins the
+    // bodyAst mirrors this test is about.
+    const ctx = await analyze(FIXTURE, { quiet: true, builtins: "all" });
 
     // Phase-2 bodyAst consumer ran before the trees were freed: call/read/write
     // edges were extracted into the graph.
@@ -122,6 +126,15 @@ describe("analyze() — mini fixture (always runs)", () => {
     const radius = await getImpactRadius(ctx, ctx.functions.find((f) => f.id)!.id!);
     expect(Array.isArray(radius)).toBe(true);
   });
+
+  // A repo that never opted into the example policies must not be judged by
+  // them: `transition-guard-example`'s `State$` pattern used to treat any
+  // *State-suffixed function as a state-machine node and fail the merge gate.
+  it("applies no builtin policy to a repo that did not opt in", async () => {
+    const ctx = await analyze(FIXTURE, { quiet: true });
+    expect(ctx.policyResults).toEqual([]);
+    expect(ctx.domains!.some((domain) => domain.domain === "transition-guard-example")).toBe(false);
+  });
 });
 
 const acDescribe = existsSync(AC_SUBSET) ? describe : describe.skip;
@@ -130,7 +143,7 @@ acDescribe("analyze() — AdventureCube subset (real C++)", () => {
   it(
     "completes on real C++ and produces a non-empty graph + domain detection",
     async () => {
-      const ctx = await analyze(AC_SUBSET, { quiet: true });
+      const ctx = await analyze(AC_SUBSET, { quiet: true, builtins: "all" });
 
       // Real parse must extract a meaningful number of functions.
       expect(ctx.functions.length).toBeGreaterThan(50);

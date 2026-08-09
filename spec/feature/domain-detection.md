@@ -24,9 +24,42 @@ presets + templates を述語（Predicate）にコンパイルし、グラフ上
 
 ## オントロジー（プラグイン式）
 
-`loadOntology(pluginDir?)`（`src/domains/ontology.ts`）。`BUILTIN_DOMAINS` に加え、
-plugin dir（`ANATOMIA_PLUGIN_DIR` または明示 dir）配下の `.json` / `.mjs` から DomainDef を
-ロード・検証する。Project ごとに `ontologyDir` を持てる（→ data/project-cache.md）。
+`loadOntology(pluginDir?)`（`src/domains/ontology.ts`）。plugin dir
+（`ANATOMIA_PLUGIN_DIR` または明示 dir）配下の regular file である
+`.json` / `.mjs` から DomainDef を
+ロード・検証し、**opt-in された builtin だけ**をそこへ加える。Project ごとに
+`ontologyDir` を持てる（→ data/project-cache.md）。
+リンク先のローカルファイル読取りや、ディレクトリ外の `.mjs` 実行を避けるため
+symlink / junction は DomainDef として読まない。
+
+### builtin ポリシーは opt-in（既定 none）
+
+`BUILTIN_DOMAINS`（`transition-guard-example` / `hot-path-processor`）は
+DomainDef の**書き方の例**であって、全リポが同意したルールではない。既定で適用すると
+`transition-guard-example` の `statePattern: "State$"` が `readState` /
+`updateState` / `useDelegationState` のような「State で終わるだけの関数」を状態機械の
+状態ノードと誤検知し、状態機械ポリシーを一切採用していないリポの PR まで
+severity=error で Revisor のマージゲートを塞ぐ。よって既定は **none**。
+
+適用する builtin の解決順は **`loadOntology` の `builtins` オプション >
+`ANATOMIA_BUILTIN_DOMAINS`（`all` / `none` / カンマ区切り名）> ontology dir の
+`builtins.json` > none**。
+
+```json
+// spec/data/ontology/builtins.json
+{ "enabled": ["transition-guard-example"] }
+```
+
+`builtins.json` を ontology dir に置くのは、`.anatomia/` を持たない ephemeral
+checkout（Revisor の PR レビュー worktree）でもリポの選択が PR ゲートに効くように
+するため。DomainDef ではないのでロード対象からは除外される。
+
+builtin 名が将来 Anatomia 側から消えても、**未知の名前は無視するだけ**でロードは
+失敗させない。例のポリシー 1 本を失うのは回復可能だが、ontology のロードごと失敗して
+リポの semantic domain が全滅するのは回復不能なため。
+
+既存リポが `.anatomia/domains/transition-guard-example.override.json` で行っていた
+無害化オーバーライドは、通常の plugin def として読まれ続けるので撤去不要。
 
 `analyze()` の ontology 解決順は **明示 pluginDir > `ANATOMIA_PLUGIN_DIR` >
 リポジトリのコミット済み `spec/data/ontology/`**。最後のフォールバックは retune の

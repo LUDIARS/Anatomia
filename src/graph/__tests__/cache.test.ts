@@ -31,6 +31,12 @@ describe("filesContentKey / graphCacheKey", () => {
     expect(graphCacheKey([file("/r/a.ts", "X"), file("/r/b.ts", "h2")])).not.toBe(base);
     expect(graphCacheKey([file("/r/moved.ts", "h1"), file("/r/b.ts", "h2")])).not.toBe(base);
   });
+
+  it("prefers raw source identity when it is available", () => {
+    const before = [{ ...file("/r/a.ts", "same-structure"), contentHash: "raw-1" }];
+    const after = [{ ...file("/r/a.ts", "same-structure"), contentHash: "raw-2" }];
+    expect(graphCacheKey(after)).not.toBe(graphCacheKey(before));
+  });
 });
 
 describe("analyze graphCache reuse", () => {
@@ -63,5 +69,50 @@ describe("analyze graphCache reuse", () => {
     const first = await analyze(root, { quiet: true });
     const second = await analyze(root, { quiet: true });
     expect(second.graph.raw).not.toBe(first.graph.raw);
+  });
+
+  it("localizes a shared graph cache hit to the current checkout", async () => {
+    const secondRoot = await mkdtemp(join(tmpdir(), "anatomia-graphcache-checkout-"));
+    try {
+      await writeFile(
+        join(secondRoot, "a.ts"),
+        "export function a() { return b(); }\nfunction b() { return 1; }\n",
+      );
+      const graphCache = createMemoryStore<CodeGraph>();
+      const first = await analyze(root, { quiet: true, graphCache });
+      const second = await analyze(secondRoot, { quiet: true, graphCache });
+
+      expect(graphCacheKey(first.files, first.repoPath))
+        .toBe(graphCacheKey(second.files, second.repoPath));
+      expect(second.graph.raw).not.toBe(first.graph.raw);
+      expect([...second.graph.raw.nodes.values()].every(
+        (node) => node.sourceRange.filePath.startsWith(secondRoot),
+      )).toBe(true);
+      // Localizing the hit must not mutate the cached graph already handed to
+      // the first analysis.
+      expect([...first.graph.raw.nodes.values()].every(
+        (node) => node.sourceRange.filePath.startsWith(root),
+      )).toBe(true);
+    } finally {
+      await rm(secondRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("busts the graph cache when raw source moves without a structural change", async () => {
+    const graphCache = createMemoryStore<CodeGraph>();
+    const first = await analyze(root, { quiet: true, graphCache });
+    await writeFile(
+      join(root, "a.ts"),
+      "\n\nexport function a() { return b(); }\nfunction b() { return 1; }\n",
+    );
+    const second = await analyze(root, { quiet: true, graphCache });
+
+    expect(graphCacheKey(first.files, first.repoPath))
+      .not.toBe(graphCacheKey(second.files, second.repoPath));
+    expect(second.graph.raw).not.toBe(first.graph.raw);
+    for (const fn of second.functions) {
+      if (!fn.id) throw new Error(`expected analyzed function ${fn.name} to have an anchor`);
+      expect(second.graph.raw.nodes.get(fn.id)?.sourceRange).toEqual(fn.sourceRange);
+    }
   });
 });

@@ -25,6 +25,7 @@ import { parse } from "../dag/parser.js";
 import { extractFunctions } from "../dag/extract.js";
 import { normalize } from "../dag/normalize.js";
 import { assignAnchorId } from "../dag/hash.js";
+import { toRepoRelative } from "../fs/repo-path.js";
 import { diffFiles } from "../dag/diff.js";
 import { langFor, ANALYZED_SOURCE_EXTS } from "../core.js";
 import type { AnalysisContext } from "../core.js";
@@ -117,18 +118,20 @@ function toFn(fn: FunctionNode): BranchDiffFn {
 
 /**
  * Parse one file's source into a FileNode with hashed functions, then free the
- * tree. `absPath` MUST be the same absolute path analyze() used for the working
- * tree: AnchorId folds the (slash-normalized) file path into its hash, so the
- * before/after anchors only line up when both sides hash the same path.
+ * tree. `repoRoot` MUST be the same root analyze() used for the working tree:
+ * AnchorId folds the REPO-RELATIVE file path into its hash, so the before/after
+ * anchors only line up when both sides hash the same relative path.
  */
 async function fileNodeFromSource(
   absPath: string,
   src: string,
+  repoRoot: string,
 ): Promise<FileNode> {
   const tree = await parse(src, langFor(absPath));
   try {
     const fns = extractFunctions(tree, src, absPath);
-    for (const fn of fns) assignAnchorId(fn, normalize(fn.bodyAst));
+    const relPath = toRepoRelative(absPath, repoRoot);
+    for (const fn of fns) assignAnchorId(fn, normalize(fn.bodyAst), relPath);
     return { path: absPath, hash: null, functions: fns };
   } finally {
     // Free the WASM-owned tree: diffFiles only needs id/name/signature.
@@ -218,12 +221,12 @@ export async function computeBranchDiff(
         ? "deleted"
         : "modified";
 
-    // The before side must hash the SAME absolute path analyze() used for the
-    // working-tree version (AnchorId folds the file path in) — otherwise every
-    // function would look "changed".
+    // Hash the before side with the same REPO-RELATIVE location scope as the
+    // working-tree analysis. The absolute `absPath` remains on source ranges for
+    // diagnostics, but must not make anchors checkout-specific.
     const absPath = join(root, relPath);
     const beforeNode = existedBefore
-      ? await fileNodeFromSource(absPath, baseSrc as string)
+      ? await fileNodeFromSource(absPath, baseSrc as string, root)
       : EMPTY_FILE(absPath);
     const afterNode = after ?? EMPTY_FILE(absPath);
 

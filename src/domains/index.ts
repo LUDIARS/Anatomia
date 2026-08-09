@@ -48,7 +48,14 @@ export { mineRules } from "./mining.js";
 export type { CandidateRule, MiningOptions } from "./mining.js";
 
 // T18 — ontology loader
-export { loadOntology, BUILTIN_DOMAINS } from "./ontology.js";
+export {
+  loadOntology,
+  BUILTIN_DOMAINS,
+  BUILTIN_SELECTION_FILE,
+  DEFAULT_BUILTIN_SELECTION,
+  resolveBuiltinSelection,
+} from "./ontology.js";
+export type { BuiltinSelection } from "./ontology.js";
 export type { DomainDef, ConfiguredPreset, DomainOntology, DomainRole } from "./ontology.js";
 
 // Explicit absence of an approved semantic owner (not a domain node).

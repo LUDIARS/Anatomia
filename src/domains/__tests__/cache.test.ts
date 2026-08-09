@@ -1,6 +1,6 @@
 /**
  * Domain-detection cache: key derivation (domains/cache.ts) and the analyze()
- * reuse path. The key must change when code identity (path or structural hash)
+ * reuse path. The key must change when code identity (path or source hash)
  * or the ontology changes, and analyze() must consult an injected detectionCache
  * so a fingerprint miss that left the code identical skips re-detection.
  */
@@ -42,6 +42,12 @@ describe("detectionCacheKey", () => {
     expect(after).not.toBe(before);
   });
 
+  it("changes when raw source changes but the structural hash does not", () => {
+    const before = [{ ...file("/r/a.ts", "same-structure"), contentHash: "raw-1" }];
+    const after = [{ ...file("/r/a.ts", "same-structure"), contentHash: "raw-2" }];
+    expect(detectionCacheKey(after, ontology)).not.toBe(detectionCacheKey(before, ontology));
+  });
+
   it("changes when a file is renamed (path matters for path-pattern rules)", () => {
     const before = detectionCacheKey(files, ontology);
     const after = detectionCacheKey([file("/r/renamed.ts", "h1"), file("/r/b.ts", "h2")], ontology);
@@ -74,7 +80,9 @@ describe("analyze detectionCache reuse", () => {
     // sentinel; a second analyze with the same code must return the sentinel,
     // proving it consulted the cache rather than re-running detectDomains.
     const ontology = await loadOntology();
-    const key = detectionCacheKey(first.files, ontology);
+    // Same repo root analyze() folded in: the key is repo-relative so one
+    // checkout's entry serves another's (graph/cache.ts).
+    const key = detectionCacheKey(first.files, ontology, first.repoPath);
     const sentinel: DetectionResult[] = [
       { domain: "SENTINEL", implementors: [], violations: [], conforms: true },
     ];

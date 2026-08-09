@@ -17,13 +17,18 @@ RepoNode ── files[] ──▶ FileNode ── functions[] ──▶ Function
 ```
 
 ### FunctionNode（関数）
-関数 1 つ。`assignAnchorId(fn, normalize(fn.bodyAst))` で **Anchor ID** を付与する
-（`src/dag/hash.ts` / `src/dag/normalize.ts`）。Anchor ID = body 正規化 + signature(型) の
-ハッシュ。意味が同じ関数は同一 ID になり、キャッシュ命中の土台になる。
+関数 1 つ。`analyze()` は `src/fs/repo-path.ts` で正規化した
+repo-relative path を `assignAnchorId` に渡して
+**Anchor ID** を付与する（`src/dag/hash.ts` / `src/dag/normalize.ts`）。Anchor ID =
+body 正規化 + signature(型) + repo-relative path のハッシュ。同じファイル配置の
+同じ関数は checkout / worktree の絶対パスに依存せず同一 ID になる一方、
+別ファイルの同形関数は別 ID になる。パスを含まない `structuralHash` は
+構造 clone 検出用に別保持する。
 
 | フィールド | 型 | 意味 |
 |---|---|---|
-| `id` | `AnchorId \| null`（sha256 由来） | 正規化 body + signature のハッシュ。hash 前は `null` |
+| `id` | `AnchorId \| null`（sha256 由来） | 正規化 body + signature + repo-relative path のハッシュ。hash 前は `null` |
+| `structuralHash` | `string \| undefined` | path 非依存の正規化 body + signature ハッシュ |
 | `name` | `string` | 関数名 |
 | `bodyAst` | AST | tree-sitter から抽出した本体 AST |
 | `sourceRange` | `{ filePath, start, end }` | ソース位置 |

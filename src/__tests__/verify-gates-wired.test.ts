@@ -67,4 +67,46 @@ describe("buildVerdict wires thresholds + siblings into the gates", () => {
     expect(drift!.pass).toBe(true);
     expect(coupling!.pass).toBe(true);
   });
+
+  it("attributes a single-file diff to its `+++ b/<path>` header, not \"<diff>\"", async () => {
+    const ctx = await analyze(FIXTURE, { quiet: true });
+
+    // A real unified diff for ONE file. The multi-file branch of buildVerdict
+    // never runs here, so the path can only come from the diff header — while
+    // it did not, every changed function was attributed to the literal
+    // "<diff>", which no spec link, `by:path` rule or sibling sample matches.
+    const body = [
+      "int hub_spawn_everything(Runtime& rt, Skill& skill) {",
+      "    Action a{1, 0.5f};",
+      "    skill.add(a);",
+      "    skill.replace(a);",
+      "    int c = skill.count();",
+      "    rt.tick(0.01f, skill);",
+      "    rt.emit(a);",
+      "    int l = rt.last();",
+      "    return run_once(rt, skill) + c + l;",
+      "}",
+    ];
+    const diff = [
+      "diff --git a/runtime.cpp b/runtime.cpp",
+      "--- a/runtime.cpp",
+      "+++ b/runtime.cpp",
+      `@@ -1,0 +1,${body.length} @@`,
+      ...body.map((line) => `+${line}`),
+    ].join("\n");
+
+    const fromHeader = await buildVerdict(ctx, diff);
+    const fromArgument = await buildVerdict(ctx, diff, "runtime.cpp");
+
+    // Omitting targetPath must be equivalent to passing the header's path.
+    expect(fromHeader.gates.map((g) => [g.gate, g.pass])).toEqual(
+      fromArgument.gates.map((g) => [g.gate, g.pass]),
+    );
+
+    // convention_drift only gets a sibling sample once the path resolves: under
+    // "<diff>" the sample was empty and the gate degenerated to a silent pass.
+    const drift = fromHeader.gates.find((g) => g.gate === "convention_drift");
+    expect(drift!.pass).toBe(false);
+    expect(drift!.suggestion).toMatch(/hub_spawn_everything/);
+  });
 });

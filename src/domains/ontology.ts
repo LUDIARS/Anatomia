@@ -3,8 +3,9 @@
  *
  * A domain ontology is a set of DomainDefs. Each def names a domain and
  * carries its preset configurations + template rules (+ optional card template).
- * Defs are loaded from BUILTIN_DOMAINS plus any .json / .mjs files in the
- * plugin directory (ANATOMIA_PLUGIN_DIR or an explicit dir).
+ * Defs are loaded from the .json / .mjs files in the plugin directory
+ * (ANATOMIA_PLUGIN_DIR or an explicit dir), plus whichever BUILTIN_DOMAINS the
+ * caller/repo opted into — builtins are examples, never applied by default.
  *
  * SRP: this file ONLY loads + validates domain defs into a DomainOntology;
  * compiling defs to predicates is detect.ts's job (T19).
@@ -14,7 +15,7 @@
  * @spec ドメイン検出（G3）
  */
 
-import { readdir } from "node:fs/promises";
+import { lstat, readFile, readdir } from "node:fs/promises";
 import { join, resolve, extname } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { PresetId } from "./presets.js";
@@ -69,10 +70,17 @@ export const COMMITTED_ONTOLOGY_DIR_REL = "spec/data/ontology";
 // ── Builtin domains ───────────────────────────────────────────────────────
 
 /**
- * Two example builtin policies (never implicit semantic project domains):
+ * Two EXAMPLE builtin policies (never implicit semantic project domains):
  *   - transition-guard-example: state nodes only mutated via transition
  *     functions; no cycles among states beyond declared transitions.
  *   - hot-path-processor: hot functions must not allocate and keep low coupling.
+ *
+ * They are OPT-IN — see {@link resolveBuiltinSelection}. Both are illustrations
+ * of what a DomainDef can express, not rules every repo agreed to: applying
+ * them by default made `transition-guard-example`'s `State$` pattern treat any
+ * function whose name ends in "State" (readState, useDelegationState, …) as a
+ * state-machine node, which failed the Revisor merge gate at severity=error in
+ * repos that never opted into a state-machine policy at all.
  */
 export const BUILTIN_DOMAINS: DomainDef[] = [
   {
@@ -124,6 +132,87 @@ export const BUILTIN_DOMAINS: DomainDef[] = [
   },
 ];
 
+// ── Builtin selection (opt-in) ───────────────────────────────────────────────
+
+/**
+ * Which builtin policies an ontology applies: an explicit list of names, every
+ * builtin (`"all"`), or none (`"none"`, the default).
+ */
+export type BuiltinSelection = readonly string[] | "all" | "none";
+
+/** Nothing is applied unless a repo/operator asks for it. */
+export const DEFAULT_BUILTIN_SELECTION: BuiltinSelection = "none";
+
+/**
+ * Filename inside an ontology dir declaring that dir's builtin selection:
+ * `{ "enabled": ["transition-guard-example"] }`, or `{ "enabled": "all" }`.
+ *
+ * It sits next to the DomainDefs because the selection IS part of the ontology
+ * the repo commits — a Revisor review worktree holds no local state, so the
+ * committed `spec/data/ontology` is the only place a repo can state its choice
+ * and have the PR gate honour it.
+ */
+export const BUILTIN_SELECTION_FILE = "builtins.json";
+
+/** Env var letting an operator override the selection for one run. */
+const BUILTIN_SELECTION_ENV = "ANATOMIA_BUILTIN_DOMAINS";
+
+/** Parse `all` / `none` / `a,b` into a selection; null when unset or blank. */
+function parseBuiltinSelection(raw: string | undefined): BuiltinSelection | null {
+  if (raw === undefined) return null;
+  const trimmed = raw.trim();
+  if (trimmed === "") return null;
+  if (trimmed === "all" || trimmed === "none") return trimmed;
+  const names = trimmed.split(",").map((n) => n.trim()).filter((n) => n.length > 0);
+  return names.length > 0 ? names : "none";
+}
+
+/** Read `<dir>/builtins.json`. Missing file → null; malformed shape → throw. */
+async function readBuiltinSelectionFile(dir: string): Promise<BuiltinSelection | null> {
+  const file = join(dir, BUILTIN_SELECTION_FILE);
+  let stat: import("node:fs").Stats;
+  try {
+    stat = await lstat(file);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw new Error(`unable to inspect ${BUILTIN_SELECTION_FILE}`, { cause: err });
+  }
+  if (!stat.isFile()) {
+    throw new Error(`${BUILTIN_SELECTION_FILE} must be a regular file`);
+  }
+  let raw: string;
+  try {
+    raw = await readFile(file, "utf8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw new Error(`unable to read ${BUILTIN_SELECTION_FILE}`, { cause: err });
+  }
+  const parsed: unknown = JSON.parse(raw);
+  const enabled = (parsed as { enabled?: unknown } | null)?.enabled;
+  if (enabled === "all" || enabled === "none") return enabled;
+  if (Array.isArray(enabled) && enabled.every((n) => typeof n === "string")) {
+    return enabled as string[];
+  }
+  throw new Error(
+    `invalid ${BUILTIN_SELECTION_FILE}: "enabled" must be "all", "none", or a string[]`,
+  );
+}
+
+/**
+ * The builtins a selection turns on.
+ *
+ * Unknown names are IGNORED rather than rejected: the builtin set changes
+ * between Anatomia versions, and a repo that pins a name this build no longer
+ * ships must still analyze — losing one example policy is recoverable, failing
+ * the whole ontology load (and with it every semantic domain) is not.
+ */
+export function resolveBuiltinSelection(selection: BuiltinSelection): DomainDef[] {
+  if (selection === "none") return [];
+  if (selection === "all") return [...BUILTIN_DOMAINS];
+  const wanted = new Set(selection);
+  return BUILTIN_DOMAINS.filter((d) => wanted.has(d.name));
+}
+
 // ── Loading ─────────────────────────────────────────────────────────────────
 
 /** Minimal structural validation of a loaded def. */
@@ -167,20 +256,35 @@ async function loadFromDir(
   dataOnly = false,
   skipInvalid = false,
 ): Promise<DomainDef[]> {
-  let entries: string[];
+  let entries: import("node:fs").Dirent[];
   try {
-    entries = await readdir(dir);
-  } catch {
-    return []; // missing dir = no plugins
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch (err) {
+    throw new Error("unable to read ontology directory", { cause: err });
   }
   const defs: DomainDef[] = [];
   for (const entry of entries) {
-    const ext = extname(entry).toLowerCase();
-    const full = join(dir, entry);
+    // The builtin selection lives in this dir but is not a DomainDef; reading
+    // it as one would fail validation (and, in a strict operator dir, take the
+    // whole ontology down).
+    if (entry.name === BUILTIN_SELECTION_FILE) continue;
+    const ext = extname(entry.name).toLowerCase();
+    if (ext !== ".json" && ext !== ".mjs" && ext !== ".js") continue;
+    const full = join(dir, entry.name);
+    let stat: import("node:fs").Stats;
+    try {
+      stat = await lstat(full);
+    } catch (err) {
+      if (skipInvalid) continue;
+      throw new Error("unable to inspect ontology definition", { cause: err });
+    }
+    if (!stat.isFile()) {
+      if (skipInvalid) continue;
+      throw new Error("ontology definitions must be regular files");
+    }
     const fileDefs: DomainDef[] = [];
     try {
       if (ext === ".json") {
-        const { readFile } = await import("node:fs/promises");
         const raw = await readFile(full, "utf8");
         const parsed = JSON.parse(raw);
         const list = Array.isArray(parsed) ? parsed : [parsed];
@@ -218,27 +322,56 @@ export interface LoadOntologyOptions {
    * must not cost the caller every domain — see loadFromDir.
    */
   skipInvalid?: boolean;
+  /**
+   * Which builtin policies to apply. Highest-precedence source; when omitted
+   * the selection falls back to $ANATOMIA_BUILTIN_DOMAINS, then to the ontology
+   * dir's `builtins.json`, then to {@link DEFAULT_BUILTIN_SELECTION}.
+   */
+  builtins?: BuiltinSelection;
+}
+
+/**
+ * Resolve the builtin selection for a load: explicit option > env override >
+ * the ontology dir's committed declaration > the default (none).
+ */
+async function resolveSelection(
+  dir: string | null,
+  option: BuiltinSelection | undefined,
+): Promise<BuiltinSelection> {
+  if (option !== undefined) return option;
+  const fromEnv = parseBuiltinSelection(process.env[BUILTIN_SELECTION_ENV]);
+  if (fromEnv !== null) return fromEnv;
+  if (dir) {
+    const fromFile = await readBuiltinSelectionFile(dir);
+    if (fromFile !== null) return fromFile;
+  }
+  return DEFAULT_BUILTIN_SELECTION;
 }
 
 /**
  * Load the domain ontology: builtins + plugin dir defs.
  *
+ * Builtins are opt-in and default to none, so an ontology contains exactly the
+ * domains its repo declared — see {@link resolveBuiltinSelection}.
+ *
  * @param pluginDir explicit dir; if omitted, ANATOMIA_PLUGIN_DIR is used.
  *                  Plugin defs override builtins of the same name.
  * @param options   `dataOnly` restricts the dir to declarative .json defs;
- *                  `skipInvalid` drops unloadable files instead of throwing.
+ *                  `skipInvalid` drops unloadable files instead of throwing;
+ *                  `builtins` overrides the builtin selection.
  */
 export async function loadOntology(
   pluginDir?: string,
   options: LoadOntologyOptions = {},
 ): Promise<DomainOntology> {
   const domains = new Map<string, DomainDef>();
-  for (const d of BUILTIN_DOMAINS) {
+  const dir = pluginDir ? resolve(pluginDir) : resolvePluginDir();
+
+  for (const d of resolveBuiltinSelection(await resolveSelection(dir, options.builtins))) {
     assertDomainDefinitionName(d.name);
     domains.set(d.name, d);
   }
 
-  const dir = pluginDir ? resolve(pluginDir) : resolvePluginDir();
   if (dir) {
     const pluginDefs = await loadFromDir(
       dir,

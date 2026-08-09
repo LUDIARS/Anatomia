@@ -19,9 +19,10 @@ import { extractFunctions, extractTypeDecls } from "./dag/extract.js";
 import { normalize } from "./dag/normalize.js";
 import { assignAnchorId } from "./dag/hash.js";
 import { buildFileNode } from "./dag/merkle.js";
+import { toRepoRelative } from "./fs/repo-path.js";
 import { buildGraph, extractEdgeInfo, augmentGraph } from "./graph/build.js";
 import type { CodeGraph } from "./graph/build.js";
-import { graphCacheKey, filesContentKey } from "./graph/cache.js";
+import { graphCacheKey, filesContentKey, localizeCachedGraph } from "./graph/cache.js";
 import { InMemoryCodeGraph } from "./graph/in-memory.js";
 import { assembleBundle } from "./supply/bundle.js";
 import { sharedBundleCache, BUNDLE_CACHE_VERSION } from "./supply/cache.js";
@@ -30,7 +31,11 @@ import { resolveLanding } from "./supply/landing.js";
 import { landingInjections } from "./supply/detectors.js";
 import { rankExemplars, rankSpecClauses, RELEVANCE_VERSION } from "./supply/relevance.js";
 import { selectSiblings, verifyThresholds } from "./supply/verify-inputs.js";
-import { loadOntology, COMMITTED_ONTOLOGY_DIR_REL } from "./domains/ontology.js";
+import {
+  loadOntology,
+  COMMITTED_ONTOLOGY_DIR_REL,
+  type BuiltinSelection,
+} from "./domains/ontology.js";
 import { detectDomains, partitionDetectionResults } from "./domains/detect.js";
 import { detectionCacheKey } from "./domains/cache.js";
 import { compileDomainRules } from "./domains/compile.js";
@@ -147,6 +152,12 @@ export interface AnalyzeOptions {
   /** Explicit domain-ontology plugin dir (else ANATOMIA_PLUGIN_DIR). */
   pluginDir?: string;
   /**
+   * Which builtin example policies to apply. Builtins are opt-in: omitting this
+   * falls back to $ANATOMIA_BUILTIN_DOMAINS, then the ontology dir's
+   * `builtins.json`, then none (domains/ontology.ts).
+   */
+  builtins?: BuiltinSelection;
+  /**
    * Extra directories to scan for `spec/*.md` clauses, in addition to repoPath.
    * Needed when a project's code root is a subdirectory (e.g. `<repo>/src`) but
    * its spec lives at a sibling (`<repo>/spec`): register the code root for a
@@ -169,14 +180,14 @@ export interface AnalyzeOptions {
   priorFiles?: Map<string, FileNode>;
   /**
    * Content-keyed cache for the Phase-4 domain-detection result. Keyed by file
-   * paths + structural hashes + ontology (domains/cache.ts), so a fingerprint
+   * paths + source content hashes + ontology (domains/cache.ts), so a fingerprint
    * miss that left the code identical (spec/config edit) reuses detection instead
    * of re-running O(domains × functions). Omit → always recompute.
    */
   detectionCache?: CacheStore<DetectionResult[]>;
   /**
    * Content-keyed cache for the Phase 2/3 built code graph. Keyed by file paths +
-   * structural hashes (graph/cache.ts), so a fingerprint miss that left the code
+   * source content hashes (graph/cache.ts), so a fingerprint miss that left the code
    * identical (spec/config edit) reuses the graph instead of re-extracting edges
    * and rebuilding. Omit → always rebuild.
    */
@@ -462,7 +473,9 @@ export async function analyze(
       // complete.
       fns = extractFunctions(tree, src, filePath);
       typeDecls = extractTypeDecls(tree, filePath);
-      for (const fn of fns) assignAnchorId(fn, normalize(fn.bodyAst));
+      // Anchors fold the REPO-RELATIVE path, so the same commit yields the same
+      // anchor in the repo and in any worktree of it.
+      for (const fn of fns) assignAnchorId(fn, normalize(fn.bodyAst), toRepoRelative(filePath, repoPath));
     } catch (err) {
       // Parse / extract / normalize failure on one file must not abort the run.
       warn(filePath, `parse/extract failed (${String(err)})`);
@@ -510,11 +523,11 @@ export async function analyze(
   let codeGraph: CodeGraph;
   const graphCache = options.graphCache;
   if (graphCache) {
-    const key = graphCacheKey(files);
+    const key = graphCacheKey(files, repoPath);
     const hit = await graphCache.get(key);
     if (hit) {
       vgWrite("debug", "anatomia graph cache hit", { repo: repoName, files: files.length });
-      codeGraph = hit;
+      codeGraph = localizeCachedGraph(hit, files);
     } else {
       vgWrite("debug", "anatomia graph cache miss", { repo: repoName, files: files.length });
       codeGraph = buildGraph(files, extractEdgeInfo(files));
@@ -552,16 +565,20 @@ export async function analyze(
     // single bad file throws, this whole phase is caught below, and the repo
     // silently loses every domain — the failure the fallback exists to fix.
     const ontology = useCommitted
-      ? await loadOntology(committedOntologyDir, { dataOnly: true, skipInvalid: true })
-      : await loadOntology(options.pluginDir);
+      ? await loadOntology(committedOntologyDir, {
+          dataOnly: true,
+          skipInvalid: true,
+          builtins: options.builtins,
+        })
+      : await loadOntology(options.pluginDir, { builtins: options.builtins });
     // Detection is O(domains × functions). Reuse the prior result when the code
-    // identity (file paths + structural hashes) and ontology are unchanged — the
+    // identity (file paths + source content hashes) and ontology are unchanged — the
     // spec/config-only-edit case, where the fingerprint busts but the DAG does
     // not. No cache configured → always recompute (the hermetic default).
     const detectionCache = options.detectionCache;
     let detected: DetectionResult[] = [];
     if (detectionCache) {
-      const key = detectionCacheKey(files, ontology);
+      const key = detectionCacheKey(files, ontology, repoPath);
       const hit = await detectionCache.get(key);
       if (hit) {
         vgWrite("debug", "anatomia domain detection cache hit", { repo: repoName, files: files.length });
@@ -951,22 +968,31 @@ export async function buildVerdict(
     }
   }
 
+  // Fall back to the diff's own `+++ b/<path>` header when the caller gave no
+  // path (the CLI's documented `--file` default, and the only case reachable
+  // for a SINGLE-file diff — the multi-file branch above always supplies one).
+  // Without it every changed function was attributed to the literal "<diff>",
+  // which no link, rule or sibling sample can ever match: spec_linkage reported
+  // each fully-added function as an orphan even when its file carried an
+  // `@spec` annotation, and `by:path` rules silently never applied.
+  const resolvedPath = targetPath ?? diffTargetPath(diff) ?? undefined;
+
   const source = sourceFromDiffInput(diff);
-  const lang = langForDiff(diff, targetPath);
+  const lang = langForDiff(diff, resolvedPath);
   const tree = await parse(source, lang);
   // tree-sitter Tree は WASM メモリを所有する。diff の fns/bodyAst は buildVerdict 内で
   // しか使われない (verdict は anchor 文字列のみ保持) ので、verify 完了後に必ず解放する。
   // これをしないと warm サーバの per-verify で Tree がリークし WASM 枯渇 (Aborted) する。
   try {
-  const fns = extractFunctions(tree, source, targetPath ?? "<diff>");
-  const diffTypes = extractTypeDecls(tree, targetPath ?? "<diff>");
+  const fns = extractFunctions(tree, source, resolvedPath ?? "<diff>");
+  const diffTypes = extractTypeDecls(tree, resolvedPath ?? "<diff>");
   for (const fn of fns) assignAnchorId(fn, normalize(fn.bodyAst));
 
   // Diff-augmented graph: overlay the new functions + their outgoing edges onto
   // the analyzed graph so rule_conformance sees brand-new violating calls (a
   // call into a forbidden layer is invisible against the unmodified graph). Must
   // run while the tree is alive (extractEdgeInfo walks bodyAst), before delete().
-  const diffFile = buildFileNode(targetPath ?? "<diff>", fns, diffTypes);
+  const diffFile = buildFileNode(resolvedPath ?? "<diff>", fns, diffTypes);
   const diffEdgeInfo = extractEdgeInfo([diffFile]);
   const verifyGraph = new InMemoryCodeGraph(
     augmentGraph(ctx.graph.raw, [diffFile], diffEdgeInfo),
@@ -1014,7 +1040,7 @@ export async function buildVerdict(
     // treat absence as "nothing to compare against"), leaving only 3 of the
     // 5 gates live on this path. Memoized per ctx (verify-inputs.ts).
     thresholds: await verifyThresholds(ctx),
-    siblings: selectSiblings(ctx, targetPath ?? diffTargetPath(diff) ?? undefined, fns),
+    siblings: selectSiblings(ctx, resolvedPath, fns),
   };
 
   const gates = buildDefaultGates({ embed: embed! });
