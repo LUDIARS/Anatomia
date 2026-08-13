@@ -213,6 +213,8 @@ export interface CliArgs {
   writeBaseline?: string;
   /** For pr-review: explicit branch/base ref (default resolution is origin/main, main, ...). */
   base?: string;
+  /** For pr-review: make the migration's dual-layer gate affect the exit code. */
+  enforceDualLayerDomainGate?: boolean;
   /** For links: action (list | ratify). */
   linksAction?: LinksAction;
   /** For links ratify: code anchor / file path (`from` side). */
@@ -317,6 +319,7 @@ export function parseArgs(argv: string[]): CliArgs {
   let baselinePath: string | undefined;
   let writeBaseline: string | undefined;
   let base: string | undefined;
+  let enforceDualLayerDomainGate = false;
   let sceneMaxDepth: number | undefined;
 
   for (let i = 0; i < args.length; i++) {
@@ -354,6 +357,8 @@ export function parseArgs(argv: string[]): CliArgs {
       writeBaseline = args[++i];
     } else if (flag === "--base") {
       base = args[++i];
+    } else if (flag === "--enforce-dual-layer-domain-gate") {
+      enforceDualLayerDomainGate = true;
     } else if (subcommand === "export-graph" && !flag.startsWith("-")) {
       // Positional: export-graph <project-id-or-path>
       // If it looks like a path (contains / or \) use it as repoPath,
@@ -372,7 +377,7 @@ export function parseArgs(argv: string[]): CliArgs {
     }
   }
 
-  return { subcommand, repoPath, diff, file, task, symbol, mode, limit, json, project, output, baselinePath, writeBaseline, base, sceneMaxDepth };
+  return { subcommand, repoPath, diff, file, task, symbol, mode, limit, json, project, output, baselinePath, writeBaseline, base, enforceDualLayerDomainGate, sceneMaxDepth };
 }
 
 /**
@@ -678,8 +683,14 @@ export async function runCli(
   const ctx = await resolveContext(args);
 
   if (args.subcommand === "pr-review") {
-    const report = await buildPrDiffReview(ctx, { base: args.base });
-    return { exitCode: 0, output: JSON.stringify(report, null, 2) };
+    const report = await buildPrDiffReview(ctx, {
+      base: args.base,
+      dualLayerMode: args.enforceDualLayerDomainGate ? "enforced" : "advisory",
+    });
+    return {
+      exitCode: report.domain.dualLayer.blocking || report.spec.dualLayer.blocking ? 1 : 0,
+      output: JSON.stringify(report, null, 2),
+    };
   }
 
   if (args.subcommand === "find") {

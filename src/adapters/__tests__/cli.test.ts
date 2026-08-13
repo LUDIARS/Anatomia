@@ -89,6 +89,11 @@ describe("parseArgs", () => {
     expect(args.json).toBe(true);
   });
 
+  it("opts into enforcing the dual-layer domain gate only when requested", () => {
+    expect(parseArgs(["pr-review", "--repo", "/r"]).enforceDualLayerDomainGate).toBe(false);
+    expect(parseArgs(["pr-review", "--repo", "/r", "--enforce-dual-layer-domain-gate"]).enforceDualLayerDomainGate).toBe(true);
+  });
+
   it("defaults repoPath to cwd when --repo is absent", () => {
     const args = parseArgs(["context"]);
     expect(args.repoPath).toBe(process.cwd());

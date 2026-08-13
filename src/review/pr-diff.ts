@@ -10,6 +10,8 @@ import type { AnalysisContext } from "../core.js";
 import { buildVerdict } from "../core.js";
 import { computeBranchDiff, type BranchDiff } from "../branch/diff.js";
 import { branchDiffText } from "../branch/git.js";
+import { changedFiles as changedBranchPaths } from "../branch/git.js";
+import { domainsDir, loadEditableDomains } from "../domains/authoring/index.js";
 import { computeMetrics, type NodeMetrics } from "../supply/metrics.js";
 import { isTestFilePath } from "../supply/gates/types.js";
 import type { AnchorId, Verdict } from "../types.js";
@@ -21,6 +23,7 @@ import {
   type ReviewViolation,
 } from "./build.js";
 import { buildDomainReview, type BoundaryDriftFinding, type DomainOverlap } from "./domain-review.js";
+import { buildDualLayerReview, type DualLayerGateMode, type DualLayerReview } from "./dual-layer-gate.js";
 
 export interface PrTargetDomain {
   name: string;
@@ -46,6 +49,8 @@ export interface PrDiffReview {
     hasTargetDomain: boolean;
     targetDomains: PrTargetDomain[];
     unassignedAnchors: AnchorId[];
+    /** New structural program-domain gate; legacy fields above remain during migration. */
+    dualLayer: DualLayerReview["program"];
   };
   quality: {
     complexity: PrComplexitySummary;
@@ -64,11 +69,14 @@ export interface PrDiffReview {
   };
   spec: {
     changedFilesWithoutSpec: string[];
+    /** New semantic business-domain gate; legacy field above remains during migration. */
+    dualLayer: DualLayerReview["business"];
   };
 }
 
 export interface PrDiffReviewOptions {
   base?: string;
+  dualLayerMode?: DualLayerGateMode;
 }
 
 export function summarizeComplexity(metrics: NodeMetrics[]): PrComplexitySummary {
@@ -116,6 +124,20 @@ export async function buildPrDiffReview(
     .sort((a, b) => a.name.localeCompare(b.name));
   const assigned = new Set(targetDomains.flatMap((domain) => domain.changedAnchors));
   const changedFiles = new Set(diff.files.map((file) => file.path));
+  const changedPaths = diff.available && diff.mergeBase
+    ? await changedBranchPaths(ctx.repoPath, diff.mergeBase)
+    : [];
+  const dualLayer = await buildDualLayerReview({
+    repoPath: ctx.repoPath,
+    sourceRevision: diff.head ?? "worktree",
+    functions: ctx.functions,
+    changedAnchors,
+    businessOwnedAnchors: assigned,
+    changedPaths,
+    specClauses: ctx.specClauses ?? [],
+    businessDomains: await loadEditableDomains(domainsDir(ctx.repoPath)),
+    mode: options.dualLayerMode ?? "advisory",
+  });
   const rawDiff = diff.available && diff.mergeBase && diff.files.length > 0
     ? await branchDiffText(ctx.repoPath, diff.mergeBase, diff.files.map((file) => file.path))
     : null;
@@ -140,6 +162,7 @@ export async function buildPrDiffReview(
       hasTargetDomain: targetDomains.length > 0,
       targetDomains,
       unassignedAnchors: [...changedAnchors].filter((anchor) => !assigned.has(anchor)).sort(),
+      dualLayer: dualLayer.program,
     },
     quality: {
       complexity: summarizeComplexity(metrics),
@@ -164,6 +187,7 @@ export async function buildPrDiffReview(
     },
     spec: {
       changedFilesWithoutSpec: review.specGaps.filter((file) => changedFiles.has(file)),
+      dualLayer: dualLayer.business,
     },
   };
 }
