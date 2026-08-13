@@ -11,6 +11,7 @@ export * from "./kuzu-projection.js";
 export * from "./compatibility.js";
 export * from "./code-symbol.js";
 export * from "./domain/index.js";
+export * from "./domain-correspondence/index.js";
 export * from "./scene/index.js";
 export * from "./program-domain/index.js";
 export * from "./migration/index.js";

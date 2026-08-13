@@ -4,6 +4,7 @@ import { replayKnowledgeLog } from "../log.js";
 import { resolveKnowledgeWriteRoot } from "../write-root.js";
 import { describeCodeSymbol } from "../code-symbol.js";
 import { buildDomainOrganizationView } from "../domain/organization-view.js";
+import { deriveDomainCorrespondence } from "../domain-correspondence/derive.js";
 import { proposeDomainsFromSpec } from "../domain/spec-proposals.js";
 import { analyzeCodeAssignment } from "../domain/assignments.js";
 import { classifyDomainDrift, proposeSemanticDomainChanges, type DomainDriftInput } from "../domain/drift.js";
@@ -54,6 +55,11 @@ export class DomainKnowledgeApplication {
           sourcePath: symbol.sourcePath, sourceRange: { startLine: symbol.startLine, endLine: symbol.endLine } };
       });
     return buildDomainOrganizationView(await readKnowledgeGraph(this.knowledgeLogPath), symbols);
+  }
+
+  /** Query the derived business ⇄ program domain links without writing transitive edges. */
+  async correspondence() {
+    return deriveDomainCorrespondence(await readKnowledgeGraph(this.knowledgeLogPath));
   }
 
   async proposeFromSpec() {
