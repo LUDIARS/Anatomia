@@ -9,6 +9,7 @@ const KIND_PREFIX: Record<KnowledgeNodeKind, string> = {
   "program-domain": "program-domain",
   scene: "scene",
   "scene-element": "scene-element",
+  "refactoring-proposal": "refactoring-proposal",
 };
 
 const SAFE_SEGMENT = /^[a-z0-9][a-z0-9._~-]*$/;

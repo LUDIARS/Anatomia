@@ -7,7 +7,8 @@ export type KnowledgeNodeKind =
   | "code-symbol"
   | "program-domain"
   | "scene"
-  | "scene-element";
+  | "scene-element"
+  | "refactoring-proposal";
 
 export type KnowledgeEdgeKind =
   | "subdomain-of"

@@ -83,6 +83,7 @@ import { mountAdjustRoutes } from "./routes/adjust.js";
 import { mountTestSuggestionRoutes } from "./routes/test-suggestions.js";
 import { mountFlowRoutes } from "./routes/flow.js";
 import { mountDomainOrganizationRoutes } from "./routes/domain-organization.js";
+import { mountRefactoringTaskRoutes } from "./routes/refactoring-tasks.js";
 import { createDiscordAttachmentLoader } from "./discord-attachment.js";
 import { resolveIdleMs, checkIntervalMs, shouldShutdown } from "./idle.js";
 import { resolveProviders, envConfig } from "../../providers/index.js";
@@ -252,6 +253,7 @@ export function createApp(
     searchLlm: aux.searchLlm,
     searchModelId: aux.searchModelId,
   });
+  mountRefactoringTaskRoutes(app, { manager });
 
   // ── Adjustment routes: domain/module commands + scene read compatibility ──
   mountAdjustRoutes(app, {

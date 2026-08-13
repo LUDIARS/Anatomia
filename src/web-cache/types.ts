@@ -18,6 +18,7 @@
 
 import type { EdgeKind } from "../types.js";
 import type { AccessPattern } from "../patterns/detect.js";
+import type { RefactoringProposal } from "../review/refactoring-proposals.js";
 
 /** The set of views the prepare step builds + the panel renders from cache. */
 export type WebViewName =
@@ -49,7 +50,7 @@ export const WEB_VIEWS: readonly WebViewName[] = [
 ] as const;
 
 /** Analyzer-output schema shared by the prepared manifest and every view. */
-export const WEB_CACHE_SCHEMA_VERSION = 3 as const;
+export const WEB_CACHE_SCHEMA_VERSION = 4 as const;
 
 /**
  * One prepared view, on disk as <view>.json. Carries its own generation date so
@@ -215,6 +216,8 @@ export interface ProgramDomainViewPayload {
   classDiagram: { nodes: unknown[]; edges: unknown[] };
   dependencies: Array<{ from: string; to: string; weight: number; layerViolation: boolean; modules: ProgramDomainModuleDependency[] }>;
   modularity: number;
+  /** Active deterministic findings. Resolved signals are absent after the next prepare. */
+  proposals: RefactoringProposal[];
 }
 
 // ── search corpus ───────────────────────────────────────────────────────────

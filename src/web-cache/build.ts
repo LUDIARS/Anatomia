@@ -29,6 +29,7 @@ import type { SceneInspection } from "../knowledge/scene/types.js";
 import type { ScreenGraph } from "../screens/types.js";
 import type { DomainCorrespondenceQuery } from "../knowledge/domain-correspondence/types.js";
 import type { KnowledgeGraph } from "../knowledge/types.js";
+import { buildReview } from "../review/build.js";
 
 export interface BuildWebCacheOptions {
   /** Scene model (局面) for the scene/domain/module view. Default: empty. */
@@ -60,7 +61,7 @@ export async function buildWebCacheBundle(
   // vis-data first, then thread its nodes/edges into the domain-view builder.
   const moduleResolver = await loadTaxonomyResolver(ctx.repoPath);
   const graph = await buildVisData(ctx, undefined, { moduleResolver });
-  const [domainView, hotspots, specLinks, sceneModules, searchCorpus, accessPatterns] =
+  const [domainView, hotspots, specLinks, sceneModules, searchCorpus, accessPatterns, review] =
     await Promise.all([
       buildDomainViewPayload(ctx, evaluation, graph.nodes, graph.edges),
       buildHotspots(ctx),
@@ -71,8 +72,9 @@ export async function buildWebCacheBundle(
       // live route that re-analyzed the repo + re-read every source file. Prepare
       // them once here so the panel serves them from disk with no re-analysis.
       detectAccessPatterns(ctx),
+      buildReview(ctx),
     ]);
-  const programDomainView = await buildProgramDomainViewPayload(ctx, evaluation, graph, options.domainCorrespondence ?? { programDomains: [], businessDomains: [], specClauses: [] });
+  const programDomainView = await buildProgramDomainViewPayload(ctx, evaluation, graph, options.domainCorrespondence ?? { programDomains: [], businessDomains: [], specClauses: [] }, review, options.knowledgeState);
 
   const domains = (ctx.domains ?? []).map((d) => ({
     domain: d.domain,

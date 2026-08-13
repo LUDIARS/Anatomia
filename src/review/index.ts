@@ -14,6 +14,8 @@ export type {
   ReviewOptions,
 } from "./build.js";
 export { formatReview } from "./format.js";
+export { buildRefactoringProposals, refactoringProposalId } from "./refactoring-proposals.js";
+export type { RefactoringAction, RefactoringLocation, RefactoringProposal, RefactoringSignal, RefactoringSignalRule } from "./refactoring-proposals.js";
 export { buildDomainReview } from "./domain-review.js";
 export type {
   DomainReviewReport,
