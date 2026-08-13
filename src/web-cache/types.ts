@@ -24,6 +24,7 @@ export type WebViewName =
   | "graph"
   | "domain-view"
   | "business-domain-view"
+  | "program-domain-view"
   | "scene-view"
   | "access-patterns"
   | "hotspots"
@@ -37,6 +38,7 @@ export const WEB_VIEWS: readonly WebViewName[] = [
   "graph",
   "domain-view",
   "business-domain-view",
+  "program-domain-view",
   "scene-view",
   "access-patterns",
   "hotspots",
@@ -184,6 +186,37 @@ export interface BusinessDomainViewDomain {
   relatedSceneIds: string[];
 }
 
+export interface ProgramDomainModuleDependency {
+  fromModuleId: string;
+  toModuleId: string;
+  weight: number;
+}
+
+export interface ProgramDomainViewDomain {
+  id: string;
+  layer: string;
+  moduleIds: string[];
+  codeSymbolIds: string[];
+  cohesion: number | null;
+  modularity: number;
+  misfitCount: number;
+  modules: Array<{ moduleId: string; cohesion: number | null; misfitCount: number }>;
+  /** Intra-domain module dependencies for the domain detail drill-down. */
+  moduleDependencies: ProgramDomainModuleDependency[];
+  businessDomains: Array<{ businessDomainId: string; weight: number; evidence: { codeSymbols: Array<{ id: string; file: string; line: number | null }>; specClauses: Array<{ id: string; file: string; line: number | null }> } }>;
+  unlinkedCodeSymbolCount: number;
+  unlinkedCodeSymbols: Array<{ id: string; file: string; line: number | null }>;
+}
+
+/** Read-only program-domain inspection, precomputed with the web cache. */
+export interface ProgramDomainViewPayload {
+  layers: Array<{ layer: string; domains: ProgramDomainViewDomain[] }>;
+  diagnostics: Array<{ kind: "unclassified"; moduleId: string; symbolIds: string[]; reason: "no-layer-rule" }>;
+  classDiagram: { nodes: unknown[]; edges: unknown[] };
+  dependencies: Array<{ from: string; to: string; weight: number; layerViolation: boolean; modules: ProgramDomainModuleDependency[] }>;
+  modularity: number;
+}
+
 // ── search corpus ───────────────────────────────────────────────────────────
 
 /** What kind of thing a search entry indexes. */
@@ -219,6 +252,7 @@ export interface WebCacheBundle {
   graph: unknown;
   "domain-view": unknown;
   "business-domain-view": BusinessDomainViewPayload;
+  "program-domain-view": ProgramDomainViewPayload;
   "scene-view": SceneViewPayload;
   "access-patterns": AccessPattern[];
   hotspots: unknown;

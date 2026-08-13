@@ -1368,7 +1368,38 @@
 
   function loadActiveDomainLayer(id) {
     if (state.domainLayer === 'business') return loadBusinessDomainView(id);
-    return loadDomainView(id);
+    return loadProgramDomainView(id);
+  }
+
+  async function loadProgramDomainView(id, focusId) {
+    var pane = document.getElementById('program-domain-pane');
+    pane.style.display = 'block';
+    pane.innerHTML = '<div class="loading-msg">プログラムドメインを読み込み中…</div>';
+    var response;
+    try { response = await fetch('/api/projects/' + encodeURIComponent(id) + '/program-domain-view'); }
+    catch (error) { pane.innerHTML = '<div class="error-msg">' + esc(error.message) + '</div>'; return; }
+    var payload = await response.json().catch(function () { return {}; });
+    if (!response.ok) {
+      if (response.status === 409) { pane.innerHTML = '<div class="gate-card"><h3>プログラムドメイン</h3><p>このビューはまだ生成されていません。</p><button class="btn btn-primary" id="pd-prepare">キャッシュ生成</button></div>'; document.getElementById('pd-prepare').onclick = function () { runPrepare(id); }; return; }
+      pane.innerHTML = '<div class="error-msg">' + esc(payload.error || 'error') + '</div>'; return;
+    }
+    state.programDomainView = payload;
+    var domainRows = (payload.layers || []).map(function (layer) {
+      return '<section class="bd-card"><h3>layer: ' + esc(layer.layer) + '</h3>' + (layer.domains || []).map(function (domain) {
+        var selected = focusId === domain.id ? ' style="border-color:#58a6ff"' : '';
+        return '<details class="bd-card"' + selected + '><summary><strong>' + esc(domain.id) + '</strong> · cohesion ' + esc(domain.cohesion == null ? 'n/a' : (domain.cohesion * 100).toFixed(0) + '%') + ' · Q ' + esc(domain.modularity.toFixed(3)) + ' · misfit ' + esc(domain.misfitCount) + '</summary>' +
+          '<div class="dv-muted">modules: ' + esc(domain.moduleIds.join(', ') || 'なし') + '</div>' +
+          '<h4>モジュール詳細</h4><ul>' + domain.modules.map(function (module) { return '<li>' + esc(module.moduleId) + ' · cohesion ' + esc(module.cohesion == null ? 'n/a' : (module.cohesion * 100).toFixed(0) + '%') + ' · misfit ' + esc(module.misfitCount) + '</li>'; }).join('') + '</ul>' +
+          '<h4>ドメイン内依存</h4><ul>' + (domain.moduleDependencies || []).map(function (dependency) { return '<li>' + esc(dependency.fromModuleId) + ' → ' + esc(dependency.toModuleId) + ' · weight ' + esc(dependency.weight) + '</li>'; }).join('') + '</ul>' +
+          '<h4>ビジネスへのつながり</h4>' + ((domain.businessDomains || []).map(function (business) { var codeEvidence = (business.evidence.codeSymbols || []).map(function (symbol) { return '<li>CodeSymbol: ' + esc(symbol.id) + ' — ' + esc(symbol.file) + ':' + esc(symbol.line == null ? '?' : symbol.line) + '</li>'; }).join(''); var specEvidence = (business.evidence.specClauses || []).map(function (clause) { return '<li>SpecClause: ' + esc(clause.id) + ' — ' + esc(clause.file) + ':' + esc(clause.line == null ? '?' : clause.line) + '</li>'; }).join(''); return '<details><summary><button class="bd-link" data-program-business="' + esc(business.businessDomainId) + '">' + esc(business.businessDomainId) + '</button> · weight ' + esc(business.weight) + '</summary><ul>' + codeEvidence + specEvidence + '</ul></details>'; }).join('') || '<div>対応なし</div>') +
+          '<div class="dv-muted">紐づけなし CodeSymbol: ' + esc(domain.unlinkedCodeSymbolCount) + '</div></details>';
+      }).join('') + '</section>';
+    }).join('');
+    var diagnostics = (payload.diagnostics || []).map(function (diagnostic) { return '<li>' + esc(diagnostic.moduleId) + ' — ' + esc(diagnostic.reason) + ' (' + esc(diagnostic.symbolIds.length) + ' symbols)</li>'; }).join('') || '<li>なし</li>';
+    var edges = (payload.dependencies || []).map(function (edge) { var modules = (edge.modules || []).map(function (dependency) { return '<li>' + esc(dependency.fromModuleId) + ' → ' + esc(dependency.toModuleId) + ' · weight ' + esc(dependency.weight) + '</li>'; }).join('') || '<li>モジュール間の根拠なし</li>'; return '<li' + (edge.layerViolation ? ' style="color:#f78166;font-weight:700"' : '') + '><details><summary>' + esc(edge.from) + ' → ' + esc(edge.to) + ' · weight ' + esc(edge.weight) + (edge.layerViolation ? ' · layer 違反' : '') + '</summary><ul>' + modules + '</ul></details></li>'; }).join('') || '<li>越境依存なし</li>';
+    var classes = (payload.classDiagram && payload.classDiagram.nodes || []).map(function (node) { return '<li>' + esc(node.label || node.id) + ' <span class="dv-muted">' + esc(node._meta && node._meta.file || '') + '</span></li>'; }).join('') || '<li>クラスなし</li>';
+    pane.innerHTML = '<div style="padding:16px;overflow:auto;height:100%"><h2>プログラムドメイン <span class="dv-muted">prepared cache · modularity Q ' + esc(payload.modularity.toFixed(3)) + '</span></h2>' + domainRows + '<section class="bd-card"><h3>unclassified diagnostic</h3><ul>' + diagnostics + '</ul></section><section class="bd-card"><h3>クラス図 (enclosingType 集約)</h3><div class="dv-muted">継承・実装・参照 edge は prepared class view を利用</div><ul>' + classes + '</ul><div class="dv-muted">edges: ' + esc(payload.classDiagram && payload.classDiagram.edges && payload.classDiagram.edges.length || 0) + '</div></section><section class="bd-card"><h3>ドメイン間依存関係</h3><div class="dv-muted">赤字は下位層→上位層の layer 違反。詳細は上記モジュール粒度へ展開。</div><ul>' + edges + '</ul></section></div>';
+    pane.querySelectorAll('[data-program-business]').forEach(function (button) { button.onclick = function () { openBusinessDomain(button.getAttribute('data-program-business')); }; });
   }
 
   function openProgramDomain(programDomainId) {
@@ -1378,14 +1409,7 @@
     });
     document.getElementById('business-domain-pane').classList.remove('active');
     document.getElementById('program-domain-pane').style.display = 'flex';
-    Promise.resolve(loadDomainView(state.projectId)).then(function () {
-      var domain = (state.domainViews || []).find(function (view) { return view.domain === programDomainId; });
-      if (!domain) {
-        flashDeeplinkNote('プログラムドメイン stable ID: ' + programDomainId + ' は表示対象にありません。');
-        return;
-      }
-      selectDomain(domain);
-      scrollDvCardIntoView(domain.domain);
+    Promise.resolve(loadProgramDomainView(state.projectId, programDomainId)).then(function () {
     }).catch(function (error) {
       flashDeeplinkNote('プログラムドメインを開けませんでした: ' + error.message);
     });

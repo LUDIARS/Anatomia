@@ -20,6 +20,7 @@ import { detectAccessPatterns } from "../patterns/detect.js";
 import { buildSceneModules } from "./scene-modules.js";
 import { buildSceneViewPayload } from "./scene-view.js";
 import { buildBusinessDomainViewPayload } from "./business-domain-view.js";
+import { buildProgramDomainViewPayload } from "./program-domain-view.js";
 import { buildSearchCorpus } from "./search-corpus.js";
 import type { SceneModel } from "../integral/scene.js";
 import { emptySceneModel } from "../integral/scene.js";
@@ -71,6 +72,7 @@ export async function buildWebCacheBundle(
       // them once here so the panel serves them from disk with no re-analysis.
       detectAccessPatterns(ctx),
     ]);
+  const programDomainView = await buildProgramDomainViewPayload(ctx, evaluation, graph, options.domainCorrespondence ?? { programDomains: [], businessDomains: [], specClauses: [] });
 
   const domains = (ctx.domains ?? []).map((d) => ({
     domain: d.domain,
@@ -83,6 +85,7 @@ export async function buildWebCacheBundle(
     graph,
     "domain-view": domainView,
     "business-domain-view": businessDomainView,
+    "program-domain-view": programDomainView,
     "scene-view": sceneView,
     "access-patterns": accessPatterns,
     hotspots,

@@ -203,4 +203,14 @@ export function mountWebCacheRoutes(app: Hono, deps: WebCacheRouteDeps): void {
     if (!env) return c.json({ error: "not-prepared", view: "business-domain-view" }, 409);
     return c.json(env.data);
   });
+
+  app.get("/api/projects/:id/program-domain-view", async (c) => {
+    if (!manager) return c.json({ error: "web cache requires manager mode" }, 501);
+    let projectId: string;
+    try { projectId = manager.resolveId(c.req.param("id")); }
+    catch { return c.json({ error: `no such project "${c.req.param("id")}"` }, 404); }
+    const env = await readWebView(manager.cache.dirFor(projectId), "program-domain-view");
+    if (!env) return c.json({ error: "not-prepared", view: "program-domain-view" }, 409);
+    return c.json(env.data);
+  });
 }
