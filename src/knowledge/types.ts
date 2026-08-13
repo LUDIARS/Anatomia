@@ -5,6 +5,7 @@ export type KnowledgeNodeKind =
   | "spec-document"
   | "spec-clause"
   | "code-symbol"
+  | "program-domain"
   | "scene"
   | "scene-element";
 
@@ -13,6 +14,7 @@ export type KnowledgeEdgeKind =
   | "domain-owns-spec"
   | "domain-relates-spec"
   | "domain-owns-code"
+  | "program-domain-contains-code"
   | "domain-uses-code"
   | "code-relates-spec"
   | "scene-contains"

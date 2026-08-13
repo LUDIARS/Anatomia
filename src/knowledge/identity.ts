@@ -6,6 +6,7 @@ const KIND_PREFIX: Record<KnowledgeNodeKind, string> = {
   "spec-document": "spec",
   "spec-clause": "spec-clause",
   "code-symbol": "code",
+  "program-domain": "program-domain",
   scene: "scene",
   "scene-element": "scene-element",
 };
@@ -87,6 +88,9 @@ export function codeSymbolEntityId(
     `${durableNativeKey("language", language)}/${durableNativeKey("symbol", `${qualifiedSymbol}\n${sourceIdentity}`)}`,
   );
 }
+
+export const programDomainEntityId = (projectId: string, immutableKey: string): string =>
+  stableEntityId("program-domain", projectId, durableNativeKey("program-domain", immutableKey));
 
 export const sceneEntityId = (projectId: string, nativeIdentity: string): string =>
   stableEntityId("scene", projectId, durableNativeKey("scene", nativeIdentity));
