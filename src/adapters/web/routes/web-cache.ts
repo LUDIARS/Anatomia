@@ -65,9 +65,10 @@ export function mountWebCacheRoutes(app: Hono, deps: WebCacheRouteDeps): void {
     if (sceneInspection.stale) throw new Error(`scene manifest is stale: ${sceneInspection.staleReasons.join(", ")}`);
     const sceneModel = sceneModelFromInspection(sceneInspection);
     const screenGraph = await detectScreens(ctx);
-    const domainCorrespondence = await prepareDomainCorrespondenceWebCache(manager!.cache.dirFor(project.id), await application.domains.state());
+    const knowledgeState = await application.domains.state();
+    const domainCorrespondence = await prepareDomainCorrespondenceWebCache(manager!.cache.dirFor(project.id), knowledgeState);
     setPhase("building views");
-    const bundle = await buildWebCacheBundle(ctx, { sceneModel, sceneInspection, screenGraph, domainCorrespondence });
+    const bundle = await buildWebCacheBundle(ctx, { sceneModel, sceneInspection, screenGraph, domainCorrespondence, knowledgeState });
     setPhase("writing");
     const preparedAt = new Date().toISOString();
     const manifest = await writeWebCache(
@@ -190,6 +191,16 @@ export function mountWebCacheRoutes(app: Hono, deps: WebCacheRouteDeps): void {
     catch { return c.json({ error: `no such project "${c.req.param("id")}"` }, 404); }
     const env = await readWebView(manager.cache.dirFor(projectId), "scene-view");
     if (!env) return c.json({ error: "not-prepared", view: "scene-view" }, 409);
+    return c.json(env.data);
+  });
+
+  app.get("/api/projects/:id/business-domain-view", async (c) => {
+    if (!manager) return c.json({ error: "web cache requires manager mode" }, 501);
+    let projectId: string;
+    try { projectId = manager.resolveId(c.req.param("id")); }
+    catch { return c.json({ error: `no such project "${c.req.param("id")}"` }, 404); }
+    const env = await readWebView(manager.cache.dirFor(projectId), "business-domain-view");
+    if (!env) return c.json({ error: "not-prepared", view: "business-domain-view" }, 409);
     return c.json(env.data);
   });
 }

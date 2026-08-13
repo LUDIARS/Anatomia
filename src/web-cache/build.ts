@@ -19,6 +19,7 @@ import { buildSpecLinks } from "../domains/spec-links.js";
 import { detectAccessPatterns } from "../patterns/detect.js";
 import { buildSceneModules } from "./scene-modules.js";
 import { buildSceneViewPayload } from "./scene-view.js";
+import { buildBusinessDomainViewPayload } from "./business-domain-view.js";
 import { buildSearchCorpus } from "./search-corpus.js";
 import type { SceneModel } from "../integral/scene.js";
 import { emptySceneModel } from "../integral/scene.js";
@@ -26,6 +27,7 @@ import type { WebCacheBundle } from "./types.js";
 import type { SceneInspection } from "../knowledge/scene/types.js";
 import type { ScreenGraph } from "../screens/types.js";
 import type { DomainCorrespondenceQuery } from "../knowledge/domain-correspondence/types.js";
+import type { KnowledgeGraph } from "../knowledge/types.js";
 
 export interface BuildWebCacheOptions {
   /** Scene model (局面) for the scene/domain/module view. Default: empty. */
@@ -33,6 +35,7 @@ export interface BuildWebCacheOptions {
   sceneInspection?: SceneInspection;
   screenGraph?: ScreenGraph;
   domainCorrespondence?: DomainCorrespondenceQuery;
+  knowledgeState?: KnowledgeGraph;
 }
 
 /** Build every web-display view from an analyzed context. */
@@ -44,6 +47,9 @@ export async function buildWebCacheBundle(
   const sceneView = options.sceneInspection && options.screenGraph && options.domainCorrespondence
     ? buildSceneViewPayload(options.sceneInspection, options.screenGraph, options.domainCorrespondence)
     : { scenes: [] };
+  const businessDomainView = options.sceneInspection && options.domainCorrespondence && options.knowledgeState
+    ? buildBusinessDomainViewPayload(options.knowledgeState, options.domainCorrespondence, options.sceneInspection, ctx.specClauses)
+    : { domains: [], unlinkedProgramDomains: [] };
 
   // Module partition: computed once, reused by domain-view / scene-modules / search.
   const { evaluation, index } = await evaluateModulesFromGraph(ctx.graph, ctx.functions);
@@ -76,6 +82,7 @@ export async function buildWebCacheBundle(
   return {
     graph,
     "domain-view": domainView,
+    "business-domain-view": businessDomainView,
     "scene-view": sceneView,
     "access-patterns": accessPatterns,
     hotspots,

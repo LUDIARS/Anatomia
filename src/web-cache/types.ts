@@ -23,6 +23,7 @@ import type { AccessPattern } from "../patterns/detect.js";
 export type WebViewName =
   | "graph"
   | "domain-view"
+  | "business-domain-view"
   | "scene-view"
   | "access-patterns"
   | "hotspots"
@@ -35,6 +36,7 @@ export type WebViewName =
 export const WEB_VIEWS: readonly WebViewName[] = [
   "graph",
   "domain-view",
+  "business-domain-view",
   "scene-view",
   "access-patterns",
   "hotspots",
@@ -154,6 +156,34 @@ export interface SceneViewScene {
   transitionSceneIds: string[];
 }
 
+/** Read-only business-domain inspection, assembled during web-cache preparation. */
+export interface BusinessDomainViewPayload {
+  domains: BusinessDomainViewDomain[];
+  /** Program-domain code which is intentionally not owned by a business domain. */
+  unlinkedProgramDomains: Array<{
+    programDomainId: string;
+    codeSymbolCount: number;
+    codeSymbols: Array<{ id: string; file: string; line: number | null }>;
+  }>;
+}
+
+export interface BusinessDomainViewDomain {
+  id: string;
+  name: string;
+  purpose: string;
+  boundary: { inScope: string[]; outOfScope: string[] };
+  status: "implemented" | "spec-only" | "missing";
+  parentId: string | null;
+  childIds: string[];
+  specRefs: Array<{ id: string; heading: string; excerpt: string; file: string; line: number | null }>;
+  programDomains: Array<{
+    programDomainId: string;
+    weight: number;
+    codeSymbols: Array<{ id: string; file: string; line: number | null }>;
+  }>;
+  relatedSceneIds: string[];
+}
+
 // ── search corpus ───────────────────────────────────────────────────────────
 
 /** What kind of thing a search entry indexes. */
@@ -188,6 +218,7 @@ export interface SearchCorpus {
 export interface WebCacheBundle {
   graph: unknown;
   "domain-view": unknown;
+  "business-domain-view": BusinessDomainViewPayload;
   "scene-view": SceneViewPayload;
   "access-patterns": AccessPattern[];
   hotspots: unknown;

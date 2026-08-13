@@ -253,7 +253,21 @@
 
     /* ── Domain View panel ──────────────────────────────────── */
     #panel-domain-view { display: none; }
-    #panel-domain-view.active { display: flex; flex-direction: row; height: 100%; overflow: hidden; }
+    #panel-domain-view.active { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+    #domain-layer-tabs { display:flex; gap:6px; padding:8px 12px; border-bottom:1px solid #30363d; }
+    .domain-layer-btn { background:#21262d; color:#c9d1d9; border:1px solid #30363d; border-radius:6px; padding:5px 10px; cursor:pointer; }
+    .domain-layer-btn.active { background:#1f6feb; color:#fff; }
+    #program-domain-pane { display:flex; flex:1; min-height:0; }
+    #business-domain-pane { display:none; flex:1; min-height:0; overflow:hidden; grid-template-columns:280px 1fr; }
+    #business-domain-pane.active { display:grid; }
+    #bd-sidebar { overflow:auto; border-right:1px solid #30363d; padding:12px; }
+    #bd-detail { overflow:auto; padding:16px 20px; }
+    .bd-domain { display:block; width:100%; text-align:left; margin:4px 0; padding:8px; color:#c9d1d9; background:#161b22; border:1px solid #30363d; border-radius:6px; cursor:pointer; }
+    .bd-domain.active { border-color:#58a6ff; background:#13233d; }
+    .bd-status { font-size:.72rem; border-radius:10px; padding:2px 6px; margin-left:6px; background:#30363d; }
+    .bd-card { border:1px solid #30363d; border-radius:8px; padding:12px; margin:10px 0; background:#161b22; }
+    .bd-link { color:#58a6ff; cursor:pointer; background:none; border:0; padding:0; text-decoration:underline; }
+    #bd-organization { width:100%; min-height:620px; border:1px solid #30363d; border-radius:8px; background:#111827; }
     #dv-sidebar {
       width: 300px; flex: none; overflow-y: auto; padding: 14px;
       border-right: 1px solid #30363d; background: #0f1117;
@@ -631,6 +645,12 @@
 
         <!-- ── Domain View ── -->
         <div class="tab-panel" id="panel-domain-view">
+          <div id="domain-layer-tabs"><button class="domain-layer-btn active" data-domain-layer="business">ビジネス</button><button class="domain-layer-btn" data-domain-layer="program">プログラム</button></div>
+          <div id="business-domain-pane">
+            <aside id="bd-sidebar"><h3>ビジネスドメイン</h3><div id="bd-list"><div class="loading-msg">Loading…</div></div></aside>
+            <section id="bd-detail"><div class="dv-muted">ビジネスドメインを選ぶと、approved OKF・仕様根拠・プログラム対応を表示します。</div></section>
+          </div>
+          <div id="program-domain-pane">
           <div id="dv-sidebar">
             <h3>Domains</h3>
             <div id="dv-list"><div class="loading-msg">Loading…</div></div>
@@ -665,6 +685,7 @@
             <div id="dv-modules-body"><div class="dv-muted">ドメインを選ぶと、その機能(module)群を凝集度つきで一覧します。</div></div>
             <h4 id="dv-misfit-head" style="display:none">misfit 関数 (別機能に強く結合)</h4>
             <div id="dv-misfit-body"></div>
+          </div>
           </div>
         </div>
 
@@ -844,6 +865,9 @@
     domainViews: null,
     domainGraphs: null,
     selectedDomain: null,
+    selectedBusinessDomain: null,
+    businessDomainView: null,
+    domainLayer: 'business',
     accessPatterns: null,
     screens: null,
     currentDomainView: null,
@@ -1320,7 +1344,7 @@
     var id = state.projectId;
     if (!id) return;
     if (tab === 'graph')          loadGraph(id);
-    if (tab === 'domain-view')    loadDomainView(id);
+    if (tab === 'domain-view')    loadActiveDomainLayer(id);
     if (tab === 'scene-modules')  loadSceneModules(id);
     if (tab === 'search')         loadSearchTab(id);
     if (tab === 'hotspots')       loadHotspots(id);
@@ -1328,6 +1352,75 @@
     if (tab === 'spec-links')     loadSpecLinks(id);
     if (tab === 'test-suggestions') loadTestSuggestions(id);
     if (tab === 'adjust')         loadAdjust(id);
+  }
+
+  document.querySelectorAll('[data-domain-layer]').forEach(function (button) {
+    button.onclick = function () {
+      state.domainLayer = button.getAttribute('data-domain-layer');
+      document.querySelectorAll('[data-domain-layer]').forEach(function (candidate) {
+        candidate.classList.toggle('active', candidate.getAttribute('data-domain-layer') === state.domainLayer);
+      });
+      document.getElementById('business-domain-pane').classList.toggle('active', state.domainLayer === 'business');
+      document.getElementById('program-domain-pane').style.display = state.domainLayer === 'program' ? 'flex' : 'none';
+      if (state.projectId) loadActiveDomainLayer(state.projectId);
+    };
+  });
+
+  function loadActiveDomainLayer(id) {
+    if (state.domainLayer === 'business') return loadBusinessDomainView(id);
+    return loadDomainView(id);
+  }
+
+  function openProgramDomain(programDomainId) {
+    state.domainLayer = 'program';
+    document.querySelectorAll('[data-domain-layer]').forEach(function (candidate) {
+      candidate.classList.toggle('active', candidate.getAttribute('data-domain-layer') === 'program');
+    });
+    document.getElementById('business-domain-pane').classList.remove('active');
+    document.getElementById('program-domain-pane').style.display = 'flex';
+    Promise.resolve(loadDomainView(state.projectId)).then(function () {
+      var domain = (state.domainViews || []).find(function (view) { return view.domain === programDomainId; });
+      if (!domain) {
+        flashDeeplinkNote('プログラムドメイン stable ID: ' + programDomainId + ' は表示対象にありません。');
+        return;
+      }
+      selectDomain(domain);
+      scrollDvCardIntoView(domain.domain);
+    }).catch(function (error) {
+      flashDeeplinkNote('プログラムドメインを開けませんでした: ' + error.message);
+    });
+  }
+
+  function orderedBusinessDomains(domains) {
+    var byId = new Map(domains.map(function (domain) { return [domain.id, domain]; }));
+    var children = new Map();
+    domains.forEach(function (domain) {
+      var parentId = domain.parentId && byId.has(domain.parentId) ? domain.parentId : null;
+      var siblings = children.get(parentId) || [];
+      siblings.push(domain);
+      children.set(parentId, siblings);
+    });
+    children.forEach(function (siblings) {
+      siblings.sort(function (left, right) { return left.id.localeCompare(right.id); });
+    });
+    var ordered = [];
+    var visited = new Set();
+    function append(parentId, depth) {
+      (children.get(parentId) || []).forEach(function (domain) {
+        if (visited.has(domain.id)) return;
+        visited.add(domain.id);
+        ordered.push({ domain: domain, depth: depth });
+        append(domain.id, depth + 1);
+      });
+    }
+    append(null, 0);
+    domains.forEach(function (domain) {
+      if (visited.has(domain.id)) return;
+      visited.add(domain.id);
+      ordered.push({ domain: domain, depth: 0 });
+      append(domain.id, 1);
+    });
+    return ordered;
   }
 
   // Prepare web cache from the dashboard summary strip (enqueues; the serial
@@ -2197,14 +2290,60 @@
   async function openBusinessDomain(domainId) {
     if (!domainId) return;
     activateTab('domain-view', false);
-    await loadDomainView(state.projectId);
-    var domain = (state.domainViews || []).find(function (view) { return view.domain === domainId; });
+    state.domainLayer = 'business';
+    document.querySelectorAll('[data-domain-layer]').forEach(function (candidate) { candidate.classList.toggle('active', candidate.getAttribute('data-domain-layer') === 'business'); });
+    document.getElementById('business-domain-pane').classList.add('active');
+    document.getElementById('program-domain-pane').style.display = 'none';
+    await loadBusinessDomainView(state.projectId);
+    var domain = (state.businessDomainView && state.businessDomainView.domains || []).find(function (view) { return view.id === domainId; });
     if (!domain) {
       flashDeeplinkNote('ビジネスドメイン「' + domainId + '」は表示対象にありません。');
       return;
     }
-    selectDomain(domain);
-    scrollDvCardIntoView(domain.domain);
+    selectBusinessDomain(domain);
+  }
+
+  async function loadBusinessDomainView(id) {
+    var pane = document.getElementById('business-domain-pane');
+    pane.classList.add('active');
+    document.getElementById('program-domain-pane').style.display = 'none';
+    var list = document.getElementById('bd-list');
+    list.innerHTML = '<div class="loading-msg">Loading…</div>';
+    var response;
+    try { response = await fetch('/api/projects/' + encodeURIComponent(id) + '/business-domain-view'); }
+    catch (error) { list.innerHTML = '<div class="error-msg">' + esc(error.message) + '</div>'; return; }
+    var payload = await response.json().catch(function () { return {}; });
+    if (!response.ok) {
+      if (response.status === 409) { list.innerHTML = '<div class="gate-card"><h3>ビジネスドメイン</h3><p>このビューはまだ生成されていません。</p><button class="btn btn-primary" id="bd-prepare">キャッシュ生成</button></div>'; document.getElementById('bd-prepare').onclick = function () { runPrepare(id); }; return; }
+      list.innerHTML = '<div class="error-msg">' + esc(payload.error || 'error') + '</div>'; return;
+    }
+    state.businessDomainView = payload;
+    var domains = payload.domains || [];
+    list.innerHTML = orderedBusinessDomains(domains).map(function (entry) {
+      var domain = entry.domain;
+      return '<button class="bd-domain' + (state.selectedBusinessDomain === domain.id ? ' active' : '') + '" data-business-domain="' + esc(domain.id) + '" style="margin-left:' + (entry.depth * 16) + 'px;width:calc(100% - ' + (entry.depth * 16) + 'px)">' + esc(domain.name) + '<span class="bd-status">' + esc(domain.status) + '</span><div class="dv-muted">' + esc(domain.id) + '</div></button>';
+    }).join('') || '<div class="empty-msg">approved ビジネスドメインがありません。</div>';
+    list.querySelectorAll('[data-business-domain]').forEach(function (button) { button.onclick = function () { selectBusinessDomain(domains.find(function (domain) { return domain.id === button.getAttribute('data-business-domain'); })); }; });
+    if (domains.length) selectBusinessDomain(domains.find(function (domain) { return domain.id === state.selectedBusinessDomain; }) || domains[0]);
+  }
+
+  function sourceRef(ref) {
+    var position = ref.file ? esc(ref.file) + ':' + esc(ref.line == null ? '?' : ref.line) : 'source unavailable';
+    return '<div class="bd-card"><strong>' + esc(ref.heading) + '</strong><div class="dv-muted">' + position + '</div><p>' + esc(ref.excerpt || '抜粋なし') + '</p><a class="bd-link" href="/?project=' + encodeURIComponent(state.projectId) + '&focus=' + encodeURIComponent(ref.id) + '">仕様原文ビューへ</a></div>';
+  }
+
+  function selectBusinessDomain(domain) {
+    if (!domain) return;
+    state.selectedBusinessDomain = domain.id;
+    document.querySelectorAll('[data-business-domain]').forEach(function (button) { button.classList.toggle('active', button.getAttribute('data-business-domain') === domain.id); });
+    var programs = (domain.programDomains || []).map(function (program) {
+      var evidence = (program.codeSymbols || []).map(function (symbol) { return '<li>' + esc(symbol.id) + ' — ' + esc(symbol.file || '?') + ':' + esc(symbol.line == null ? '?' : symbol.line) + '</li>'; }).join('') || '<li>経由 CodeSymbol はありません。</li>';
+      return '<details class="bd-card"><summary><button class="bd-link" data-program-domain="' + esc(program.programDomainId) + '">' + esc(program.programDomainId) + '</button> · weight ' + esc(program.weight) + '</summary><ul>' + evidence + '</ul></details>';
+    }).join('') || '<div class="bd-card">紐づけなし: このビジネスドメインに対応するプログラムドメインはありません。</div>';
+    var scenes = (domain.relatedSceneIds || []).map(function (scene) { return '<button class="bd-link" data-business-scene="' + esc(scene) + '">' + esc(scene) + '</button>'; }).join('、') || '関連 scene はありません。';
+    document.getElementById('bd-detail').innerHTML = '<h2>' + esc(domain.name) + '<span class="bd-status">' + esc(domain.status) + '</span></h2><div class="dv-muted">stable ID: ' + esc(domain.id) + ' · parent: ' + esc(domain.parentId || 'root') + '</div><h3>Purpose</h3><p>' + esc(domain.purpose || 'purpose 未記載') + '</p><h3>Boundary</h3><div class="bd-card"><strong>In scope</strong><div>' + esc((domain.boundary.inScope || []).join(' / ') || '未記載') + '</div><strong>Out of scope</strong><div>' + esc((domain.boundary.outOfScope || []).join(' / ') || '未記載') + '</div></div><h3>Owner SpecClause</h3>' + ((domain.specRefs || []).map(sourceRef).join('') || '<div class="bd-card">owner SpecClause はありません。</div>') + '<h3>プログラムへのつながり</h3>' + programs + '<h3>関連 scene</h3><div class="bd-card">' + scenes + '</div><h3>人間による調整</h3><p class="dv-muted">調整は既存の proposal + Gate A/B/C ワークフローをそのまま使います。</p><iframe id="bd-organization" title="Domain organization" src="/domain-organization/' + encodeURIComponent(state.projectId) + '"></iframe>';
+    document.querySelectorAll('[data-program-domain]').forEach(function (button) { button.onclick = function () { openProgramDomain(button.getAttribute('data-program-domain')); }; });
+    document.querySelectorAll('[data-business-scene]').forEach(function (button) { button.onclick = function () { activateTab('scene-modules', false); loadSceneModules(state.projectId).then(function () { state.sceneFilter = button.getAttribute('data-business-scene'); renderSceneBar(); renderScenes(); }); }; });
   }
 
   function renderSceneDomainSlice(d) {

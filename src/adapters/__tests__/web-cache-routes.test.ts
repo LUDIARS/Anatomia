@@ -91,6 +91,9 @@ describe("prepared web cache: gate → prepare → serve", () => {
     const graph = await get("/web/graph");
     expect(graph.status).toBe(409);
     expect((await graph.json()).error).toBe("not-prepared");
+    const business = await get("/business-domain-view");
+    expect(business.status).toBe(409);
+    expect((await business.json()).view).toBe("business-domain-view");
   });
 
   it("prepare-web-cache enqueues a background job that builds every view", async () => {
@@ -117,6 +120,7 @@ describe("prepared web cache: gate → prepare → serve", () => {
       expect.arrayContaining([
         "graph",
         "domain-view",
+        "business-domain-view",
         "access-patterns",
         "hotspots",
         "spec-links",
@@ -128,7 +132,7 @@ describe("prepared web cache: gate → prepare → serve", () => {
   });
 
   it("serves each view envelope with its preparedAt", async () => {
-    for (const view of ["graph", "domain-view", "access-patterns", "hotspots", "spec-links", "domains", "scene-modules"]) {
+    for (const view of ["graph", "domain-view", "business-domain-view", "access-patterns", "hotspots", "spec-links", "domains", "scene-modules"]) {
       const res = await get(`/web/${view}`);
       expect(res.status, view).toBe(200);
       const body = await res.json();
@@ -140,6 +144,12 @@ describe("prepared web cache: gate → prepare → serve", () => {
     const sm = (await (await get("/web/scene-modules")).json()).data;
     expect(typeof sm.hasScenes).toBe("boolean");
     expect(Array.isArray(sm.scenes)).toBe(true);
+  });
+
+  it("serves the direct business-domain view only after preparation", async () => {
+    const res = await get("/business-domain-view");
+    expect(res.status).toBe(200);
+    expect(Array.isArray((await res.json()).domains)).toBe(true);
   });
 
   it("rejects an unknown view", async () => {
