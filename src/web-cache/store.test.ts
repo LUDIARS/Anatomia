@@ -11,10 +11,12 @@ import {
   WEB_CACHE_SCHEMA_VERSION,
   type WebCacheBundle,
   type SceneModulesPayload,
+  type SceneViewPayload,
   type SearchCorpus,
 } from "./types.js";
 
 const scene: SceneModulesPayload = { hasScenes: false, scenes: [] };
+const sceneView: SceneViewPayload = { scenes: [] };
 const corpus: SearchCorpus = { entries: [{ kind: "domain", ref: "d", title: "d" }] };
 
 const bundle: WebCacheBundle = {
@@ -25,6 +27,7 @@ const bundle: WebCacheBundle = {
   "spec-links": [],
   domains: [{ domain: "d" }],
   "scene-modules": scene,
+  "scene-view": sceneView,
   "search-corpus": corpus,
 };
 

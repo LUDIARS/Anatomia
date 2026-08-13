@@ -23,6 +23,7 @@ import type { AccessPattern } from "../patterns/detect.js";
 export type WebViewName =
   | "graph"
   | "domain-view"
+  | "scene-view"
   | "access-patterns"
   | "hotspots"
   | "spec-links"
@@ -34,6 +35,7 @@ export type WebViewName =
 export const WEB_VIEWS: readonly WebViewName[] = [
   "graph",
   "domain-view",
+  "scene-view",
   "access-patterns",
   "hotspots",
   "spec-links",
@@ -133,6 +135,25 @@ export interface SceneModulesPayload {
   scenes: SceneNode[];
 }
 
+/** Scene-tab payload, entirely assembled during web-cache preparation. */
+export interface SceneViewPayload {
+  scenes: SceneViewScene[];
+}
+
+export interface SceneViewScene {
+  id: string;
+  label: string;
+  kind: string;
+  stack: string | null;
+  fidelity: "capture" | "wireframe" | "tree";
+  captureUrl: string | null;
+  wireframe: { nodes: Array<{ id: string; label: string; kind: string }>; transitions: string[] } | null;
+  elements: Array<{ id: string; label: string }>;
+  businessDomainIds: string[];
+  programDomainIds: string[];
+  transitionSceneIds: string[];
+}
+
 // ── search corpus ───────────────────────────────────────────────────────────
 
 /** What kind of thing a search entry indexes. */
@@ -167,6 +188,7 @@ export interface SearchCorpus {
 export interface WebCacheBundle {
   graph: unknown;
   "domain-view": unknown;
+  "scene-view": SceneViewPayload;
   "access-patterns": AccessPattern[];
   hotspots: unknown;
   "spec-links": unknown;

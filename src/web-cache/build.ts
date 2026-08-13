@@ -18,14 +18,21 @@ import { buildHotspots } from "../supply/hotspots.js";
 import { buildSpecLinks } from "../domains/spec-links.js";
 import { detectAccessPatterns } from "../patterns/detect.js";
 import { buildSceneModules } from "./scene-modules.js";
+import { buildSceneViewPayload } from "./scene-view.js";
 import { buildSearchCorpus } from "./search-corpus.js";
 import type { SceneModel } from "../integral/scene.js";
 import { emptySceneModel } from "../integral/scene.js";
 import type { WebCacheBundle } from "./types.js";
+import type { SceneInspection } from "../knowledge/scene/types.js";
+import type { ScreenGraph } from "../screens/types.js";
+import type { DomainCorrespondenceQuery } from "../knowledge/domain-correspondence/types.js";
 
 export interface BuildWebCacheOptions {
   /** Scene model (局面) for the scene/domain/module view. Default: empty. */
   sceneModel?: SceneModel;
+  sceneInspection?: SceneInspection;
+  screenGraph?: ScreenGraph;
+  domainCorrespondence?: DomainCorrespondenceQuery;
 }
 
 /** Build every web-display view from an analyzed context. */
@@ -34,6 +41,9 @@ export async function buildWebCacheBundle(
   options: BuildWebCacheOptions = {},
 ): Promise<WebCacheBundle> {
   const sceneModel = options.sceneModel ?? emptySceneModel();
+  const sceneView = options.sceneInspection && options.screenGraph && options.domainCorrespondence
+    ? buildSceneViewPayload(options.sceneInspection, options.screenGraph, options.domainCorrespondence)
+    : { scenes: [] };
 
   // Module partition: computed once, reused by domain-view / scene-modules / search.
   const { evaluation, index } = await evaluateModulesFromGraph(ctx.graph, ctx.functions);
@@ -66,6 +76,7 @@ export async function buildWebCacheBundle(
   return {
     graph,
     "domain-view": domainView,
+    "scene-view": sceneView,
     "access-patterns": accessPatterns,
     hotspots,
     "spec-links": specLinks,

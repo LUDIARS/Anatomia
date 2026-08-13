@@ -31,9 +31,10 @@ import { PrepareQueue } from "../../../web-cache/prepare-queue.js";
 import { WEB_VIEWS } from "../../../web-cache/types.js";
 import type { WebViewName, SearchCorpus } from "../../../web-cache/types.js";
 import { searchCorpus } from "../../../web-cache/search.js";
-import type { SceneModel } from "../../../integral/scene.js";
 import { sceneModelFromInspection } from "../../../scenes/canonical.js";
 import { KnowledgeApplicationService, knowledgePortFromManager } from "../../../knowledge/application/index.js";
+import { detectScreens } from "../../../screens/index.js";
+import { prepareDomainCorrespondenceWebCache } from "../../../web-cache/domain-correspondence.js";
 
 /** Dependencies for the web-cache routes. */
 export interface WebCacheRouteDeps {
@@ -47,13 +48,6 @@ export interface WebCacheRouteDeps {
 
 const VIEW_SET = new Set<WebViewName>(WEB_VIEWS);
 
-/** All prepared views consume the same revision-validated canonical manifest. */
-async function resolveSceneModel(manager: ProjectManager, projectId: string): Promise<SceneModel> {
-  const inspection = await new KnowledgeApplicationService(knowledgePortFromManager(manager, projectId)).scenes.query();
-  if (inspection.stale) throw new Error(`scene manifest is stale: ${inspection.staleReasons.join(", ")}`);
-  return sceneModelFromInspection(inspection);
-}
-
 export function mountWebCacheRoutes(app: Hono, deps: WebCacheRouteDeps): void {
   const { manager } = deps;
 
@@ -66,9 +60,14 @@ export function mountWebCacheRoutes(app: Hono, deps: WebCacheRouteDeps): void {
     setPhase("analyzing");
     const ctx = await manager!.getContext(projectId);
     const fingerprint = await manager!.fingerprint(projectId);
-    const sceneModel = await resolveSceneModel(manager!, projectId);
+    const application = new KnowledgeApplicationService(knowledgePortFromManager(manager!, projectId));
+    const sceneInspection = await application.scenes.query();
+    if (sceneInspection.stale) throw new Error(`scene manifest is stale: ${sceneInspection.staleReasons.join(", ")}`);
+    const sceneModel = sceneModelFromInspection(sceneInspection);
+    const screenGraph = await detectScreens(ctx);
+    const domainCorrespondence = await prepareDomainCorrespondenceWebCache(manager!.cache.dirFor(project.id), await application.domains.state());
     setPhase("building views");
-    const bundle = await buildWebCacheBundle(ctx, { sceneModel });
+    const bundle = await buildWebCacheBundle(ctx, { sceneModel, sceneInspection, screenGraph, domainCorrespondence });
     setPhase("writing");
     const preparedAt = new Date().toISOString();
     const manifest = await writeWebCache(
@@ -182,5 +181,15 @@ export function mountWebCacheRoutes(app: Hono, deps: WebCacheRouteDeps): void {
     const env = await readWebView(manager.cache.dirFor(projectId), view);
     if (!env) return c.json({ error: "not-prepared", view }, 409);
     return c.json({ view, preparedAt: env.preparedAt, fingerprint: env.fingerprint, data: env.data });
+  });
+
+  app.get("/api/projects/:id/scene-view", async (c) => {
+    if (!manager) return c.json({ error: "web cache requires manager mode" }, 501);
+    let projectId: string;
+    try { projectId = manager.resolveId(c.req.param("id")); }
+    catch { return c.json({ error: `no such project "${c.req.param("id")}"` }, 404); }
+    const env = await readWebView(manager.cache.dirFor(projectId), "scene-view");
+    if (!env) return c.json({ error: "not-prepared", view: "scene-view" }, 409);
+    return c.json(env.data);
   });
 }

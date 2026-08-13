@@ -570,9 +570,9 @@
 
       <!-- Tab bar -->
       <div id="dash-tabs">
-        <button class="tab-btn active" data-tab="graph">Graph</button>
-        <button class="tab-btn" data-tab="domain-view">Domain View</button>
-        <button class="tab-btn" data-tab="scene-modules">Scenes</button>
+        <button class="tab-btn active" data-tab="scene-modules">シーン</button>
+        <button class="tab-btn" data-tab="domain-view">ドメイン</button>
+        <button class="tab-btn" data-tab="graph">Graph</button>
         <button class="tab-btn" data-tab="search">Search</button>
         <button class="tab-btn" data-tab="hotspots">Hotspots</button>
         <button class="tab-btn" data-tab="domains">Domains</button>
@@ -831,7 +831,7 @@
     projectId: null,
     projectName: '',
     projectPath: '',
-    activeTab: 'graph',
+    activeTab: 'scene-modules',
     network: null,
     rawVisData: null,
     graphPayload: null,
@@ -908,8 +908,8 @@
     updatePrepareButtons(id);
     renderCrumb();
     showView('dashboard');
-    // Reset to graph tab
-    activateTab('graph', false);
+    // The scene tab is the management panel's primary entry point.
+    activateTab('scene-modules', false);
     loadDashboard();
   }
 
@@ -2103,7 +2103,7 @@
     body.innerHTML = '<div class="loading-msg">Loading…</div>';
     var r;
     try {
-      r = await webView(id, 'scene-modules');
+      r = await webView(id, 'scene-view');
     } catch (e) {
       body.innerHTML = '<div class="error-msg">' + esc(e.message) + '</div>';
       return;
@@ -2113,7 +2113,7 @@
       body.innerHTML = '<div class="error-msg">' + esc(r.body.error || 'error') + '</div>';
       return;
     }
-    state.sceneModules = r.data || { hasScenes: false, scenes: [] };
+    state.sceneModules = r.data || { scenes: [] };
     state.sceneFilter = null;
     renderSceneBar();
     renderScenes();
@@ -2122,7 +2122,7 @@
   function renderSceneBar() {
     var bar = document.getElementById('sm-scene-bar');
     var payload = state.sceneModules || {};
-    if (!payload.hasScenes || !(payload.scenes || []).length) { bar.innerHTML = ''; return; }
+    if (!(payload.scenes || []).length) { bar.innerHTML = ''; return; }
     var chips = ['<span class="sm-chip' + (state.sceneFilter ? '' : ' active') +
       '" data-scene="">All scenes</span>'];
     (payload.scenes || []).forEach(function (s) {
@@ -2149,27 +2149,62 @@
       body.innerHTML = '<div class="empty-msg">シーンがありません。Adjust で定義するか、実行トレースを取り込むと表示されます。</div>';
       return;
     }
-    body.innerHTML = visible.map(function (s, si) {
+    var groups = {};
+    visible.forEach(function (scene) {
+      var group = (scene.stack || 'stack不明') + ' / ' + (scene.kind || 'kind不明');
+      (groups[group] || (groups[group] = [])).push(scene);
+    });
+    body.innerHTML = Object.keys(groups).sort().map(function (group) {
+      return '<h3 class="sm-scene-group">' + esc(group) + '</h3>' + groups[group].map(function (s, si) {
       var label = s.label || s.id || '(scene)';
-      var domainTags = (s.domains || []).map(function (domain) {
-        return '<span class="sm-scene-tag">' + esc(domain) + '</span>';
+      var domainTags = (s.businessDomainIds || []).map(function (domain) {
+        return '<button class="sm-scene-tag" data-domain-id="' + esc(domain) + '">' + esc(domain) + '</button>';
       }).join('');
       if (!domainTags) domainTags = '<span class="sm-scene-tag">domain未割当</span>';
-      var slices = (s.domainSlices || []).map(renderSceneDomainSlice).join('');
+      var programTags = (s.programDomainIds || []).map(function (domain) { return '<span class="sm-scene-tag">program: ' + esc(domain) + '</span>'; }).join('');
+      var visual = s.fidelity === 'capture'
+        ? '<div><span class="badge badge-green">キャプチャ（実画面）</span><img style="max-width:100%;margin-top:8px" src="' + esc(s.captureUrl) + '" alt="画面キャプチャ"></div>'
+        : s.fidelity === 'wireframe'
+          ? '<div><span class="badge badge-orange">ワイヤーフレーム（模式図）</span><div class="sm-mod">' + esc(((s.wireframe && s.wireframe.nodes) || []).map(function(n){return n.label;}).join(' → ')) + '</div></div>'
+          : '<div><span class="badge badge-blue">SceneElement ツリー</span><div class="sm-mod">' + esc((s.elements || []).map(function(e){return e.label;}).join(' / ')) + '</div></div>';
+      var transitions = (s.transitionSceneIds || []).map(function (target) { return '<button class="sm-chip" data-scene="' + esc(target) + '">→ ' + esc(target) + '</button>'; }).join('');
       return '<div class="sm-scene open" data-si="' + si + '">' +
         '<div class="sm-scene-head">' +
           '<span class="sm-scene-name">' + esc(label) + '</span>' +
           '<span class="sm-scene-id">' + esc(s.id || '') + '</span>' +
-          '<span class="sm-scene-domains">' + domainTags + '</span>' +
+          '<span class="sm-scene-domains">' + domainTags + programTags + '</span>' +
         '</div>' +
         '<div class="sm-scene-detail">' +
-          (slices || '<div class="dv-muted">関連ドメイン/モジュールはまだありません。</div>') +
+          visual + '<div class="dv-muted">遷移: ' + (transitions || 'なし') + '</div>' +
         '</div>' +
       '</div>';
+      }).join('');
     }).join('');
     body.querySelectorAll('.sm-scene-head').forEach(function (h) {
       h.onclick = function () { h.parentNode.classList.toggle('open'); };
     });
+    body.querySelectorAll('[data-domain-id]').forEach(function (b) {
+      b.onclick = function (event) {
+        event.stopPropagation();
+        openBusinessDomain(b.getAttribute('data-domain-id')).catch(function (error) {
+          flashDeeplinkNote('ドメインを開けませんでした: ' + error.message);
+        });
+      };
+    });
+    body.querySelectorAll('.sm-chip[data-scene]').forEach(function (b) { b.onclick = function (event) { event.stopPropagation(); state.sceneFilter = b.getAttribute('data-scene'); renderSceneBar(); renderScenes(); }; });
+  }
+
+  async function openBusinessDomain(domainId) {
+    if (!domainId) return;
+    activateTab('domain-view', false);
+    await loadDomainView(state.projectId);
+    var domain = (state.domainViews || []).find(function (view) { return view.domain === domainId; });
+    if (!domain) {
+      flashDeeplinkNote('ビジネスドメイン「' + domainId + '」は表示対象にありません。');
+      return;
+    }
+    selectDomain(domain);
+    scrollDvCardIntoView(domain.domain);
   }
 
   function renderSceneDomainSlice(d) {
