@@ -19,6 +19,7 @@ memory_links:
 - [ ] `PrDiffReview.spec` を拡張: 変更 / 新規 SpecClause がどのビジネスドメインにも owned されない場合を block 判定として返す。
 - [ ] 判定は PR worktree のドメイン定義 / layer 設定で行う (一時性契約維持、`--project` 禁止のまま)。PR 内で宣言を足せば同 PR で解消できる。
 - [ ] 逆方向 (コード×ビジネス、spec×プログラム) は判定に使わず、情報表示のみ。
+- [ ] 依存系ファイルに閉じる PR (deps-sweep / Dependabot 対応等) はプログラムドメイン (infrastructure) 紐づけのみで通す。spec / ビジネスドメイン紐づけを要求しない。依存更新に伴うコード修正が同 PR にある場合、コード部分は通常判定。
 - [ ] 移行併走: 現行 domain gate (.json 紐づけ) と新判定を併走させ、新判定は advisory から開始できる切替フラグを持つ。
 - [ ] typecheck / vitest green。NG / 許容 / 解消 (PR 内宣言追加) の各ケースのテスト。
 

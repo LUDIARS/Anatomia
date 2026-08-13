@@ -95,6 +95,18 @@ Revisor の PR レビュー（[pr-diff-review.md](./pr-diff-review.md) の `doma
 - いずれも advisory ではなく block。ただし判定は PR worktree のドメイン定義 / layer 設定で
   行う（pr-diff-review の一時性契約を維持）ので、PR 内で宣言を足せば同 PR で解消できる。
 
+### 依存系（package 等）の扱い
+
+- package manifest / lockfile / submodule 参照等の**依存系ファイルは infrastructure 層の
+  プログラムドメインに紐づける**（layer 分類器の builtin 既定。`package.json` /
+  `package-lock.json` / `.gitmodules` / lib vendoring 等）。
+- **依存パッケージの更新はプログラムドメインの紐づけのみで審査を通す**：変更が依存系
+  ファイルに閉じる PR（deps-sweep / Dependabot 対応等）は、spec / ビジネスドメイン
+  紐づけを要求しない。spec 側 NG 判定の対象外とし、コード側もプログラムドメイン
+  （infrastructure）紐づけが自動で立つため block しない。
+- 依存更新に伴うコード修正（API 変更追従等）が同 PR に含まれる場合、そのコード部分は
+  通常のコード判定（プログラムドメイン必須 / ビジネス任意）に従う。
+
 ## 導出ロジック
 
 1. 既存解析（Merkle-AST → call graph → 機能(module)集約）をそのまま入力にする。
@@ -102,6 +114,9 @@ Revisor の PR レビュー（[pr-diff-review.md](./pr-diff-review.md) の `doma
    1. リポの layer 設定（`.anatomia/layers.json`、path glob → layer 宣言）
    2. フレームワーク規約（既存 `frameworks/` の検出結果：routes/ = presentation 等）
    3. 依存方向ヒューリスティック（UI 依存を持つ / 永続化 API を触る 等）
+
+   ただし依存系ファイル（package manifest / lockfile / `.gitmodules` / vendored lib）は
+   設定に先立つ builtin 既定として **infrastructure 層**に分類する（前節参照）。
    決定不能は `unclassified` diagnostic（NG の素）。
 3. **プログラムドメイン合成**: 同一 layer 内でプログラムツリー的に隣接し越境結合
    （module-layer の coupling 指標）が強い機能単位群を 1 プログラムドメインに畳む。

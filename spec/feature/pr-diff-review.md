@@ -58,6 +58,10 @@ summarizeComplexity                … 0..100 の複雑度スコア
 - 差分・検証の対象は解析対象拡張子のソースのみ（→ [static-analysis.md](./static-analysis.md)）。
 - `branchDiffText` は tracked ファイルの差分しか出さない（未追跡の新規ファイルは
   `computeBranchDiff` の関数差分には出るが unified diff には現れない）。
+- package manifest / lockfile / `.gitmodules` / vendored lib などの依存系ファイルは、
+  ソース Anchor の対象外でも tracked diff のパスから別途検出する。layer 分類器には
+  builtin の infrastructure 入力として渡し、依存系ファイルだけの PR は spec /
+  ビジネスドメイン未所属を gate 違反にしない（→ [domain-dual-layer.md](./domain-dual-layer.md)）。
 - 5 ゲートは diff から再構成したソースを解析する経路なので、`verify` の Anchor は
   全体解析の AnchorId とは一致しない（→ [verify-gates.md](./verify-gates.md)）。
 - git CLI に依存。git リポでない / base が無い場合、`diff.available` が false になり

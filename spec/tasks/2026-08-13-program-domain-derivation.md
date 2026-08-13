@@ -18,6 +18,7 @@ memory_links:
 - [ ] プログラムドメイン合成: 同一 layer 内でプログラムツリー隣接 + 越境結合の強い機能単位群を畳む。閾値・畳み方は設定で決定的に固定 (LLM 無し・時刻無し)。
 - [ ] 全域性: 全 CodeSymbol が belongs-to edge を持つ。持てない symbol は `unclassified` として surface (黙って default に入れない)。
 - [ ] knowledge log の code-sync transaction (scene と同型) + deterministic projection (`program-domains.json` / Kuzu / Web cache)。fingerprint キー付き artifact。
+- [ ] 依存系ファイル (package manifest / lockfile / `.gitmodules` / vendored lib) は設定に先立つ builtin 既定で **infrastructure 層**に分類する。
 - [ ] builtin オントロジー検出結果はドメインとして表示しない (evidence としてのみ残す)。
 - [ ] typecheck / vitest green。決定性テスト (同一入力 → byte 同一出力) を含む。
 
