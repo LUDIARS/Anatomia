@@ -32,6 +32,10 @@ x-anatomia:
 - spec だけに存在する domain は正当であり、実装 0 件でも削除しない。
 - scene は runtime / experience context、domain は semantic responsibility であり直交する。
 - architectural layer、cross-cutting concern、module directory は domain hierarchy と別軸。
+  ただし layer × プログラムツリーのまとまりは **プログラムドメイン** として独立した
+  ドメイン層に昇格した（[domain-dual-layer.md](./domain-dual-layer.md)）。本仕様の domain =
+  **ビジネスドメイン**であり、以降の契約はビジネスドメイン層にのみ適用する。code の
+  ビジネスドメイン紐づけは「なし」も正当（プログラムドメイン紐づけは全域必須）。
 
 仕様書の分類は AIFormat の `data / feature / interface / setup / test` を維持する。
 domain ごとに文書を分割・移動することは必須にせず、SpecClause edge で横断的に整理する。
@@ -226,6 +230,7 @@ validation、Gate A/B/C の atomic apply + rollback、`/domain-organization/:id`
 
 ## 関連
 
+- [domain dual layer](./domain-dual-layer.md)
 - [domain discovery workflow](./domain-discovery-workflow.md)
 - [domain authoring](./domain-authoring.md)
 - [domain detection](./domain-detection.md)
