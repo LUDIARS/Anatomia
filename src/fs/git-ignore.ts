@@ -2,7 +2,7 @@
  * src/fs/git-ignore.ts — ask git which paths are ignored.
  *
  * The walk used to approximate .gitignore by reading the root file and keeping
- * only bare directory names (readGitignoreDirs in walk.ts). That misses most of
+ * only bare directory names. That misses most of
  * what real repos write — `/dist`, `build/*.o`, nested .gitignore files,
  * .git/info/exclude, the global core.excludesFile — so generated output,
  * vendored copies and logs kept leaking into the code graph.
@@ -37,22 +37,45 @@ export interface GitIgnoredPaths {
 }
 
 /**
+ * Why the ignore query could not be answered.
+ *
+ * The distinction matters because the two cases deserve different reactions.
+ * `unavailable` is the case this fallback was designed for — a plain directory
+ * with no repo, where the crude reader is the best available answer and nobody
+ * needs telling. `refused` means git was there, understood the request, and
+ * declined for a reason an operator can fix (dubious ownership, a broken
+ * index, a permissions problem). Treating those the same is how a repository
+ * silently loses its ignore rules and drags a 1 GB vendored dependency tree
+ * into the analysis.
+ */
+export type GitIgnoreFailure =
+  | { kind: "unavailable"; message: string }
+  | { kind: "refused"; message: string };
+
+export type GitIgnoreResult =
+  | { ok: true; paths: GitIgnoredPaths }
+  | { ok: false; failure: GitIgnoreFailure };
+
+/**
  * Every path git ignores under `root`.
  *
  * Returns null when the answer is unknown — git missing, `root` outside a work
  * tree, or the command failing — so callers can fall back instead of treating
  * "no ignored paths" as a fact.
  *
- * Known gap: `--directory` also collapses a directory that contains no tracked
- * file at all, and a collapsed directory hides the ignored paths beneath it. So
- * ignored files inside a wholly-untracked directory (a brand-new feature dir, a
- * repo with no commits yet) are not reported. That errs toward analyzing too
- * much rather than excluding something wrongly, which is the safe direction —
- * and the case disappears as soon as anything in that directory is committed.
- * Dropping `--directory` would close it but cost the directory-level pruning
- * that keeps huge ignored trees (Unity `Library/`, `build/`) off the walk.
+ * Git reports ignored child directories even when their parent has no tracked
+ * files, so those generated trees remain prunable without descending into them.
  */
 export async function listGitIgnoredPaths(root: string): Promise<GitIgnoredPaths | null> {
+  const result = await queryGitIgnoredPaths(root);
+  return result.ok ? result.paths : null;
+}
+
+/**
+ * As `listGitIgnoredPaths`, but reports *why* the answer is missing so callers
+ * can tell a legitimate fallback from a degradation worth warning about.
+ */
+export async function queryGitIgnoredPaths(root: string): Promise<GitIgnoreResult> {
   const raw = await runGit(root, [
     "ls-files",
     "-z",
@@ -63,21 +86,41 @@ export async function listGitIgnoredPaths(root: string): Promise<GitIgnoredPaths
     // it. Without this, git lists every file inside node_modules one by one.
     "--directory",
   ]);
-  if (raw === null) return null;
+  if (!raw.ok) return raw;
 
   const dirs = new Set<string>();
   const files = new Set<string>();
-  for (const entry of raw.split("\0")) {
+  for (const entry of raw.stdout.split("\0")) {
     if (!entry) continue;
     // git reports directories with a trailing slash, always forward slashes.
     if (entry.endsWith("/")) dirs.add(entry.slice(0, -1));
     else files.add(entry);
   }
-  return { dirs, files };
+  return { ok: true, paths: { dirs, files } };
 }
 
-/** Run git in `cwd`; null on any failure (missing git, not a repo, bad args). */
-async function runGit(cwd: string, args: string[]): Promise<string | null> {
+type RunGitResult = { ok: true; stdout: string } | { ok: false; failure: GitIgnoreFailure };
+
+/**
+ * Classify a failed git invocation.
+ *
+ * Only two situations are the fallback's intended territory: git is not
+ * installed (spawn ENOENT) and the root is not inside a work tree. Anything
+ * else is git actively refusing, which the caller should surface rather than
+ * paper over.
+ */
+function classifyGitError(error: unknown): GitIgnoreFailure {
+  const err = error as { code?: string; stderr?: string; message?: string };
+  const stderr = (err.stderr ?? "").trim();
+  const message = stderr || err.message || String(error);
+  if (err.code === "ENOENT") return { kind: "unavailable", message: "git executable not found" };
+  if (/not a git repository|outside repository/i.test(stderr))
+    return { kind: "unavailable", message };
+  return { kind: "refused", message };
+}
+
+/** Run git in `cwd`, keeping the failure reason instead of collapsing it to null. */
+async function runGit(cwd: string, args: string[]): Promise<RunGitResult> {
   try {
     const { stdout } = await execFileAsync("git", args, {
       cwd,
@@ -85,8 +128,8 @@ async function runGit(cwd: string, args: string[]): Promise<string | null> {
       maxBuffer: 64 * 1024 * 1024,
       windowsHide: true,
     });
-    return stdout;
-  } catch {
-    return null;
+    return { ok: true, stdout };
+  } catch (error) {
+    return { ok: false, failure: classifyGitError(error) };
   }
 }

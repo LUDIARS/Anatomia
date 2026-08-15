@@ -7,13 +7,13 @@
  * git's own semantics, so stubbing it would test nothing. Same precedent as
  * branch/__tests__/diff.test.ts.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { execFileSync } from "node:child_process";
 import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { listGitIgnoredPaths } from "../git-ignore.js";
-import { collectProjectFiles } from "../walk.js";
+import { listGitIgnoredPaths, queryGitIgnoredPaths } from "../git-ignore.js";
+import { collectProjectFiles, scanGitignoreDirs } from "../walk.js";
 
 let dir: string;
 beforeEach(async () => {
@@ -55,7 +55,7 @@ describe("listGitIgnoredPaths", () => {
 
   it("reports the patterns the old bare-name reader could not express", async () => {
     git("init", "-q");
-    // Each of these was invisible to readGitignoreDirs: root-anchored, glob,
+    // Each of these was invisible to the old bare-name reader: root-anchored, glob,
     // and a rule living in a nested .gitignore.
     await write(".gitignore", "/build\n*.log\n");
     await write("nested/.gitignore", "generated/\n");
@@ -73,17 +73,17 @@ describe("listGitIgnoredPaths", () => {
     expect(ignored!.files.has("keep.ts")).toBe(false);
   });
 
-  it("does not see inside a directory holding no tracked file (documented gap)", async () => {
+  it("finds an ignored directory inside a directory holding no tracked file", async () => {
     git("init", "-q");
     await write(".gitignore", "generated/\n");
     await write("keep.ts");
     commitAll();
-    // `fresh/` has nothing tracked, so --directory collapses it and the ignored
-    // child below is never listed. Pinned so the day it changes is deliberate.
+    // `fresh/` has nothing tracked, but git still reports its ignored child
+    // directory so the walker can prune it.
     await write("fresh/generated/g.ts");
 
     const ignored = await listGitIgnoredPaths(dir);
-    expect(ignored!.dirs.has("fresh/generated")).toBe(false);
+    expect(ignored!.dirs.has("fresh/generated")).toBe(true);
   });
 });
 
@@ -121,12 +121,69 @@ describe("collectProjectFiles", () => {
 
   it("falls back to the root .gitignore's bare directory names outside a git repo", async () => {
     // No repo, so listGitIgnoredPaths returns null and buildIgnorePolicy drops
-    // back to readGitignoreDirs. That branch is the only thing keeping non-git
+    // back to the crude reader. That branch is the only thing keeping non-git
     // directories analyzable, and nothing else exercises it.
     await write(".gitignore", "vendor/\n");
     await write("keep.ts");
     await write("vendor/v.ts");
 
     expect(rel(await collectProjectFiles(dir, EXTS))).toEqual(["keep.ts"]);
+  });
+});
+
+describe("fallback diagnosis", () => {
+  it("reports which rules the crude reader cannot express", async () => {
+    // A real .gitignore from a C++ repo: every meaningful rule is either
+    // root-anchored or globbed, so the fallback keeps none of them.
+    await write(".gitignore", "/build*/\n/.deps/\n/runtime/\nout/\n*.onnx\n# comment\n");
+
+    const scan = await scanGitignoreDirs(dir);
+    expect([...scan.dirs]).toEqual(["out"]);
+    expect(scan.skipped).toEqual(["/build*/", "/.deps/", "/runtime/", "*.onnx"]);
+  });
+
+  it("classifies a missing work tree as unavailable, not refused", async () => {
+    const result = await queryGitIgnoredPaths(dir);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.failure.kind).toBe("unavailable");
+  });
+
+  it("classifies a git that ran and refused as refused", async () => {
+    // A broken config makes git fail for a reason an operator can fix, which is
+    // the same shape as the dubious-ownership refusal that motivated this split.
+    git("init");
+    await writeFile(join(dir, ".git", "config"), "[core\n", "utf8");
+
+    const result = await queryGitIgnoredPaths(dir);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.failure.kind).toBe("refused");
+  });
+
+  it("warns when the fallback silently drops ignore rules", async () => {
+    await write(".gitignore", "/vendor/\n");
+    await write("keep.ts");
+    await write("vendor/v.ts");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    // Root-anchored, so the fallback does not exclude it — the file is analyzed.
+    expect(rel(await collectProjectFiles(dir, EXTS))).toEqual(["keep.ts", "vendor/v.ts"]);
+    expect(warn).toHaveBeenCalledTimes(1);
+    const message = String(warn.mock.calls[0]?.[0]);
+    expect(message).toContain("1 rule(s)");
+    expect(message).not.toContain(dir);
+    expect(message).not.toContain("/vendor/");
+    warn.mockRestore();
+  });
+
+  it("stays quiet when the fallback loses nothing", async () => {
+    // The case the fallback was built for: no repo, and a .gitignore it can
+    // express in full. Warning here would train everyone to ignore the warning.
+    await write(".gitignore", "vendor/\n");
+    await write("keep.ts");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await collectProjectFiles(dir, EXTS);
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
   });
 });
