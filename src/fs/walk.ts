@@ -20,7 +20,7 @@
  * than assembling exclusion sets around raw `collectFilesByExt`.
  */
 import { readdir, readFile } from "node:fs/promises";
-import { join, extname, relative } from "node:path";
+import { join, extname, relative, basename } from "node:path";
 import { queryGitIgnoredPaths, type GitIgnoreFailure } from "./git-ignore.js";
 
 /** Directory names never descended into (vendored deps, build output, VCS). */
@@ -138,7 +138,7 @@ export async function buildIgnorePolicy(
   const result = await queryGitIgnoredPaths(root);
   if (!result.ok) {
     const { dirs, skipped } = await scanGitignoreDirs(root);
-    warnAboutFallback(result.failure, skipped);
+    warnAboutFallback(root, result.failure, skipped);
     return { excludeDirs: new Set([...EXCLUDE_DIRS, ...dirs]), isIgnored: () => false };
   }
   return {
@@ -152,8 +152,12 @@ export async function buildIgnorePolicy(
  * Warn when the fallback is either unexpected (git refused) or lossy (rules the
  * crude reader cannot express). A plain directory with a simple .gitignore stays
  * quiet — that is the case the fallback exists for.
+ *
+ * The walk root's directory name is named, not its full path. A single Anatomia
+ * install analyzes dozens of registered projects, so a warning that does not say
+ * which one is not actionable; the containing path adds nothing but disclosure.
  */
-function warnAboutFallback(failure: GitIgnoreFailure, skipped: string[]): void {
+function warnAboutFallback(root: string, failure: GitIgnoreFailure, skipped: string[]): void {
   if (failure.kind !== "refused" && skipped.length === 0) return;
   const lost = skipped.length
     ? ` ${skipped.length} rule(s) cannot be expressed by the fallback and will NOT be excluded.`
@@ -162,7 +166,12 @@ function warnAboutFallback(failure: GitIgnoreFailure, skipped: string[]): void {
     failure.kind === "refused"
       ? "git refused to report ignored paths"
       : "git could not report ignored paths";
-  console.warn(`[anatomia/fs] ${cause}. Falling back to the root .gitignore reader.${lost}`);
+  // `root` comes from registered project configuration. Keep the useful final
+  // path component, but never let control characters forge or alter log output.
+  const projectName = basename(root).replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, "?") || "<filesystem root>";
+  console.warn(
+    `[anatomia/fs] ${projectName}: ${cause}. Falling back to the root .gitignore reader.${lost}`,
+  );
 }
 
 /**

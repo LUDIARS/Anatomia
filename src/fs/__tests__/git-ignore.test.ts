@@ -11,7 +11,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { execFileSync } from "node:child_process";
 import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, basename } from "node:path";
 import { listGitIgnoredPaths, queryGitIgnoredPaths } from "../git-ignore.js";
 import { collectProjectFiles, scanGitignoreDirs } from "../walk.js";
 
@@ -170,8 +170,27 @@ describe("fallback diagnosis", () => {
     expect(warn).toHaveBeenCalledTimes(1);
     const message = String(warn.mock.calls[0]?.[0]);
     expect(message).toContain("1 rule(s)");
+    // Names the project so the warning is actionable across many registered
+    // roots, without disclosing where that project lives on disk.
+    expect(message).toContain(basename(dir));
     expect(message).not.toContain(dir);
     expect(message).not.toContain("/vendor/");
+    warn.mockRestore();
+  });
+
+  it("keeps a configured project name from forging log lines", async () => {
+    // U+2028 is valid in Windows file names but still renders as a line break.
+    const project = join(dir, "project\u2028forged-warning");
+    await mkdir(project);
+    await writeFile(join(project, ".gitignore"), "/vendor/\n", "utf8");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await collectProjectFiles(project, EXTS);
+
+    const message = String(warn.mock.calls[0]?.[0]);
+    expect(message).toContain("project?forged-warning");
+    expect(message).not.toContain("\u2028");
+    expect(message).not.toContain(project);
     warn.mockRestore();
   });
 
