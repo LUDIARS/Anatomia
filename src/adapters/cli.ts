@@ -1466,24 +1466,31 @@ async function runTrace(args: CliArgs): Promise<{ exitCode: number; output: stri
 // ---------------------------------------------------------------------------
 
 /**
- * Write `text` to a stdio stream, wait for it to flush, then exit with `code`.
+ * Write `text` to a stdio stream, wait for it to flush, then let the process
+ * exit with `code` **by draining the event loop**, not by `process.exit()`.
  *
  * On Windows, stdout/stderr backed by a pipe (a hook redirect, a backfill loop
  * capturing output) are *asynchronous*: write() hands the data to libuv and
- * returns before the OS pipe has drained. Calling process.exit() immediately
- * tears down the pipe handle while that write is still closing, which makes
- * libuv abort with `Assertion failed: !(handle->flags & UV_HANDLE_CLOSING)` —
- * intermittently, only when the write happens to still be in flight. Waiting
- * for the write callback (fired once the data is flushed) before exiting closes
- * the race and also guarantees the output is never truncated.
+ * returns before the OS pipe has drained. Waiting for the write callback closes
+ * that race and guarantees the output is never truncated.
+ *
+ * A direct `process.exit()` immediately after the flush can still race with
+ * Windows libuv shutdown work. Setting `process.exitCode` instead lets that
+ * work drain naturally. A detached fallback timer hard-exits if a stray handle
+ * keeps the loop alive; because it is `unref`'d, the timer itself cannot delay
+ * normal shutdown.
  */
+const EXIT_DRAIN_FALLBACK_MS = 5_000;
+
 async function writeThenExit(
   stream: NodeJS.WriteStream,
   text: string,
   code: number,
-): Promise<never> {
+): Promise<void> {
   await new Promise<void>((resolve) => stream.write(text, () => resolve()));
-  process.exit(code);
+  process.exitCode = code;
+  const fallback = setTimeout(() => process.exit(code), EXIT_DRAIN_FALLBACK_MS);
+  fallback.unref?.();
 }
 
 export async function main(): Promise<void> {
