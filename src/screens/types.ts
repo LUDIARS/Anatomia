@@ -49,6 +49,13 @@ export interface ScreenNode {
   /** Names of OTHER detected screens this screen composes (child screens). */
   contains: string[];
   /**
+   * `contains` entries whose declaring file could be resolved through this
+   * file's import statements, as `<relFile>#<Name>`. Same-named screens in
+   * different files (two `SessionList` components) stay distinguishable here
+   * while `contains` keeps the bare display names. Sorted; web stack only.
+   */
+  containsQualified?: string[];
+  /**
    * Screen names (resolved) or raw paths (unresolved) this screen navigates to,
    * via navigate()/router.push()/<Link to>/redirect()/LoadScene().
    */

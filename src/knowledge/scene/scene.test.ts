@@ -155,6 +155,36 @@ describe("scene inventory", () => {
     expect(new Set(definitions.map((definition) => definition.sceneId)).size).toBe(2);
   });
 
+  it("keeps two screens bound to one shared route distinct (Concordia SessionList case)", async () => {
+    const sharedRoute: ScreenGraph = {
+      screens: [
+        { ...screens.screens[0], name: "SessionList", file: "web/src/pages/monitor/SessionList.tsx", route: "/monitor/SessionList" },
+        { ...screens.screens[0], name: "SessionList", file: "web/src/pages/session-chat/SessionList.tsx", route: "/monitor/SessionList" },
+        { ...screens.screens[0], name: "Home", file: "web/src/pages/Home.tsx", route: "/", navigatesTo: ["/monitor/SessionList"] },
+      ],
+      summary: { total: 3, byStack: { web: 3 }, byKind: { page: 3 }, edges: 1 },
+    };
+    const ctx = context([
+      codeNode("monitor-list", "/repo/web/src/pages/monitor/SessionList.tsx", "SessionList"),
+      codeNode("chat-list", "/repo/web/src/pages/session-chat/SessionList.tsx", "SessionList"),
+      codeNode("home", "/repo/web/src/pages/Home.tsx", "Home"),
+    ], []);
+    const definitions = await inventoryScreenScenes("p", ctx, sharedRoute, "sha256:source");
+    expect(new Set(definitions.map((definition) => definition.sceneId)).size).toBe(3);
+    const lists = definitions.filter((definition) => definition.label.startsWith("SessionList"));
+    // Ambiguous route: identity is qualified by the declaring file, and the bare
+    // route is not a reference key (a transition to it must not throw "ambiguous").
+    for (const list of lists) {
+      expect(list.identityBasis).toBe("route-id");
+      expect(list.nativeIdentity).toMatch(/^\/monitor\/SessionList@web\/src\/pages\//);
+      expect(list.referenceKeys).not.toContain("/monitor/SessionList");
+    }
+    // Unique route keeps its file-independent identity.
+    const home = definitions.find((definition) => definition.label.startsWith("Home"))!;
+    expect(home.nativeIdentity).toBe("/");
+    expect(home.referenceKeys).toContain("/");
+  });
+
   it("links a uniquely identifiable moved scene to its tombstoned predecessor", () => {
     const previous = sceneDefinition("scene:p/old", "ui/old/settings.ts", {
       referenceKeys: ["SettingsView", "ui/old/settings.ts#SettingsView"],
@@ -232,6 +262,35 @@ describe("exact canonical scene graph", () => {
       definitions,
       knowledgeState: replayKnowledgeLog(""),
     })).rejects.toThrow(/ambiguous scene reference "SettingsView"/);
+  });
+
+  it("resolves a same-named composition reference to the nearest declaring directory", async () => {
+    const definitions = [
+      sceneDefinition("scene:p/chat-page", "web/src/pages/session-chat/SessionChat.tsx", {
+        referenceKeys: ["SessionChat"],
+        containsRefs: ["SessionList"],
+      }),
+      sceneDefinition("scene:p/monitor-page", "web/src/pages/monitor/Monitor.tsx", {
+        referenceKeys: ["Monitor"],
+        containsRefs: ["SessionList"],
+      }),
+      sceneDefinition("scene:p/chat-list", "web/src/pages/session-chat/SessionList.tsx", {
+        referenceKeys: ["SessionList", "web/src/pages/session-chat/SessionList.tsx#SessionList"],
+      }),
+      sceneDefinition("scene:p/monitor-list", "web/src/pages/monitor/SessionList.tsx", {
+        referenceKeys: ["SessionList", "web/src/pages/monitor/SessionList.tsx#SessionList"],
+      }),
+    ];
+    const graph = await deriveCanonicalSceneGraph({
+      projectId: "p",
+      sourceRevision: "sha256:source",
+      context: context([], []),
+      definitions,
+      knowledgeState: replayKnowledgeLog(""),
+    });
+    const contained = Object.fromEntries(graph.scenes.map((scene) => [scene.id, scene.containedSceneIds]));
+    expect(contained["scene:p/chat-page"]).toEqual(["scene:p/chat-list"]);
+    expect(contained["scene:p/monitor-page"]).toEqual(["scene:p/monitor-list"]);
   });
 
   it("keeps a reused component out of the single-parent subscene hierarchy", async () => {

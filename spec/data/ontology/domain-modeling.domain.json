@@ -39,6 +39,21 @@
     },
     {
       "pathPattern": "(^|/)src/knowledge/quality/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/knowledge/scene/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/knowledge/domain/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/knowledge/domain-correspondence/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/knowledge/program-domain/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/screens/[^/]+$"
     }
   ],
   "cardTemplate": "Summarise the \"domain-modeling\" domain: コードを top-level 目的（ドメイン）と凝集サブ単位（module）へ分類する。検出・オントロジー・仕様シードの authoring・自己調整(re-tune)を含む建築規約の中心。"

@@ -71,6 +71,33 @@ describe("scanForScreens", () => {
     expect(dash.contains).toEqual(["ProfileView"]);
   });
 
+  it("qualifies a JSX child by its import when same-named screens live in different files", () => {
+    const files = [
+      file("src/pages/monitor/SessionList.tsx", "export function SessionList() { return null; }\n"),
+      file("src/pages/session-chat/SessionList.tsx", "export function SessionList() { return null; }\n"),
+      file("src/pages/MonitorPage.tsx", "import { SessionList } from \"./monitor/SessionList.js\";\nexport default function MonitorPage() { return <SessionList/>; }\n"),
+      file("src/pages/session-chat/ChatPage.tsx", "import { SessionList as List } from \"./SessionList\";\nexport default function ChatPage() { return <List/>; }\n"),
+      file("src/pages/DefaultPage.tsx", "import List from \"./monitor/SessionList\";\nexport default function DefaultPage() { return <List/>; }\n"),
+      file("src/pages/HomePage.tsx", "import { Widget } from \"@ui/widget\";\nexport default function HomePage() { return <SessionList/>; }\n"),
+    ];
+    const g = scanForScreens(files, [], [], ROOT);
+    const monitor = g.screens.find((x) => x.name === "MonitorPage")!;
+    expect(monitor.contains).toEqual(["SessionList"]);
+    expect(monitor.containsQualified).toEqual(["src/pages/monitor/SessionList.tsx#SessionList"]);
+    // Aliased imports resolve through the local JSX binding to the declaration.
+    const chat = g.screens.find((x) => x.name === "ChatPage")!;
+    expect(chat.contains).toEqual(["SessionList"]);
+    expect(chat.containsQualified).toEqual(["src/pages/session-chat/SessionList.tsx#SessionList"]);
+    // A default import has no exported identifier; a module with one detected
+    // screen still resolves it without guessing among multiple declarations.
+    const defaultPage = g.screens.find((x) => x.name === "DefaultPage")!;
+    expect(defaultPage.containsQualified).toEqual(["src/pages/monitor/SessionList.tsx#SessionList"]);
+    // Unresolvable (package import / no import): bare name only, no qualified ref.
+    const home = g.screens.find((x) => x.name === "HomePage")!;
+    expect(home.contains).toEqual(["SessionList"]);
+    expect(home.containsQualified).toBeUndefined();
+  });
+
   it("detects a Unity UI class and a LoadScene scene + navigation edge", () => {
     const files = [
       file(

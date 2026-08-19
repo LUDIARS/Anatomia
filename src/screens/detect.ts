@@ -354,6 +354,13 @@ export function scanForScreens(
     s.add(d.name);
   }
 
+  // Declared screens by extension-less absolute path (import specifier resolution).
+  const declsByModule = new Map<string, Decl[]>();
+  for (const d of decls) {
+    const key = moduleKey(d.absFile);
+    declsByModule.set(key, [...(declsByModule.get(key) ?? []), d]);
+  }
+
   // Build the declared screen nodes.
   const declScreens: ScreenNode[] = decls.map((d) => {
     const text = textByFile.get(d.absFile) ?? "";
@@ -362,9 +369,20 @@ export function scanForScreens(
     // contains = other screens referenced in this file (JSX child for web,
     // word-boundary reference for game).
     const contains = new Set<string>();
+    const containsQualified = new Set<string>();
     if (d.stack === "web") {
+      const imported = importedDecls(text, d.absFile, declsByModule);
       for (const child of captures(text, JSX_CHILD)) {
-        if (screenNames.has(child) && !selfNames.has(child)) contains.add(child);
+        const importedDecl = imported.get(child);
+        if (importedDecl && !selfNames.has(importedDecl.name)) {
+          // JSX uses the local import binding, which may be an alias. Keep the
+          // detected declaration name for the display-level relation and the
+          // declaring file for its exact canonical reference.
+          contains.add(importedDecl.name);
+          containsQualified.add(`${importedDecl.relFile}#${importedDecl.name}`);
+        } else if (screenNames.has(child) && !selfNames.has(child)) {
+          contains.add(child);
+        }
       }
     } else {
       for (const s of screenNames) {
@@ -391,6 +409,7 @@ export function scanForScreens(
       stack: d.stack,
       ...(route ? { route: "/" + route } : {}),
       contains: [...contains].sort(),
+      ...(containsQualified.size ? { containsQualified: [...containsQualified].sort() } : {}),
       navigatesTo: [...navigatesTo].sort(),
       reason: d.reason,
       domains: [...(domainsOfFile.get(d.absFile) ?? [])].sort(),
@@ -420,7 +439,68 @@ export function scanForScreens(
   return { screens, summary: { total: screens.length, byStack, byKind, edges } };
 }
 
-/** Escape a string for use as a literal inside a RegExp. */
+/** Extension-less, forward-slash absolute path used to match import specifiers to files. */
+function moduleKey(absFile: string): string {
+  return absFile.replace(/\\/g, "/").replace(/\.(tsx?|jsx?|mjs|cjs|vue)$/, "");
+}
+
+const IMPORT_RE = /import\s+(?:type\s+)?([^;'"]*?)\s+from\s+["']([^"']+)["']/g;
+
+/**
+ * Screen declarations reachable through this file's relative imports, keyed by
+ * the local binding name (`import { SessionList } from "./monitor/SessionList.js"`
+ * → SessionList → the decl in monitor/SessionList.tsx). Only relative specifiers
+ * are resolved; package imports and unmatched paths are ignored. Directory
+ * imports fall back to `<dir>/index`.
+ */
+function importedDecls(
+  text: string,
+  absFile: string,
+  declsByModule: ReadonlyMap<string, Decl[]>,
+): Map<string, Decl> {
+  const out = new Map<string, Decl>();
+  const baseDir = absFile.replace(/\\/g, "/").split("/").slice(0, -1).join("/");
+  for (const match of text.matchAll(IMPORT_RE)) {
+    const clause = match[1] ?? "";
+    const spec = match[2] ?? "";
+    if (!spec.startsWith(".")) continue;
+    const target = moduleKey(resolveRelative(baseDir, spec));
+    const candidates = declsByModule.get(target) ?? declsByModule.get(`${target}/index`) ?? [];
+    if (candidates.length === 0) continue;
+    for (const [local, exported] of importBindings(clause)) {
+      const decl = exported === "default"
+        ? (candidates.length === 1 ? candidates[0] : undefined)
+        : candidates.find((c) => c.name === exported);
+      if (decl && !out.has(local)) out.set(local, decl);
+    }
+  }
+  return out;
+}
+
+/** `Default, { A, B as C }` → [[Default, default], [A, A], [C, B]] (local, exported). */
+function importBindings(clause: string): Array<[string, string]> {
+  const bindings: Array<[string, string]> = [];
+  const named = /\{([^}]*)\}/.exec(clause);
+  const rest = clause.replace(/\{[^}]*\}/, "").replace(/\*\s+as\s+\w+/, "").replace(/,/g, " ").trim();
+  if (/^[A-Za-z_$][\w$]*$/.test(rest)) bindings.push([rest, "default"]);
+  for (const part of (named?.[1] ?? "").split(",")) {
+    const m = /^\s*(?:type\s+)?([\w$]+)(?:\s+as\s+([\w$]+))?\s*$/.exec(part);
+    if (m) bindings.push([m[2] ?? m[1]!, m[1]!]);
+  }
+  return bindings;
+}
+
+/** Minimal POSIX-style relative resolution (no fs access; deterministic). */
+function resolveRelative(baseDir: string, spec: string): string {
+  const parts = baseDir.split("/");
+  for (const seg of spec.split("/")) {
+    if (seg === "" || seg === ".") continue;
+    if (seg === "..") parts.pop();
+    else parts.push(seg);
+  }
+  return parts.join("/");
+}
+
 function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

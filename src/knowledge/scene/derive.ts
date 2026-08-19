@@ -110,15 +110,39 @@ function definitionIndex(definitions: SceneDefinitionSeed[]): Map<string, SceneD
   return index;
 }
 
+function sharedDirectoryDepth(left: string, right: string): number {
+  const leftParts = left.replace(/\\/g, "/").split("/").slice(0, -1);
+  const rightParts = right.replace(/\\/g, "/").split("/").slice(0, -1);
+  let depth = 0;
+  while (depth < leftParts.length && depth < rightParts.length && leftParts[depth] === rightParts[depth]) depth += 1;
+  return depth;
+}
+
+/**
+ * Same-named candidates are disambiguated by source proximity: the candidate
+ * declared closest to the referring scene (deepest shared directory) wins when
+ * that closeness is unique. Equidistant candidates stay ambiguous — never chosen
+ * by sort order — because a wrong composition edge is worse than none.
+ */
+function nearestByDirectory(referrerPath: string, active: SceneDefinitionSeed[]): SceneDefinitionSeed | undefined {
+  const ranked = active
+    .map((candidate) => ({ candidate, depth: sharedDirectoryDepth(referrerPath, candidate.sourceAnchor.path) }))
+    .sort((left, right) => right.depth - left.depth);
+  return ranked[0] && (!ranked[1] || ranked[0].depth > ranked[1].depth) ? ranked[0].candidate : undefined;
+}
+
 function resolveDefinitionReference(
   reference: string,
   index: ReadonlyMap<string, SceneDefinitionSeed[]>,
+  referrer?: SceneDefinitionSeed,
 ): SceneDefinitionSeed | undefined {
   const candidates = index.get(reference) ?? [];
   const exact = candidates.find((candidate) => candidate.sceneId === reference);
   if (exact) return exact;
   const active = candidates.filter((candidate) => !candidate.tombstone);
   if (active.length > 1) {
+    const nearest = referrer ? nearestByDirectory(referrer.sourceAnchor.path, active) : undefined;
+    if (nearest) return nearest;
     const sources = active.map((candidate) => candidate.sourceAnchor.path).sort().join(", ");
     throw new Error(`ambiguous scene reference "${reference}" matches: ${sources}`);
   }
@@ -264,10 +288,10 @@ export async function deriveCanonicalSceneGraph(input: {
     ).symbolId));
     const reachedSymbolIds = new Set(symbols.map((symbol) => symbol.symbolId));
     const contained = definition.containsRefs
-      .map((reference) => resolveDefinitionReference(reference, definitionsByRef)?.sceneId)
+      .map((reference) => resolveDefinitionReference(reference, definitionsByRef, definition)?.sceneId)
       .filter((sceneId): sceneId is string => Boolean(sceneId) && sceneId !== definition.sceneId);
     const transitions = definition.transitionRefs
-      .map((reference) => resolveDefinitionReference(reference, definitionsByRef)?.sceneId)
+      .map((reference) => resolveDefinitionReference(reference, definitionsByRef, definition)?.sceneId)
       .filter((sceneId): sceneId is string => Boolean(sceneId) && sceneId !== definition.sceneId);
     const elements: CanonicalSceneElement[] = [...new Set(contained)].sort().map((childSceneId) => {
       const child = input.definitions.find((candidate) => candidate.sceneId === childSceneId)!;

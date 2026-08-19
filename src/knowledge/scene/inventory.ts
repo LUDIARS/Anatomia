@@ -44,18 +44,53 @@ async function entryNodes(ctx: AnalysisContext, screen: ScreenNode) {
       || left.name.localeCompare(right.name));
 }
 
+/**
+ * Routes shared by more than one screen (same-named components in different
+ * files bound to one routing entry) cannot serve as a scene identity on their
+ * own: two definitions would collapse into one canonical ID and the sync
+ * would fail with "duplicate canonical scene identity". Qualify the route with
+ * the declaring file for those screens only, so unique routes keep their
+ * file-independent identity and ambiguous ones stay distinct and deterministic.
+ */
+function ambiguousRoutes(graph: ScreenGraph): Set<string> {
+  const counts = new Map<string, number>();
+  for (const screen of graph.screens) {
+    if (!screen.route) continue;
+    counts.set(screen.route, (counts.get(screen.route) ?? 0) + 1);
+  }
+  return new Set([...counts.entries()].filter(([, count]) => count > 1).map(([route]) => route));
+}
+
+function routeIdentity(screen: ScreenNode, ambiguous: ReadonlySet<string>): string | null {
+  if (!screen.route) return null;
+  if (!ambiguous.has(screen.route)) return screen.route;
+  return screen.file ? `${screen.route}@${screen.file}` : null;
+}
+
+/** Bare child names replaced by their import-qualified form when detect.ts resolved one. */
+function containsReferences(screen: ScreenNode): string[] {
+  const qualified = new Map<string, string>();
+  for (const ref of screen.containsQualified ?? []) {
+    const name = ref.slice(ref.lastIndexOf("#") + 1);
+    if (!qualified.has(name)) qualified.set(name, ref);
+  }
+  return screen.contains.map((name) => qualified.get(name) ?? name);
+}
+
 export async function inventoryScreenScenes(
   projectId: string,
   ctx: AnalysisContext,
   graph: ScreenGraph,
   sourceRevision: string,
 ): Promise<SceneDefinitionSeed[]> {
+  const ambiguous = ambiguousRoutes(graph);
   return Promise.all(graph.screens.map(async (screen) => {
     const entries = await entryNodes(ctx, screen);
+    const routeId = routeIdentity(screen, ambiguous);
     const identity = resolveSceneIdentity({
       projectId,
       nativeId: screen.stack === "unity" && screen.kind === "scene" ? screen.route ?? screen.name : null,
-      routeId: screen.route,
+      routeId,
       // A symbol name/signature is not qualified without its declaring source.
       // Keeping the path here prevents same-named components in different files
       // from collapsing into one canonical scene.
@@ -80,12 +115,17 @@ export async function inventoryScreenScenes(
       entryAnchorIds: entries.map((node) => String(node.id)),
       referenceKeys: [...new Set([
         screen.name,
-        screen.route,
+        // A shared route is not a usable reference either: it would make every
+        // transition to it an "ambiguous scene reference" error. The qualified
+        // route stays referenceable through nativeIdentity below.
+        screen.route && !ambiguous.has(screen.route) ? screen.route : null,
         screen.file,
         screen.file ? `${screen.file}#${screen.name}` : null,
         identity.nativeIdentity,
       ].filter((value): value is string => Boolean(value)))].sort(),
-      containsRefs: [...new Set(screen.contains)].sort(),
+      // Prefer import-resolved `<file>#<Name>` references: they select the exact
+      // declaring file even when several screens share a display name.
+      containsRefs: [...new Set(containsReferences(screen))].sort(),
       transitionRefs: [...new Set(screen.navigatesTo)].sort(),
       aliases: [],
       tombstone: false,
