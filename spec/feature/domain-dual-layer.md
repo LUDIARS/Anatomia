@@ -141,6 +141,9 @@ Revisor の PR レビュー（[pr-diff-review.md](./pr-diff-review.md) の `doma
   `anatomia domains program --project <id> [--json] [--unclassified]`（→ interface/cli.md）で
   行う。CLI と Revisor gate は同じ module/symbol 構築 (`domains/program/diagnose.ts`) を読むので、
   CLI で `unclassified: 0` なら gate のプログラム側判定も pass する。
+- Anatomia 自身の `.anatomia/` は自己解析キャッシュ置き場として gitignore しているが、
+  `.anatomia/layers.json` だけは追跡対象 (`.gitignore` の `!.anatomia/layers.json`)。Revisor の
+  審査 checkout でも layer 宣言が読めるよう、config は commit する。
 
 ## 関連
 

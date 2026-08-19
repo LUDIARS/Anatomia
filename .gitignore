@@ -1,7 +1,8 @@
 node_modules/
 dist/
 logs/
-.anatomia/
+.anatomia/*
+!.anatomia/layers.json
 
 # eval / scratch artifacts (not part of source)
 .eval-cache/

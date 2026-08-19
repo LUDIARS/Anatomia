@@ -1,0 +1,50 @@
+{
+  "layers": [
+    { "glob": "src/adapters/**", "layer": "presentation" },
+    { "glob": "src/web-cache/**", "layer": "presentation" },
+    { "glob": "src/dynamic/viz/**", "layer": "presentation" },
+
+    { "glob": "src/*", "layer": "application" },
+    { "glob": "src/supply/**", "layer": "application" },
+    { "glob": "src/review/**", "layer": "application" },
+    { "glob": "src/spec-review/**", "layer": "application" },
+    { "glob": "src/integral/**", "layer": "application" },
+    { "glob": "src/project/**", "layer": "application" },
+    { "glob": "src/domains/workflow/**", "layer": "application" },
+    { "glob": "src/domains/organize/**", "layer": "application" },
+    { "glob": "src/domains/retune/**", "layer": "application" },
+    { "glob": "src/domains/authoring/**", "layer": "application" },
+
+    { "glob": "src/domains/*", "layer": "domain-logic" },
+    { "glob": "src/domains/__tests__/**", "layer": "domain-logic" },
+    { "glob": "src/domains/program/**", "layer": "domain-logic" },
+    { "glob": "src/domains/discovery/**", "layer": "domain-logic" },
+    { "glob": "src/dag/**", "layer": "domain-logic" },
+    { "glob": "src/graph/**", "layer": "domain-logic" },
+    { "glob": "src/modules/**", "layer": "domain-logic" },
+    { "glob": "src/scenes/**", "layer": "domain-logic" },
+    { "glob": "src/screens/**", "layer": "domain-logic" },
+    { "glob": "src/spec/**", "layer": "domain-logic" },
+    { "glob": "src/dynamic/*", "layer": "domain-logic" },
+    { "glob": "src/dynamic/phase/**", "layer": "domain-logic" },
+    { "glob": "src/dynamic/record/**", "layer": "domain-logic" },
+    { "glob": "src/entrypoints/**", "layer": "domain-logic" },
+    { "glob": "src/knowledge/**", "layer": "domain-logic" },
+    { "glob": "src/patterns/**", "layer": "domain-logic" },
+    { "glob": "src/frameworks/**", "layer": "domain-logic" },
+    { "glob": "src/cost/**", "layer": "domain-logic" },
+
+    { "glob": "src/cache/**", "layer": "infrastructure" },
+    { "glob": "src/fs/**", "layer": "infrastructure" },
+    { "glob": "src/providers/**", "layer": "infrastructure" },
+    { "glob": "src/obs/**", "layer": "infrastructure" },
+    { "glob": "src/plugins/**", "layer": "infrastructure" },
+    { "glob": "src/branch/**", "layer": "infrastructure" },
+    { "glob": "runtime/**", "layer": "infrastructure" },
+    { "glob": "eval/**", "layer": "infrastructure" },
+    { "glob": "scripts/**", "layer": "infrastructure" },
+
+    { "glob": "src/__tests__/**", "layer": "shared" }
+  ],
+  "mergeCouplingThreshold": 1
+}
