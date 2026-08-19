@@ -8,6 +8,7 @@ export type KnowledgeNodeKind =
   | "program-domain"
   | "scene"
   | "scene-element"
+  | "entry-point"
   | "refactoring-proposal";
 
 export type KnowledgeEdgeKind =
@@ -25,7 +26,9 @@ export type KnowledgeEdgeKind =
   | "scene-activates-code"
   | "scene-activates-domain"
   | "scene-relates-spec"
-  | "scene-element-realized-by";
+  | "scene-element-realized-by"
+  | "entry-point-has-symbol"
+  | "entry-point-activates-domain";
 
 export interface RevisionEvidence {
   sourceRevision: string;

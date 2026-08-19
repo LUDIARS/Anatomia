@@ -75,6 +75,8 @@ const EDGE_ENDPOINTS: Record<KnowledgeEdgeKind, readonly [KnowledgeNodeKind, Kno
   "scene-activates-code": ["scene", "code-symbol"],
   "scene-activates-domain": ["scene", "domain"],
   "scene-relates-spec": ["scene", "spec-clause"],
+  "entry-point-has-symbol": ["entry-point", "code-symbol"],
+  "entry-point-activates-domain": ["entry-point", "domain"],
   "scene-element-realized-by": ["scene-element", "code-symbol"],
 };
 

@@ -28,6 +28,8 @@ import { assembleBundle } from "./supply/bundle.js";
 import { sharedBundleCache, BUNDLE_CACHE_VERSION } from "./supply/cache.js";
 import { verify, buildDefaultGates } from "./supply/verify.js";
 import { resolveLanding } from "./supply/landing.js";
+import { nearestEntriesFor } from "./entrypoints/context.js";
+import { computeEntryPointConfigRevision } from "./entrypoints/config.js";
 import { landingInjections } from "./supply/detectors.js";
 import { rankExemplars, rankSpecClauses, RELEVANCE_VERSION } from "./supply/relevance.js";
 import { selectSiblings, verifyThresholds } from "./supply/verify-inputs.js";
@@ -56,7 +58,7 @@ import { specLinkCacheKey } from "./spec/cache.js";
 import type { SpecLinkResult } from "./spec/cache.js";
 import { loadRatifiedLinks } from "./spec/persist.js";
 import { combineEvidence } from "./spec/harden.js";
-import type { AnchorId, ContextBundle, FileNode, FunctionNode, GateResult, Link, Rule, SpecClause, TypeDecl, Verdict } from "./types.js";
+import type { AnchorId, ContextBundle, FileNode, FunctionNode, GateResult, Link, NearestEntry, Rule, SpecClause, TypeDecl, Verdict } from "./types.js";
 import type { Landing, LandingTask } from "./supply/landing.js";
 import type { DetectionResult } from "./domains/detect.js";
 import type { DiffInput } from "./supply/gates/types.js";
@@ -757,7 +759,7 @@ export async function buildContextBundle(
   req: BundleRequest,
   bundleCache: CacheStore<ContextBundle> = sharedBundleCache(),
 ): Promise<ContextBundle> {
-  const key = bundleCacheKey(ctx, req);
+  const key = bundleCacheKey(ctx, req, await computeEntryPointConfigRevision(ctx.repoPath));
   const cached = await bundleCache.get(key);
   if (cached) return cached;
 
@@ -793,6 +795,10 @@ export async function buildContextBundle(
   const activeNames = new Set([...existingDomains, ...activePolicies]);
   const applicable = (ctx.rules ?? []).filter((r) => activeNames.has(r.id.split("/")[0]!));
 
+  // "Which way in exercises this change" — derived from the entry graph, which
+  // is memoised per context so repeated bundles pay for it once.
+  const nearestEntries = await nearestEntriesFor(ctx, landingAnchors[0] ?? null);
+
   const bundle = assembleFittingBundle(
     {
       landingAnchors,
@@ -801,6 +807,7 @@ export async function buildContextBundle(
       exemplars,
       impactRadius,
       existingDomains,
+      nearestEntries,
     },
     maxBundleBytes,
   );
@@ -817,6 +824,7 @@ function assembleFittingBundle(
     exemplars: FunctionNode[];
     impactRadius: AnchorId[];
     existingDomains: string[];
+    nearestEntries: NearestEntry[];
   },
   maxBytes: number,
 ): ContextBundle {
@@ -829,6 +837,7 @@ function assembleFittingBundle(
     exemplars,
     impactRadius: inputs.impactRadius,
     existingDomains: inputs.existingDomains,
+    nearestEntries: inputs.nearestEntries,
   }).bundle;
 
   if (!Number.isFinite(maxBytes) || maxBytes <= 0) return bundle;
@@ -842,6 +851,7 @@ function assembleFittingBundle(
       exemplars,
       impactRadius: inputs.impactRadius,
       existingDomains: inputs.existingDomains,
+      nearestEntries: inputs.nearestEntries,
     }).bundle;
   }
   while (bundleBytes(bundle) > maxBytes && exemplars.length > 0) {
@@ -853,6 +863,7 @@ function assembleFittingBundle(
       exemplars,
       impactRadius: inputs.impactRadius,
       existingDomains: inputs.existingDomains,
+      nearestEntries: inputs.nearestEntries,
     }).bundle;
   }
   return bundle;
@@ -887,10 +898,11 @@ async function impactRadiusForLandings(
 /**
  * Cache key for a context bundle. Folds the request (task + domain hints) with a
  * digest of EVERY ctx field the bundle reads — files (path + structural hash),
- * spec clauses (which can live outside ctx.files), domains, policies and rules — so a
- * change to any of them busts the cache and no stale bundle is served.
+ * spec clauses (which can live outside ctx.files), domains, policies, rules, and
+ * entry-point config — so a change to any of them busts the cache and no stale
+ * bundle is served.
  */
-function bundleCacheKey(ctx: AnalysisContext, req: BundleRequest): string {
+function bundleCacheKey(ctx: AnalysisContext, req: BundleRequest, entryPointConfigRevision: string): string {
   const h = createHash("sha256");
   h.update(req.task);
   h.update("\0");
@@ -899,6 +911,8 @@ function bundleCacheKey(ctx: AnalysisContext, req: BundleRequest): string {
   h.update(`${RELEVANCE_VERSION}|${req.topClauses ?? 12}|${req.topExemplars ?? 5}|${req.maxBundleBytes ?? 32768}`);
   h.update("\0");
   h.update(filesContentKey(ctx.files));
+  h.update("\0");
+  h.update(entryPointConfigRevision);
   h.update("\0");
   for (const c of ctx.specClauses ?? []) {
     h.update(`${c.id}|${c.heading ?? ""}|${c.text ?? ""}\0`);

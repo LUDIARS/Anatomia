@@ -22,6 +22,7 @@
  * web-cache/store.ts, search in web-cache/search.ts, scheduling in prepare-queue.ts.
  */
 
+import { createHash } from "node:crypto";
 import type { Hono } from "hono";
 import type { ProjectManager } from "../../../project/manager.js";
 import type { LLMClient } from "../../../domains/card.js";
@@ -29,12 +30,13 @@ import { buildWebCacheBundle } from "../../../web-cache/build.js";
 import { writeWebCache, readWebManifest, readWebView } from "../../../web-cache/store.js";
 import { PrepareQueue } from "../../../web-cache/prepare-queue.js";
 import { WEB_VIEWS } from "../../../web-cache/types.js";
-import type { WebViewName, SearchCorpus } from "../../../web-cache/types.js";
+import type { WebViewName, SearchCorpus, EntryPointViewPayload } from "../../../web-cache/types.js";
 import { searchCorpus } from "../../../web-cache/search.js";
 import { sceneModelFromInspection } from "../../../scenes/canonical.js";
 import { KnowledgeApplicationService, knowledgePortFromManager } from "../../../knowledge/application/index.js";
 import { detectScreens } from "../../../screens/index.js";
 import { prepareDomainCorrespondenceWebCache } from "../../../web-cache/domain-correspondence.js";
+import { computeEntryPointConfigRevision } from "../../../entrypoints/config.js";
 
 /** Dependencies for the web-cache routes. */
 export interface WebCacheRouteDeps {
@@ -48,6 +50,20 @@ export interface WebCacheRouteDeps {
 
 const VIEW_SET = new Set<WebViewName>(WEB_VIEWS);
 
+async function webCacheSourceFingerprint(manager: ProjectManager, projectId: string): Promise<string> {
+  const project = manager.get(projectId);
+  if (!project) throw new Error(`no such project "${projectId}"`);
+  const [projectFingerprint, entryPointConfigRevision] = await Promise.all([
+    manager.fingerprint(projectId),
+    computeEntryPointConfigRevision(project.rootPath),
+  ]);
+  return createHash("sha256")
+    .update(projectFingerprint, "utf8")
+    .update("\0", "utf8")
+    .update(entryPointConfigRevision, "utf8")
+    .digest("hex");
+}
+
 export function mountWebCacheRoutes(app: Hono, deps: WebCacheRouteDeps): void {
   const { manager } = deps;
 
@@ -59,7 +75,7 @@ export function mountWebCacheRoutes(app: Hono, deps: WebCacheRouteDeps): void {
     const project = manager!.get(projectId)!;
     setPhase("analyzing");
     const ctx = await manager!.getContext(projectId);
-    const fingerprint = await manager!.fingerprint(projectId);
+    const fingerprint = await webCacheSourceFingerprint(manager!, projectId);
     const application = new KnowledgeApplicationService(knowledgePortFromManager(manager!, projectId));
     const sceneInspection = await application.scenes.query();
     if (sceneInspection.stale) throw new Error(`scene manifest is stale: ${sceneInspection.staleReasons.join(", ")}`);
@@ -68,7 +84,7 @@ export function mountWebCacheRoutes(app: Hono, deps: WebCacheRouteDeps): void {
     const knowledgeState = await application.domains.state();
     const domainCorrespondence = await prepareDomainCorrespondenceWebCache(manager!.cache.dirFor(project.id), knowledgeState);
     setPhase("building views");
-    const bundle = await buildWebCacheBundle(ctx, { sceneModel, sceneInspection, screenGraph, domainCorrespondence, knowledgeState });
+    const bundle = await buildWebCacheBundle(ctx, { sceneModel, sceneInspection, screenGraph, domainCorrespondence, knowledgeState, projectId });
     setPhase("writing");
     const preparedAt = new Date().toISOString();
     const manifest = await writeWebCache(
@@ -119,7 +135,7 @@ export function mountWebCacheRoutes(app: Hono, deps: WebCacheRouteDeps): void {
     if (!manifest) return c.json({ prepared: false });
     let stale = false;
     try {
-      stale = (await manager.fingerprint(projectId)) !== manifest.fingerprint;
+      stale = (await webCacheSourceFingerprint(manager, projectId)) !== manifest.fingerprint;
     } catch {
       /* leave stale=false when the fingerprint can't be computed */
     }
@@ -192,6 +208,38 @@ export function mountWebCacheRoutes(app: Hono, deps: WebCacheRouteDeps): void {
     const env = await readWebView(manager.cache.dirFor(projectId), "scene-view");
     if (!env) return c.json({ error: "not-prepared", view: "scene-view" }, 409);
     return c.json(env.data);
+  });
+
+  // The entry graph, straight from the prepared cache — opening the tab must
+  // never trigger a re-derivation.
+  app.get("/api/projects/:id/entrypoint-graph", async (c) => {
+    if (!manager) return c.json({ error: "web cache requires manager mode" }, 501);
+    let projectId: string;
+    try { projectId = manager.resolveId(c.req.param("id")); }
+    catch { return c.json({ error: `no such project "${c.req.param("id")}"` }, 404); }
+    const env = await readWebView(manager.cache.dirFor(projectId), "entrypoint-view");
+    if (!env) return c.json({ error: "not-prepared", view: "entrypoint-view" }, 409);
+    return c.json(env.data);
+  });
+
+  // One entry's reach tree, filtered out of the same prepared payload.
+  app.get("/api/projects/:id/entrypoint-graph/:entryId", async (c) => {
+    if (!manager) return c.json({ error: "web cache requires manager mode" }, 501);
+    let projectId: string;
+    try { projectId = manager.resolveId(c.req.param("id")); }
+    catch { return c.json({ error: `no such project "${c.req.param("id")}"` }, 404); }
+    const env = await readWebView(manager.cache.dirFor(projectId), "entrypoint-view");
+    if (!env) return c.json({ error: "not-prepared", view: "entrypoint-view" }, 409);
+    const payload = env.data as EntryPointViewPayload;
+    const entryId = c.req.param("entryId");
+    const entry = payload.entries.find((candidate) => candidate.id === entryId);
+    if (!entry) return c.json({ error: `no such entry "${entryId}"` }, 404);
+    return c.json({
+      entry,
+      nodes: payload.nodes.filter((node) => node.reachedFrom.includes(entryId)),
+      edges: payload.edges.filter((edge) => edge.onTreeOf.includes(entryId)),
+      diagnostics: payload.diagnostics.filter((diagnostic) => diagnostic.entryId === entryId),
+    });
   });
 
   app.get("/api/projects/:id/business-domain-view", async (c) => {

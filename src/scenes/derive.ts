@@ -26,6 +26,7 @@ import { relative } from "node:path";
 import type { AnalysisContext } from "../core.js";
 import { semanticDetectionResults } from "../domains/detect.js";
 import type { AnchorId } from "../types.js";
+import { reachClosure } from "../graph/traverse.js";
 import type { ScreenGraph, ScreenKind, ScreenNode, ScreenStack } from "../screens/index.js";
 import type { SceneRef } from "../integral/scene.js";
 import { assignSceneIds } from "./from-screens.js";
@@ -93,7 +94,7 @@ export async function deriveScenes(
   const scenes: DerivedScene[] = [];
   for (const screen of screenGraph.screens) {
     const entries = screen.file ? (anchorsByFile.get(screen.file) ?? []) : [];
-    const reached = await reachClosure(ctx, entries, options.maxDepth);
+    const reached = await reachClosure(ctx.graph, entries, options.maxDepth);
     const domains = new Set<string>(screen.domains);
     for (const anchor of reached) {
       for (const d of domainsByAnchor.get(anchor) ?? []) domains.add(d);
@@ -167,30 +168,3 @@ function buildFileIndex(ctx: AnalysisContext): Map<string, AnchorId[]> {
   return index;
 }
 
-/**
- * BFS over outgoing `calls` edges from the whole entry set at once (one
- * traversal per scene, not per function). Returns entries ∪ reachable.
- */
-async function reachClosure(
-  ctx: AnalysisContext,
-  entries: AnchorId[],
-  maxDepth?: number,
-): Promise<Set<AnchorId>> {
-  const seen = new Set<AnchorId>(entries);
-  let frontier = [...entries];
-  let depth = 0;
-  while (frontier.length > 0 && (maxDepth === undefined || depth < maxDepth)) {
-    const next: AnchorId[] = [];
-    for (const anchor of frontier) {
-      const callees = await ctx.graph.neighbors(anchor, "calls");
-      for (const node of callees) {
-        if (seen.has(node.id)) continue;
-        seen.add(node.id);
-        next.push(node.id);
-      }
-    }
-    frontier = next;
-    depth += 1;
-  }
-  return seen;
-}

@@ -429,6 +429,24 @@ export interface ContextBundle {
   impactRadius: AnchorId[];
   /** Existing domains that subsume this task (duplication guard). */
   existingDomains: string[];
+  /**
+   * Product entry points that reach the landing anchor, nearest first (at most
+   * 3). Answers "which way in exercises this change"
+   * (spec/feature/entrypoint-trace-graph.md). Empty when no entry reaches it.
+   */
+  nearestEntries: NearestEntry[];
+}
+
+/** One entry point that reaches the bundle's landing anchor. */
+export interface NearestEntry {
+  /** Stable entry id (the entry symbol's anchor). */
+  entryId: string;
+  classes: string[];
+  name: string;
+  /** Repo-relative, forward-slashed declaring path. */
+  path: string;
+  /** Hops from the entry to the landing anchor. */
+  distance: number;
 }
 
 /** A gate within the verify step. */

@@ -73,6 +73,8 @@ export interface VisEdge {
   font: { size: number; color: string; strokeWidth: number };
   color: { color: string; opacity: number };
   width: number;
+  /** vis-network dashed-line encoding (used for unresolved frontier stubs). */
+  dashes?: boolean;
   /** Number of function edges represented by a class edge. */
   memberEdgeCount?: number;
 }

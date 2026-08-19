@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { relative } from "node:path";
 import type { AnalysisContext } from "../../core.js";
 import type { AnchorId, CodeNode, Link, SpecClause } from "../../types.js";
+import { reachClosure } from "../../graph/traverse.js";
 import { canonicalJson } from "../canonical-json.js";
 import { describeCodeSymbol, type AnalyzedCodeSymbolEvidence } from "../code-symbol.js";
 import { sceneElementEntityId } from "../identity.js";
@@ -15,20 +16,6 @@ import type {
 
 function fingerprint(value: unknown): string {
   return `sha256:${createHash("sha256").update(canonicalJson(value), "utf8").digest("hex")}`;
-}
-
-async function reachClosure(ctx: AnalysisContext, entries: AnchorId[]): Promise<Set<AnchorId>> {
-  const seen = new Set<AnchorId>(entries);
-  const queue = [...entries];
-  while (queue.length > 0) {
-    const current = queue.shift()!;
-    for (const neighbor of await ctx.graph.neighbors(current, "calls")) {
-      if (seen.has(neighbor.id)) continue;
-      seen.add(neighbor.id);
-      queue.push(neighbor.id);
-    }
-  }
-  return seen;
 }
 
 function edge(
@@ -264,7 +251,7 @@ export async function deriveCanonicalSceneGraph(input: {
       .filter((anchor): anchor is AnchorId => functionsByAnchor.has(anchor));
     const reachedAnchors = definition.tombstone
       ? new Set<AnchorId>()
-      : await reachClosure(input.context, entryAnchors);
+      : await reachClosure(input.context.graph, entryAnchors);
     const reached = [...reachedAnchors]
       .map((anchor) => {
         const node = functionsByAnchor.get(String(anchor))!;

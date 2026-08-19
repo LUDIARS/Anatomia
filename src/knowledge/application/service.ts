@@ -5,16 +5,19 @@ import { sceneKnowledgePaths } from "../scene/project-reader.js";
 import { DomainKnowledgeApplication } from "./domain-application.js";
 import type { KnowledgeProjectPort } from "./port.js";
 import { SceneKnowledgeApplication } from "./scene-application.js";
+import { EntryPointKnowledgeApplication } from "./entrypoint-application.js";
 
 // @implements SPEC-knowledge-adapter-migration
 
 export class KnowledgeApplicationService {
   readonly domains: DomainKnowledgeApplication;
   readonly scenes: SceneKnowledgeApplication;
+  readonly entrypoints: EntryPointKnowledgeApplication;
 
   constructor(private readonly port: KnowledgeProjectPort) {
     this.domains = new DomainKnowledgeApplication(port);
     this.scenes = new SceneKnowledgeApplication(port, this.domains);
+    this.entrypoints = new EntryPointKnowledgeApplication(port, this.domains);
   }
 
   async status() {

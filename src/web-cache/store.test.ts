@@ -30,6 +30,7 @@ const bundle: WebCacheBundle = {
   domains: [{ domain: "d" }],
   "scene-modules": scene,
   "scene-view": sceneView,
+  "entrypoint-view": { entries: [], nodes: [], edges: [], unrooted: [], diagnostics: [] },
   "search-corpus": corpus,
 };
 

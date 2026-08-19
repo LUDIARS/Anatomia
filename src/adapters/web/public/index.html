@@ -586,6 +586,7 @@
       <div id="dash-tabs">
         <button class="tab-btn active" data-tab="scene-modules">シーン</button>
         <button class="tab-btn" data-tab="domain-view">ドメイン</button>
+        <button class="tab-btn" data-tab="entrypoints">入口</button>
         <button class="tab-btn" data-tab="graph">Graph</button>
         <button class="tab-btn" data-tab="search">Search</button>
         <button class="tab-btn" data-tab="hotspots">Hotspots</button>
@@ -640,6 +641,19 @@
               <div class="legend-encode"><span style="color:#238636">&#9632;</span> green &lt;4</div>
               <div class="legend-note" style="margin-top:4px">Node size = cyclomatic complexity</div>
             </div>
+          </div>
+        </div>
+
+        <!-- ── Entry points ── -->
+        <div class="tab-panel" id="panel-entrypoints">
+          <div id="ep-layout" style="display:flex;height:100%">
+            <aside id="ep-sidebar" style="width:340px;overflow:auto;border-right:1px solid #30363d;padding:8px">
+              <h3>入口</h3>
+              <div id="ep-list"><div class="loading-msg">Loading&hellip;</div></div>
+            </aside>
+            <section id="ep-detail" style="flex:1;overflow:auto;padding:8px">
+              <div class="dv-muted">入口を選ぶと到達木を表示します。</div>
+            </section>
           </div>
         </div>
 
@@ -1345,6 +1359,7 @@
     if (!id) return;
     if (tab === 'graph')          loadGraph(id);
     if (tab === 'domain-view')    loadActiveDomainLayer(id);
+    if (tab === 'entrypoints')    loadEntryPoints(id);
     if (tab === 'scene-modules')  loadSceneModules(id);
     if (tab === 'search')         loadSearchTab(id);
     if (tab === 'hotspots')       loadHotspots(id);
@@ -2311,6 +2326,92 @@
       };
     });
     body.querySelectorAll('.sm-chip[data-scene]').forEach(function (b) { b.onclick = function (event) { event.stopPropagation(); state.sceneFilter = b.getAttribute('data-scene'); renderSceneBar(); renderScenes(); }; });
+  }
+
+  // ── Entry points (入口) ────────────────────────────────────────────────────
+  // Rendered ONLY from the prepared entry-point view: opening the tab must never
+  // trigger a re-derivation (the panel's prepared-cache invariant).
+  async function loadEntryPoints(id) {
+    var panel = panelTemplate('entrypoints');
+    restorePanel('entrypoints');
+    var list = document.getElementById('ep-list');
+    list.innerHTML = '<div class="loading-msg">Loading…</div>';
+    var r;
+    try { r = await webView(id, 'entrypoint-view'); }
+    catch (e) { list.innerHTML = '<div class="error-msg">' + esc(e.message) + '</div>'; return; }
+    if (!r.ok) {
+      if (r.status === 409) { renderNotPrepared(panel, id, '入口'); return; }
+      list.innerHTML = '<div class="error-msg">' + esc(r.body.error || 'error') + '</div>';
+      return;
+    }
+    state.entrypointView = r.data || { entries: [], nodes: [], edges: [], unrooted: [], diagnostics: [] };
+    renderEntryPointList();
+  }
+
+  function renderEntryPointList() {
+    var view = state.entrypointView || { entries: [], unrooted: [], diagnostics: [] };
+    var list = document.getElementById('ep-list');
+    if (!list) return;
+    var rows = (view.entries || []).map(function (entry) {
+      return '<button class="bd-link" data-entry-id="' + esc(entry.id) + '" style="display:block;text-align:left;width:100%;padding:4px 0">'
+        + '<strong>' + esc(entry.symbol.name) + '</strong>'
+        + '<div class="dv-muted">[' + esc(entry.classes.join(',')) + '] ' + esc(entry.symbol.path) + '</div>'
+        + '<div class="dv-muted">到達 ' + esc(entry.reached) + ' · 深さ ' + esc(entry.maxDistance) + ' · 断絶 ' + esc(entry.frontierCount) + '</div>'
+        + '</button>';
+    }).join('');
+    // Unrooted and diagnostics are surfaced, never hidden: "nothing reaches this"
+    // is a finding, not an empty state.
+    var extra = '<div class="dv-muted" style="margin-top:8px">未到達 ' + esc((view.unrooted || []).length) + ' 件</div>'
+      + (view.diagnostics || []).map(function (d) { return '<div class="dv-muted">! ' + esc(d.kind) + ': ' + esc(d.message) + '</div>'; }).join('');
+    list.innerHTML = (rows || '<div class="dv-muted">入口が検出されていません。</div>') + extra;
+    list.querySelectorAll('[data-entry-id]').forEach(function (button) {
+      button.onclick = function () { renderEntryPointTree(button.getAttribute('data-entry-id')); };
+    });
+  }
+
+  function renderEntryPointTree(entryId) {
+    var view = state.entrypointView || { entries: [], nodes: [] };
+    var detail = document.getElementById('ep-detail');
+    var entry = (view.entries || []).find(function (candidate) { return candidate.id === entryId; });
+    if (!detail || !entry) return;
+    var reached = (view.nodes || []).filter(function (node) { return (node.reachedFrom || []).indexOf(entryId) >= 0; })
+      .sort(function (left, right) { return (left.distance[entryId] || 0) - (right.distance[entryId] || 0); });
+    var domains = (entry.activatesDomains.business || []).map(function (domainId) {
+      return '<button class="bd-link" data-entry-domain="' + esc(domainId) + '">' + esc(domainId) + '</button>';
+    }).join(' ') || '<span class="dv-muted">なし</span>';
+    var scenes = (entry.sceneIds || []).map(function (sceneId) {
+      return '<button class="bd-link" data-entry-scene="' + esc(sceneId) + '">' + esc(sceneId) + '</button>';
+    }).join(' ') || '<span class="dv-muted">なし</span>';
+    var tree = reached.map(function (node) {
+      var colours = [node.owner, node.programDomain].filter(Boolean).join(' / ');
+      return '<li style="margin-left:' + esc(Math.min(node.distance[entryId] || 0, 10) * 12) + 'px">'
+        + '+' + esc(node.distance[entryId] || 0) + ' <strong>' + esc(node.name) + '</strong> '
+        + '<span class="dv-muted">' + esc(node.path) + (colours ? ' · ' + esc(colours) : '') + '</span>'
+        + ((node.frontier || []).length > 0 ? ' <span style="color:#f85149">断絶 ' + esc(node.frontier.length) + '</span>' : '')
+        + '</li>';
+    }).join('');
+    detail.innerHTML = '<h3>' + esc(entry.symbol.name) + '</h3>'
+      + '<div class="dv-muted">[' + esc(entry.classes.join(',')) + '] ' + esc(entry.symbol.path) + ':' + esc(entry.symbol.line)
+      + ' · detector ' + esc(entry.detector.join(',')) + (entry.phase ? ' · phase ' + esc(entry.phase) : '') + '</div>'
+      + '<div style="margin:6px 0">起動するビジネスドメイン: ' + domains + '</div>'
+      + '<div style="margin:6px 0">関連シーン: ' + scenes + '</div>'
+      + '<ul style="list-style:none;padding:0">' + tree + '</ul>';
+    detail.querySelectorAll('[data-entry-domain]').forEach(function (button) {
+      button.onclick = function () { openBusinessDomain(button.getAttribute('data-entry-domain')); };
+    });
+    detail.querySelectorAll('[data-entry-scene]').forEach(function (button) {
+      button.onclick = function () {
+        var sceneId = button.getAttribute('data-entry-scene');
+        activateTab('scene-modules', false);
+        loadSceneModules(state.projectId).then(function () {
+          state.sceneFilter = sceneId;
+          renderSceneBar();
+          renderScenes();
+        }).catch(function (error) {
+          flashDeeplinkNote('シーンを開けませんでした: ' + error.message);
+        });
+      };
+    });
   }
 
   async function openBusinessDomain(domainId) {

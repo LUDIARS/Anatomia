@@ -125,6 +125,7 @@ describe("prepared web cache: gate → prepare → serve", () => {
         "domain-view",
         "business-domain-view",
         "program-domain-view",
+        "entrypoint-view",
         "access-patterns",
         "hotspots",
         "spec-links",
@@ -135,8 +136,17 @@ describe("prepared web cache: gate → prepare → serve", () => {
     );
   });
 
+  it("marks the prepared cache stale when only entrypoints.json changes", async () => {
+    await mkdir(join(root, ".anatomia"), { recursive: true });
+    const configPath = join(root, ".anatomia", "entrypoints.json");
+    await writeFile(configPath, JSON.stringify({ include: [{ namePattern: "^foo$" }] }), "utf8");
+    expect((await (await get("/web/manifest")).json()).stale).toBe(true);
+    await rm(configPath, { force: true });
+    expect((await (await get("/web/manifest")).json()).stale).toBe(false);
+  });
+
   it("serves each view envelope with its preparedAt", async () => {
-    for (const view of ["graph", "domain-view", "business-domain-view", "program-domain-view", "access-patterns", "hotspots", "spec-links", "domains", "scene-modules"]) {
+    for (const view of ["graph", "domain-view", "business-domain-view", "program-domain-view", "entrypoint-view", "access-patterns", "hotspots", "spec-links", "domains", "scene-modules"]) {
       const res = await get(`/web/${view}`);
       expect(res.status, view).toBe(200);
       const body = await res.json();

@@ -45,6 +45,9 @@ function makeInputs(): BundleInputs {
     exemplars: [fn("f2", "Beta"), fn("f1", "Alpha")],
     impactRadius: [a("z"), a("x"), a("y")],
     existingDomains: ["combat", "ai", "combat" /* dup */],
+    nearestEntries: [{
+      entryId: "entry-a", classes: ["process"], name: "main", path: "src/main.ts", distance: 2,
+    }],
   };
 }
 
@@ -57,6 +60,7 @@ describe("T28 assembleBundle", () => {
     expect(bundle.exemplars.length).toBe(2);
     expect(bundle.impactRadius.length).toBe(3);
     expect(bundle.existingDomains.length).toBe(2); // deduped
+    expect(bundle.nearestEntries).toHaveLength(1);
   });
 
   it("sorts every collection and dedups", () => {
@@ -89,6 +93,9 @@ describe("T28 assembleBundle", () => {
       exemplars: [fn("f1", "Alpha"), fn("f2", "Beta")],
       impactRadius: [a("x"), a("y"), a("z")],
       existingDomains: ["ai", "combat"],
+      nearestEntries: [{
+        entryId: "entry-a", classes: ["process"], name: "main", path: "src/main.ts", distance: 2,
+      }],
     };
     const shuffled = makeInputs();
     expect(JSON.stringify(assembleBundle(ordered).bundle)).toBe(
@@ -110,6 +117,7 @@ describe("T28 orderBundleSegments", () => {
     expect(lastImmutable).toBeLessThan(firstMutable);
     // landing (mutable) is last.
     expect(segs[segs.length - 1]!.kind).toBe("landing");
+    expect(segs.find((segment) => segment.kind === "entries")?.text).toContain("src/main.ts");
   });
 
   it("segment order is deterministic", () => {

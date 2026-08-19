@@ -53,6 +53,12 @@
       "pathPattern": "(^|/)src/knowledge/program-domain/[^/]+$"
     },
     {
+      "pathPattern": "(^|/)src/knowledge/entrypoint/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/scenes/[^/]+$"
+    },
+    {
       "pathPattern": "(^|/)src/screens/[^/]+$"
     }
   ],

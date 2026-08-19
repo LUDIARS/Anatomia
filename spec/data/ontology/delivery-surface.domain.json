@@ -20,6 +20,9 @@
       "pathPattern": "(^|/)src/adapters/web/__tests__/[^/]+$"
     },
     {
+      "pathPattern": "(^|/)src/web-cache/[^/]+$"
+    },
+    {
       "pathPattern": "(^|/)src/project/[^/]+$"
     },
     {

@@ -19,7 +19,12 @@
  *      is delegated to vis-data.ts. CLI wires I/O.
  */
 
+import { basename } from "node:path";
 import { buildVisData } from "./vis-data.js";
+import { buildEntryPointVisData } from "./entrypoint-vis.js";
+import { detectEntryPoints } from "../../entrypoints/detect.js";
+import { deriveEntryPointGraph } from "../../entrypoints/derive.js";
+import { buildColoring } from "../../entrypoints/coloring.js";
 import { loadTaxonomyResolver } from "../../domains/retune/load-taxonomy.js";
 import type { AnalysisContext } from "../../core.js";
 
@@ -30,6 +35,11 @@ import type { AnalysisContext } from "../../core.js";
 export interface ExportOptions {
   /** Title shown in the HTML header. Defaults to the repo basename. */
   title?: string;
+  /**
+   * `graph` (default) renders the whole call graph; `entrypoints` renders the
+   * entry forest instead — same renderer, different selection.
+   */
+  mode?: "graph" | "entrypoints";
 }
 
 // ---------------------------------------------------------------------------
@@ -64,9 +74,20 @@ export async function exportGraphHtml(
   ctx: AnalysisContext,
   opts: ExportOptions = {},
 ): Promise<string> {
-  const data = await buildVisData(ctx, opts.title, {
-    moduleResolver: await loadTaxonomyResolver(ctx.repoPath),
-  });
+  const data = opts.mode === "entrypoints"
+    ? buildEntryPointVisData(
+      await deriveEntryPointGraph({
+        projectId: "local",
+        sourceRevision: "local",
+        context: ctx,
+        manifest: await detectEntryPoints(ctx),
+        coloring: buildColoring(ctx),
+      }),
+      opts.title ?? basename(ctx.repoPath),
+    )
+    : await buildVisData(ctx, opts.title, {
+      moduleResolver: await loadTaxonomyResolver(ctx.repoPath),
+    });
   const { summary } = data;
   const title = summary.title;
 

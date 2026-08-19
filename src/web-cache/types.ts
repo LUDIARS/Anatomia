@@ -19,6 +19,7 @@
 import type { EdgeKind } from "../types.js";
 import type { AccessPattern } from "../patterns/detect.js";
 import type { RefactoringProposal } from "../review/refactoring-proposals.js";
+import type { EntryPointGraph } from "../entrypoints/types.js";
 
 /** The set of views the prepare step builds + the panel renders from cache. */
 export type WebViewName =
@@ -27,6 +28,7 @@ export type WebViewName =
   | "business-domain-view"
   | "program-domain-view"
   | "scene-view"
+  | "entrypoint-view"
   | "access-patterns"
   | "hotspots"
   | "spec-links"
@@ -41,6 +43,7 @@ export const WEB_VIEWS: readonly WebViewName[] = [
   "business-domain-view",
   "program-domain-view",
   "scene-view",
+  "entrypoint-view",
   "access-patterns",
   "hotspots",
   "spec-links",
@@ -50,7 +53,7 @@ export const WEB_VIEWS: readonly WebViewName[] = [
 ] as const;
 
 /** Analyzer-output schema shared by the prepared manifest and every view. */
-export const WEB_CACHE_SCHEMA_VERSION = 4 as const;
+export const WEB_CACHE_SCHEMA_VERSION = 5 as const;
 
 /**
  * One prepared view, on disk as <view>.json. Carries its own generation date so
@@ -159,6 +162,21 @@ export interface SceneViewScene {
   transitionSceneIds: string[];
 }
 
+/**
+ * The [入口] tab's payload: the derived entry graph, prepared once. The panel
+ * renders entries → reach tree from this alone; it never re-derives on open.
+ */
+export interface EntryPointViewPayload {
+  entries: Array<EntryPointGraph["entries"][number] & {
+    /** Stable scene ids whose canonical reach set contains this entry symbol. */
+    sceneIds: string[];
+  }>;
+  nodes: EntryPointGraph["nodes"];
+  edges: EntryPointGraph["edges"];
+  unrooted: EntryPointGraph["unrooted"];
+  diagnostics: EntryPointGraph["diagnostics"];
+}
+
 /** Read-only business-domain inspection, assembled during web-cache preparation. */
 export interface BusinessDomainViewPayload {
   domains: BusinessDomainViewDomain[];
@@ -257,6 +275,7 @@ export interface WebCacheBundle {
   "business-domain-view": BusinessDomainViewPayload;
   "program-domain-view": ProgramDomainViewPayload;
   "scene-view": SceneViewPayload;
+  "entrypoint-view": EntryPointViewPayload;
   "access-patterns": AccessPattern[];
   hotspots: unknown;
   "spec-links": unknown;

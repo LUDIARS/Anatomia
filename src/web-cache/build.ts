@@ -19,6 +19,7 @@ import { buildSpecLinks } from "../domains/spec-links.js";
 import { detectAccessPatterns } from "../patterns/detect.js";
 import { buildSceneModules } from "./scene-modules.js";
 import { buildSceneViewPayload } from "./scene-view.js";
+import { buildEntryPointViewPayload } from "./entrypoint-view.js";
 import { buildBusinessDomainViewPayload } from "./business-domain-view.js";
 import { buildProgramDomainViewPayload } from "./program-domain-view.js";
 import { buildSearchCorpus } from "./search-corpus.js";
@@ -38,6 +39,8 @@ export interface BuildWebCacheOptions {
   screenGraph?: ScreenGraph;
   domainCorrespondence?: DomainCorrespondenceQuery;
   knowledgeState?: KnowledgeGraph;
+  /** Project id, stamped into the prepared entry graph. */
+  projectId?: string;
 }
 
 /** Build every web-display view from an analyzed context. */
@@ -74,6 +77,12 @@ export async function buildWebCacheBundle(
       detectAccessPatterns(ctx),
       buildReview(ctx),
     ]);
+  const entrypointView = await buildEntryPointViewPayload(ctx, {
+    ...(options.projectId ? { projectId: options.projectId } : {}),
+    ...(options.screenGraph ? { screens: options.screenGraph } : {}),
+    ...(options.knowledgeState ? { knowledgeState: options.knowledgeState } : {}),
+    ...(options.sceneInspection ? { sceneInspection: options.sceneInspection } : {}),
+  });
   const programDomainView = await buildProgramDomainViewPayload(ctx, evaluation, graph, options.domainCorrespondence ?? { programDomains: [], businessDomains: [], specClauses: [] }, review, options.knowledgeState);
 
   const domains = (ctx.domains ?? []).map((d) => ({
@@ -89,6 +98,7 @@ export async function buildWebCacheBundle(
     "business-domain-view": businessDomainView,
     "program-domain-view": programDomainView,
     "scene-view": sceneView,
+    "entrypoint-view": entrypointView,
     "access-patterns": accessPatterns,
     hotspots,
     "spec-links": specLinks,

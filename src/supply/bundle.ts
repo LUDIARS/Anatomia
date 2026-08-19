@@ -28,6 +28,7 @@ import type {
   AnchorId,
   ContextBundle,
   FunctionNode,
+  NearestEntry,
   Rule,
   SpecClause,
 } from "../types.js";
@@ -47,6 +48,8 @@ export interface BundleInputs {
   impactRadius: AnchorId[];
   /** Existing domains that subsume this task (duplication guard). */
   existingDomains: string[];
+  /** Entry points reaching the landing anchor, nearest first (already ranked). */
+  nearestEntries?: NearestEntry[];
 }
 
 /** A content-addressed bundle: the ContextBundle plus its Merkle content key. */
@@ -106,6 +109,8 @@ export function assembleBundle(inputs: BundleInputs): AddressedBundle {
     exemplars,
     impactRadius,
     existingDomains,
+    // Already ranked by the entry layer (distance, then id); keep that order.
+    nearestEntries: inputs.nearestEntries ?? [],
   };
 
   return { bundle, contentKey: bundleContentKey(landingAnchors) };
@@ -115,7 +120,7 @@ export function assembleBundle(inputs: BundleInputs): AddressedBundle {
 
 /** A flat text segment for the llm-gateway ordering convention. */
 export interface BundleSegment {
-  kind: "domains" | "rules" | "spec" | "exemplars" | "impact" | "landing";
+  kind: "domains" | "rules" | "spec" | "exemplars" | "impact" | "entries" | "landing";
   /** True = stable across the repo (immutable); placed BEFORE mutable. */
   immutable: boolean;
   text: string;
@@ -170,6 +175,15 @@ export function orderBundleSegments(bundle: ContextBundle): BundleSegment[] {
     kind: "impact",
     immutable: false,
     text: "Impact radius: " + (bundle.impactRadius.join(", ") || "(none)"),
+  });
+  segs.push({
+    kind: "entries",
+    immutable: false,
+    text:
+      "Reached from entry points:\n" +
+      (bundle.nearestEntries
+        .map((e) => `  - [${e.classes.join("/")}] ${e.name} (${e.path}) +${e.distance}`)
+        .join("\n") || "  (none — unrooted or not derived)"),
   });
   segs.push({
     kind: "landing",

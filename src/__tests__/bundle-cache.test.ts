@@ -5,13 +5,14 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { analyze, buildContextBundle } from "../core.js";
 import { createMemoryStore } from "../cache/store.js";
 import type { AnalysisContext } from "../core.js";
 import type { AnchorId, ContextBundle, Rule, SpecClause } from "../types.js";
+import { entryPointGraphFor } from "../entrypoints/context.js";
 
 let root: string;
 beforeEach(async () => {
@@ -50,6 +51,28 @@ describe("buildContextBundle cache", () => {
     const ctx2 = await analyze(root, { quiet: true });
     const b2 = await buildContextBundle(ctx2, { task: "add a spawn" }, cache);
     expect(b2).not.toBe(b1);
+  });
+
+  it("recomputes when only the entry-point config changes", async () => {
+    const cache = createMemoryStore<ContextBundle>();
+    const ctx = await analyze(root, { quiet: true });
+    const before = await buildContextBundle(ctx, { task: "add a spawn" }, cache);
+    await mkdir(join(root, ".anatomia"), { recursive: true });
+    await writeFile(join(root, ".anatomia", "entrypoints.json"), JSON.stringify({
+      include: [{ namePattern: "^spawn$", class: "process" }],
+    }));
+    const after = await buildContextBundle(ctx, { task: "add a spawn" }, cache);
+    expect(after).not.toBe(before);
+  });
+
+  it("invalidates the per-context entry graph when only its config changes", async () => {
+    const ctx = await analyze(root, { quiet: true });
+    expect((await entryPointGraphFor(ctx)).entries).toEqual([]);
+    await mkdir(join(root, ".anatomia"), { recursive: true });
+    await writeFile(join(root, ".anatomia", "entrypoints.json"), JSON.stringify({
+      include: [{ namePattern: "^spawn$", class: "process" }],
+    }));
+    expect((await entryPointGraphFor(ctx)).entries.map((entry) => entry.symbol.name)).toEqual(["spawn"]);
   });
 
   it("stays deterministic in content across the cache boundary", async () => {

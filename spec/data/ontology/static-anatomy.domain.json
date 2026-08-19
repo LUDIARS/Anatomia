@@ -18,6 +18,15 @@
     },
     {
       "pathPattern": "(^|/)src/patterns/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/entrypoints/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/entrypoints/detectors/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/entrypoints/__tests__/[^/]+$"
     }
   ],
   "cardTemplate": "Summarise the \"static-anatomy\" domain: コードを関数粒度の正規化 Merkle-AST（DAG）へ解剖し、コードグラフ（呼び出し辺）を構築する解析の核。意味同値で同一 Anchor ID を割り当てキャッシュ土台にする。"

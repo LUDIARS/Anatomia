@@ -9,6 +9,7 @@ const KIND_PREFIX: Record<KnowledgeNodeKind, string> = {
   "program-domain": "program-domain",
   scene: "scene",
   "scene-element": "scene-element",
+  "entry-point": "entry-point",
   "refactoring-proposal": "refactoring-proposal",
 };
 
@@ -92,6 +93,9 @@ export function codeSymbolEntityId(
 
 export const programDomainEntityId = (projectId: string, immutableKey: string): string =>
   stableEntityId("program-domain", projectId, durableNativeKey("program-domain", immutableKey));
+
+export const entryPointEntityId = (projectId: string, immutableKey: string): string =>
+  stableEntityId("entry-point", projectId, durableNativeKey("entry-point", immutableKey));
 
 export const sceneEntityId = (projectId: string, nativeIdentity: string): string =>
   stableEntityId("scene", projectId, durableNativeKey("scene", nativeIdentity));

@@ -3,7 +3,7 @@ title: Anatomia entry-point trace graph
 type: feature
 service: anatomia
 domain: analysis-core
-status: planned
+status: implemented
 tags:
   - entry-point
   - reachability

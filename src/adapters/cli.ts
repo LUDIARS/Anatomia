@@ -83,6 +83,7 @@ import { sceneModelFromInspection } from "../scenes/canonical.js";
 import { KnowledgeApplicationService, knowledgePortFromManager } from "../knowledge/application/index.js";
 import { ProjectManager } from "../project/manager.js";
 import { exportGraphHtml } from "./web/export.js";
+import { runEntryPoints } from "./entrypoints-cli.js";
 import { startServer } from "./web/server.js";
 import { readEvents } from "../cache/transcript.js";
 import { aggregate, formatReport } from "../cache/stats.js";
@@ -147,6 +148,7 @@ export interface CliArgs {
     | "trace"
     | "screens"
     | "scenes"
+    | "entrypoints"
     | "knowledge"
     | "links";
   repoPath: string;
@@ -229,6 +231,14 @@ export interface CliArgs {
   noSpec?: boolean;
   /** For scenes: reachability depth cap over `calls` edges. */
   sceneMaxDepth?: number;
+  /** For entrypoints: show one entry's reach tree (anchor or symbol name). */
+  entryRef?: string;
+  /** For entrypoints: list the symbols no entry reaches. */
+  unrooted?: boolean;
+  /** For entrypoints: list the call sites static resolution dropped. */
+  frontier?: boolean;
+  /** For export-graph: which forest to render. Default: the whole call graph. */
+  exportMode?: "graph" | "entrypoints";
   /** For project spec: dirs to set as the spec source (repeatable --set). */
   specSetDirs?: string[];
   /** For project spec: clear the config (back to auto-detect default). */
@@ -263,11 +273,12 @@ export function parseArgs(argv: string[]): CliArgs {
     subcommand !== "trace" &&
     subcommand !== "screens" &&
     subcommand !== "scenes" &&
+    subcommand !== "entrypoints" &&
     subcommand !== "knowledge" &&
     subcommand !== "links"
   ) {
     throw new Error(
-      `Unknown subcommand "${subcommand ?? ""}". Expected: verify | context | where | find | callers | callees | review | spec-review | domain-review | pr-review | project | export-graph | web | cache-stats | integral | domains | trace | screens | scenes | knowledge | links`,
+      `Unknown subcommand "${subcommand ?? ""}". Expected: verify | context | where | find | callers | callees | review | spec-review | domain-review | pr-review | project | export-graph | web | cache-stats | integral | domains | trace | screens | scenes | entrypoints | knowledge | links`,
     );
   }
 
@@ -321,6 +332,10 @@ export function parseArgs(argv: string[]): CliArgs {
   let base: string | undefined;
   let enforceDualLayerDomainGate = false;
   let sceneMaxDepth: number | undefined;
+  let entryRef: string | undefined;
+  let unrooted = false;
+  let frontier = false;
+  let exportMode: "graph" | "entrypoints" | undefined;
 
   for (let i = 0; i < args.length; i++) {
     const flag = args[i];
@@ -332,6 +347,18 @@ export function parseArgs(argv: string[]): CliArgs {
       file = args[++i];
     } else if (flag === "--task" || flag === "-t") {
       task = args[++i];
+    } else if (flag === "--mode" && subcommand === "export-graph") {
+      const value = args[++i];
+      if (value !== "graph" && value !== "entrypoints") {
+        throw new Error(`Invalid --mode "${value ?? ""}". Expected: graph | entrypoints`);
+      }
+      exportMode = value;
+    } else if (flag === "--entry" && subcommand === "entrypoints") {
+      entryRef = args[++i];
+    } else if (flag === "--unrooted") {
+      unrooted = true;
+    } else if (flag === "--frontier") {
+      frontier = true;
     } else if (flag === "--mode") {
       const value = args[++i] as SymbolLookupOptions["mode"] | undefined;
       if (value !== "exact" && value !== "prefix" && value !== "substring") {
@@ -377,7 +404,7 @@ export function parseArgs(argv: string[]): CliArgs {
     }
   }
 
-  return { subcommand, repoPath, diff, file, task, symbol, mode, limit, json, project, output, baselinePath, writeBaseline, base, enforceDualLayerDomainGate, sceneMaxDepth };
+  return { subcommand, repoPath, diff, file, task, symbol, mode, limit, json, project, output, baselinePath, writeBaseline, base, enforceDualLayerDomainGate, sceneMaxDepth, entryRef, unrooted, frontier, exportMode };
 }
 
 /**
@@ -680,6 +707,10 @@ export async function runCli(
     return runScenes(args);
   }
 
+  if (args.subcommand === "entrypoints") {
+    return runEntryPoints(args);
+  }
+
   const ctx = await resolveContext(args);
 
   if (args.subcommand === "pr-review") {
@@ -779,7 +810,10 @@ export async function runCli(
 
   if (args.subcommand === "export-graph") {
     const outputPath = args.output ?? "graph.html";
-    const html = await exportGraphHtml(ctx, { title: undefined });
+    const html = await exportGraphHtml(ctx, {
+      title: undefined,
+      ...(args.exportMode ? { mode: args.exportMode } : {}),
+    });
     await writeFile(outputPath, html, "utf8");
     const nodeCount = ctx.functions.length;
     const unresolvedCount = ctx.graph.raw.unresolved?.length ?? 0;
@@ -904,6 +938,25 @@ async function runScenes(args: CliArgs): Promise<{ exitCode: number; output: str
     lines.push(`  [${scene.kind}] ${scene.id}  ${extras.join("  ")}`);
   }
   return { exitCode: 0, output: lines.join("\n") };
+}
+
+/**
+ * Derive + commit the entry-point graph for a freshly analyzed project. Reported
+ * rather than thrown: a project whose knowledge root is not writable still gets
+ * its analysis, it just does not get an entry graph.
+ */
+async function syncEntryPointGraph(
+  manager: ProjectManager,
+  projectId: string,
+): Promise<{ status: "synced"; entries: number } | { status: "skipped"; reason: string }> {
+  try {
+    const result = await new KnowledgeApplicationService(
+      knowledgePortFromManager(manager, projectId),
+    ).entrypoints.sync();
+    return { status: "synced", entries: result.manifest.entries.length };
+  } catch (error) {
+    return { status: "skipped", reason: error instanceof Error ? error.message : String(error) };
+  }
 }
 
 async function runKnowledge(args: CliArgs): Promise<{ exitCode: number; output: string }> {
@@ -1049,12 +1102,20 @@ async function runProject(
       const ctx = await mgr.analyzeProject(targetId, { scope });
       const cacheHit = mgr.cache.hits > before;
       const specConfig = await mgr.ensureSpecConfig(targetId);
+      // The entry graph is derived as part of analyze so every later reader
+      // (panel, CLI, harness) gets it from cache without re-analysing. A scoped
+      // run is non-canonical, so it is skipped; a sync failure must not fail the
+      // analysis it rides on.
+      const entrypoints = ctx.partial
+        ? { status: "skipped" as const, reason: "partial analysis" }
+        : await syncEntryPointGraph(mgr, targetId);
       const result = {
         project: targetId,
         files: ctx.files.length,
         functions: ctx.functions.length,
         cacheHit,
         specConfig,
+        entrypoints,
         ...(ctx.partial ? { partial: ctx.partial } : {}),
       };
       if (args.json) return { exitCode: 0, output: JSON.stringify(result, null, 2) };
@@ -1066,10 +1127,14 @@ async function runProject(
           ].join(" ")}]`
         : "";
       const specNote = formatSpecConfigNote(specConfig);
+      const entryNote = entrypoints.status === "synced"
+        ? `入口: ${entrypoints.entries} entries`
+        : `入口: ${entrypoints.status} (${entrypoints.reason})`;
       return {
         exitCode: 0,
         output:
           `analyzed "${targetId}": ${result.files} files, ${result.functions} functions${cacheHit ? " (cache hit)" : ""}${partialNote}` +
+          `\n${entryNote}` +
           (specNote ? `\n${specNote}` : ""),
       };
     }
