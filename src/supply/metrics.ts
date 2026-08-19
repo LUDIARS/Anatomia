@@ -74,44 +74,100 @@ function invertMembership(membership: DomainMembership): Map<AnchorId, Set<strin
 }
 
 /**
- * Longest dependency chain rooted at `start` that crosses at least one domain
- * boundary, measured in edges. A boundary crossing happens when consecutive
- * nodes do not share any domain. Depth-limited DFS over outgoing edges; cycles
- * are guarded with a visited set per path.
+ * Longest dependency chain that crosses at least one domain boundary, for
+ * EVERY node at once, measured in edges. A boundary crossing happens when
+ * consecutive nodes do not share any domain.
+ *
+ * Implementation note (task: low-memory analyze follow-up): this used to be a
+ * per-node DFS that enumerated every simple path (per-path cycle guard) up to
+ * maxDepth. That is exponential in out-degree — on a real game repo (51k
+ * functions, 1.2M edges, avg out-degree ~23) a SINGLE node's enumeration never
+ * finishes, and it ran per node. Replaced with one memoized post-order pass
+ * over the whole graph, O(V+E):
+ *
+ *   L(n) = longest chain from n
+ *   C(n) = longest chain from n containing ≥1 crossing edge (-1 = none)
+ *        = max over edges n→m of:  crossing(n,m) ? 1+L(m) : (C(m)≥0 ? 1+C(m) : -1)
+ *
+ * Cycles are cut after the back-edge itself: an on-stack target contributes a
+ * terminal one-edge path but is not traversed again. This preserves direct
+ * domain crossings inside recursive components without reintroducing the old
+ * exponential simple-path enumeration. Results are clamped to maxDepth,
+ * matching the old exploration cap.
  */
-async function crossDomainDepth(
-  start: AnchorId,
+async function computeCrossDomainDepths(
   graph: CodeGraphQuery,
   anchorDomains: Map<AnchorId, Set<string>>,
   maxDepth: number,
-): Promise<number> {
-  let best = 0;
+  sortedIds: readonly AnchorId[],
+): Promise<Map<AnchorId, number>> {
+  // Collect adjacency once (async boundary), then walk synchronously.
+  const adjacency = new Map<AnchorId, AnchorId[]>();
+  for (const id of sortedIds) {
+    adjacency.set(id, (await graph.neighbors(id)).map((n) => n.id));
+  }
+  const empty = new Set<string>();
+  const crossing = (from: AnchorId, to: AnchorId): boolean => {
+    const a = anchorDomains.get(from) ?? empty;
+    const b = anchorDomains.get(to) ?? empty;
+    for (const m of a) if (b.has(m)) return false;
+    return true;
+  };
 
-  async function dfs(
-    node: AnchorId,
-    depth: number,
-    crossed: boolean,
-    path: Set<AnchorId>,
-  ): Promise<void> {
-    if (crossed) best = Math.max(best, depth);
-    if (depth >= maxDepth) return;
+  const longest = new Map<AnchorId, number>();
+  const crossed = new Map<AnchorId, number>();
+  /** 1 = on the explicit DFS stack, 2 = memoized. */
+  const state = new Map<AnchorId, 1 | 2>();
 
-    const outs = await graph.neighbors(node);
-    const nodeMechs = anchorDomains.get(node) ?? new Set<string>();
-
-    for (const next of outs) {
-      if (path.has(next.id)) continue; // cycle guard on this path
-      const nextMechs = anchorDomains.get(next.id) ?? new Set<string>();
-      const shares = [...nodeMechs].some((m) => nextMechs.has(m));
-      const nowCrossed = crossed || !shares;
-      path.add(next.id);
-      await dfs(next.id, depth + 1, nowCrossed, path);
-      path.delete(next.id);
+  for (const start of sortedIds) {
+    if (state.has(start)) continue;
+    const stack: { node: AnchorId; childIndex: number }[] = [{ node: start, childIndex: 0 }];
+    state.set(start, 1);
+    while (stack.length > 0) {
+      const frame = stack[stack.length - 1]!;
+      const outs = adjacency.get(frame.node) ?? [];
+      if (frame.childIndex < outs.length) {
+        const next = outs[frame.childIndex++]!;
+        if (!state.has(next)) {
+          state.set(next, 1);
+          stack.push({ node: next, childIndex: 0 });
+        }
+        // on-stack (cycle) or memoized → nothing to descend into
+        continue;
+      }
+      // Post-order: children that finished are memoized; back-edges are cut.
+      let bestL = 0;
+      let bestC = -1;
+      for (const next of outs) {
+        if (state.get(next) === 1) {
+          // Keep the back-edge as a terminal edge. Dropping it altogether
+          // makes a recursive pair in different domains report no crossing.
+          bestL = Math.max(bestL, 1);
+          if (crossing(frame.node, next)) bestC = Math.max(bestC, 1);
+          continue;
+        }
+        if (state.get(next) !== 2) continue;
+        const lNext = longest.get(next) ?? 0;
+        const cNext = crossed.get(next) ?? -1;
+        if (1 + lNext > bestL) bestL = 1 + lNext;
+        if (crossing(frame.node, next)) {
+          if (1 + lNext > bestC) bestC = 1 + lNext;
+        } else if (cNext >= 0 && 1 + cNext > bestC) {
+          bestC = 1 + cNext;
+        }
+      }
+      longest.set(frame.node, bestL);
+      crossed.set(frame.node, bestC);
+      state.set(frame.node, 2);
+      stack.pop();
     }
   }
 
-  await dfs(start, 0, false, new Set<AnchorId>([start]));
-  return best;
+  const out = new Map<AnchorId, number>();
+  for (const id of sortedIds) {
+    out.set(id, Math.min(maxDepth, Math.max(0, crossed.get(id) ?? -1)));
+  }
+  return out;
 }
 
 /**
@@ -131,6 +187,8 @@ export async function computeMetrics(
   const anchorDomains = invertMembership(membership);
   const nodes = await graph.allNodes();
   const sorted = [...nodes].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const sortedIds = sorted.map((n) => n.id);
+  const depths = await computeCrossDomainDepths(graph, anchorDomains, maxDepth, sortedIds);
 
   const out: NodeMetrics[] = [];
   for (const node of sorted) {
@@ -143,13 +201,12 @@ export async function computeMetrics(
     }
 
     const domainOverlap = (anchorDomains.get(node.id) ?? new Set()).size;
-    const depth = await crossDomainDepth(node.id, graph, anchorDomains, maxDepth);
 
     out.push({
       anchor: node.id,
       domainOverlap,
       sharedStateFanIn: stateFanIn,
-      crossDomainDepth: depth,
+      crossDomainDepth: depths.get(node.id) ?? 0,
       cyclomatic: callsOut.fanOut + 1,
       fanIn: all.fanIn,
       fanOut: all.fanOut,

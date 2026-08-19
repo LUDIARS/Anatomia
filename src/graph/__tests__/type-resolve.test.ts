@@ -22,7 +22,7 @@ async function fileOf(
 ): Promise<{ file: FileNode; edgeInfo: Map<AnchorId, FunctionEdgeInfo> }> {
   const tree = await parse(src, "cpp");
   const fns = extractFunctions(tree, src, path);
-  for (const fn of fns) assignAnchorId(fn, normalize(fn.bodyAst));
+  for (const fn of fns) assignAnchorId(fn, normalize(fn.bodyAst!));
   const types = extractTypeDecls(tree, path);
   const file = buildFileNode(path, fns, types);
   const edgeInfo = extractEdgeInfo([file]);

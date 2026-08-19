@@ -47,7 +47,7 @@ async function anchorOf(source: string): Promise<string> {
     const fns = extractFunctions(tree, source);
     if (fns.length === 0) throw new Error("no function extracted");
     const fn = fns[0]!;
-    return assignAnchorId(fn, normalize(fn.bodyAst));
+    return assignAnchorId(fn, normalize(fn.bodyAst!));
   } finally {
     tree.delete();
   }
@@ -144,7 +144,7 @@ class Worker {
       const locals = extractFunctions(tree, source, "/worker.cs").filter(
         (fn) => fn.name === "Local",
       );
-      for (const fn of locals) assignAnchorId(fn, normalize(fn.bodyAst));
+      for (const fn of locals) assignAnchorId(fn, normalize(fn.bodyAst!));
       expect(locals).toHaveLength(2);
       expect(locals[0]!.signatureShape).toContain("Worker::First");
       expect(locals[1]!.signatureShape).toContain("Worker::Second");

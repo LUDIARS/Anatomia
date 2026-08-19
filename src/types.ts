@@ -99,6 +99,71 @@ export interface ParamInfo {
   elementType?: string | null;
 }
 
+// ---------------------------------------------------------------------------
+// Per-function edge info (plain data, extracted while the AST is live)
+// ---------------------------------------------------------------------------
+// Defined here (not in graph/build.ts) so FunctionNode can carry its own edge
+// info without a types → graph import cycle. graph/build.ts re-exports these
+// for its existing consumers.
+
+/**
+ * A single call site: the callee's terminal name plus the receiver CHAIN it is
+ * called on (the dotted path before the method), used for type-aware resolution.
+ *   `target.alive()`   → { name: "alive", receiver: ["target"] }
+ *   `this->tick()`     → { name: "tick",  receiver: ["this"] }
+ *   `w.spawner.alive()`→ { name: "alive", receiver: ["w","spawner"] }
+ *   `helper()`         → { name: "helper", receiver: null }  (unqualified)
+ *   `f().run()`        → { name: "run",   receiver: null }  (call result, not typed)
+ */
+export interface CallSite {
+  name: string;
+  receiver: string[] | null;
+}
+
+/** A local declared as `auto[&] name = <recv.method()>` — typed from the call's return. */
+export interface CallLocal {
+  name: string;
+  receiver: string[] | null;
+  method: string;
+}
+
+/** A range-based for loop: `for (TYPE loopVar : container)`. */
+export interface RangeFor {
+  loopVar: string;
+  /** Explicit element type (`for (T x : …)`), else null (`auto`). */
+  explicitType: string | null;
+  /** Container variable name when it is a plain identifier, else null. */
+  container: string | null;
+  /** When the container is a call (`for (auto* e : w.spawner.alive())`), its call site. */
+  containerCall?: { receiver: string[] | null; method: string };
+}
+
+/**
+ * Plain-data summary of the edges that originate from one function.
+ * Produced by extractEdgeInfo() while the AST is still live. Type resolution
+ * (which needs the cross-file TypeRegistry) happens later, in emitEdges.
+ */
+export interface FunctionEdgeInfo {
+  /** AnchorId of the source function. */
+  anchorId: AnchorId;
+  /** Call sites (name + receiver chain) extracted from call expressions. */
+  calls: CallSite[];
+  /** Field/member names read (not assigned). */
+  readFieldNames: string[];
+  /** Field/member names written (LHS of assignment). */
+  writeFieldNames: string[];
+  /** Variable → simple type name, from parameters + explicitly-typed locals. */
+  symbolTypes: Record<string, string>;
+  /** Variable → container element type, from parameters + explicitly-typed locals. */
+  containerElem: Record<string, string>;
+  /** `auto x = recv.method()` locals (typed from the call's return in emitEdges). */
+  callLocals: CallLocal[];
+  /** Range-for loops (loop-var typing resolved in emitEdges). */
+  rangeFors: RangeFor[];
+  /** Simple name of the class this function is a method of (types `this`). */
+  selfType?: string;
+}
+
 /** A function or method extracted from source. */
 export interface FunctionNode {
   /** Filled by T06 after normalization + hashing. Null before hash step. */
@@ -135,8 +200,31 @@ export interface FunctionNode {
   /** Element type when the return is a single-arg container template. */
   returnElementType?: string | null;
   sourceRange: SourceRange;
-  /** Raw AST subtree for this function body. */
-  bodyAst: AstNode;
+  /**
+   * Raw AST subtree for this function body (a detached plain-JS mirror; see
+   * dag/freeze.ts). OPTIONAL because analyze() releases it as soon as every
+   * in-pipeline consumer (anchor hashing, edge extraction, active template
+   * matching) has run, unless `retainAst` was requested — the mirrors of a
+   * large repo dominate peak heap (task: low-memory analyze).
+   * Consumers that need the AST must guard for absence.
+   */
+  bodyAst?: AstNode;
+  /**
+   * Plain-data edge summary extracted from `bodyAst` while it was live.
+   * Survives AST release AND JSON serialisation (the per-file disk cache), so
+   * graph builds never need the AST back. Filled by analyze(); optional so
+   * hand-built FunctionNodes (tests, template parsing) can omit it.
+   */
+  edgeInfo?: FunctionEdgeInfo | null;
+  /**
+   * Template-rule match results recorded while `bodyAst` was live, keyed by
+   * the template's content key (domains/template.ts templateMatchKey):
+   * a binding summary string when the template matched, `null` when it was
+   * checked and did NOT match. An absent key means "never checked" — the
+   * consumer must fall back to live matching (bodyAst required). Lets domain
+   * template evaluation run after AST release and across the disk cache.
+   */
+  templateMatches?: Record<string, string | null>;
 }
 
 /**
@@ -182,9 +270,9 @@ export interface FileNode {
   /**
    * SHA-256 of the file's raw source bytes. Distinct from `hash` (a Merkle hash
    * over function structure): this keys the per-file analysis reuse in analyze()
-   * — an unchanged file's whole FileNode (with its detached bodyAst mirrors) is
-   * reused as-is, skipping parse/extract. Filled in analyze(); optional so
-   * hand-built FileNodes can omit it.
+   * — an unchanged file's analyzed FileNode can skip parse/extract. A retained
+   * prior is copied before its AST properties are released. Filled in analyze();
+   * optional so hand-built FileNodes can omit it.
    */
   contentHash?: string;
   functions: FunctionNode[];
@@ -194,6 +282,14 @@ export interface FileNode {
    * bodies only). Optional so callers that build a FileNode by hand can omit it.
    */
   types?: TypeDecl[];
+  /**
+   * Template content keys (domains/template.ts templateMatchKey) whose match
+   * results were recorded on this file's functions before their ASTs were
+   * released. analyze() reuses an AST-less FileNode (in-memory prior or disk
+   * cache) only when this covers the active ontology's template keys —
+   * otherwise the file is re-parsed so no template silently stops matching.
+   */
+  templateKeys?: string[];
 }
 
 // ---------------------------------------------------------------------------

@@ -131,7 +131,7 @@ async function fileNodeFromSource(
   try {
     const fns = extractFunctions(tree, src, absPath);
     const relPath = toRepoRelative(absPath, repoRoot);
-    for (const fn of fns) assignAnchorId(fn, normalize(fn.bodyAst), relPath);
+    for (const fn of fns) assignAnchorId(fn, normalize(fn.bodyAst!), relPath);
     return { path: absPath, hash: null, functions: fns };
   } finally {
     // Free the WASM-owned tree: diffFiles only needs id/name/signature.

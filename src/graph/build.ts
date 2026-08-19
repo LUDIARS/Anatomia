@@ -64,11 +64,15 @@
 import type { AstNode } from "../types.js";
 import type {
   AnchorId,
+  CallLocal,
+  CallSite,
   CodeNode,
   Edge,
   EdgeKind,
   FileNode,
+  FunctionEdgeInfo,
   FunctionNode,
+  RangeFor,
   UnresolvedCall,
   UnresolvedReason,
 } from "../types.js";
@@ -78,64 +82,11 @@ import { TypeRegistry } from "./type-resolve.js";
 // ---------------------------------------------------------------------------
 // Edge-info: plain data extracted from AST before tree deletion
 // ---------------------------------------------------------------------------
+// The plain-data edge-info types (CallSite / CallLocal / RangeFor /
+// FunctionEdgeInfo) moved to ../types.ts so FunctionNode can carry its own
+// edge info without an import cycle. Re-exported here for existing consumers.
 
-/**
- * A single call site: the callee's terminal name plus the receiver CHAIN it is
- * called on (the dotted path before the method), used for type-aware resolution.
- *   `target.alive()`   → { name: "alive", receiver: ["target"] }
- *   `this->tick()`     → { name: "tick",  receiver: ["this"] }
- *   `w.spawner.alive()`→ { name: "alive", receiver: ["w","spawner"] }
- *   `helper()`         → { name: "helper", receiver: null }  (unqualified)
- *   `f().run()`        → { name: "run",   receiver: null }  (call result, not typed)
- */
-export interface CallSite {
-  name: string;
-  receiver: string[] | null;
-}
-
-/** A local declared as `auto[&] name = <recv.method()>` — typed from the call's return. */
-export interface CallLocal {
-  name: string;
-  receiver: string[] | null;
-  method: string;
-}
-
-/** A range-based for loop: `for (TYPE loopVar : container)`. */
-export interface RangeFor {
-  loopVar: string;
-  /** Explicit element type (`for (T x : …)`), else null (`auto`). */
-  explicitType: string | null;
-  /** Container variable name when it is a plain identifier, else null. */
-  container: string | null;
-  /** When the container is a call (`for (auto* e : w.spawner.alive())`), its call site. */
-  containerCall?: { receiver: string[] | null; method: string };
-}
-
-/**
- * Plain-data summary of the edges that originate from one function.
- * Produced by extractEdgeInfo() while the AST is still live. Type resolution
- * (which needs the cross-file TypeRegistry) happens later, in emitEdges.
- */
-export interface FunctionEdgeInfo {
-  /** AnchorId of the source function. */
-  anchorId: AnchorId;
-  /** Call sites (name + receiver chain) extracted from call expressions. */
-  calls: CallSite[];
-  /** Field/member names read (not assigned). */
-  readFieldNames: string[];
-  /** Field/member names written (LHS of assignment). */
-  writeFieldNames: string[];
-  /** Variable → simple type name, from parameters + explicitly-typed locals. */
-  symbolTypes: Record<string, string>;
-  /** Variable → container element type, from parameters + explicitly-typed locals. */
-  containerElem: Record<string, string>;
-  /** `auto x = recv.method()` locals (typed from the call's return in emitEdges). */
-  callLocals: CallLocal[];
-  /** Range-for loops (loop-var typing resolved in emitEdges). */
-  rangeFors: RangeFor[];
-  /** Simple name of the class this function is a method of (types `this`). */
-  selfType?: string;
-}
+export type { CallSite, CallLocal, RangeFor, FunctionEdgeInfo } from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Internal graph representation
@@ -273,6 +224,9 @@ export function extractFunctionEdgeInfo(fn: FunctionNode): FunctionEdgeInfo | nu
   if (!fn.id) return null;
 
   const body = fn.bodyAst;
+  // AST already released (low-memory analyze) — the caller must use the
+  // edge info retained on the node (extractEdgeInfo below does).
+  if (!body) return null;
   const calls: CallSite[] = [];
   const readFieldNames: string[] = [];
   const writeFieldNames: string[] = [];
@@ -489,7 +443,9 @@ export function extractEdgeInfo(files: FileNode[]): Map<AnchorId, FunctionEdgeIn
   const map = new Map<AnchorId, FunctionEdgeInfo>();
   for (const file of files) {
     for (const fn of file.functions) {
-      const info = extractFunctionEdgeInfo(fn);
+      // Prefer the edge info analyze() retained on the node: it survives both
+      // AST release (low-memory path) and the per-file disk cache round-trip.
+      const info = fn.edgeInfo ?? extractFunctionEdgeInfo(fn);
       if (info) map.set(info.anchorId, info);
     }
   }

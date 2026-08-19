@@ -76,4 +76,29 @@ describe("analyze per-file reuse", () => {
     expect(nextA).not.toBe(byBase(first.files, "a.ts"));
     expect(nextA.functions[0]!.id).toBeTruthy();
   });
+
+  it("does not release ASTs owned by a retained prior context", async () => {
+    const retained = await analyze(root, { quiet: true, retainAst: true });
+    const second = await analyze(root, {
+      quiet: true,
+      priorFiles: priorMap(retained.files),
+    });
+
+    expect(retained.functions.every((fn) => fn.bodyAst !== undefined)).toBe(true);
+    expect(second.functions.every((fn) => fn.bodyAst === undefined)).toBe(true);
+    expect(byBase(second.files, "a.ts")).not.toBe(byBase(retained.files, "a.ts"));
+  });
+
+  it("re-parses an AST-less prior when retainAst is requested", async () => {
+    const released = await analyze(root, { quiet: true });
+    const retained = await analyze(root, {
+      quiet: true,
+      retainAst: true,
+      priorFiles: priorMap(released.files),
+    });
+
+    expect(released.functions.every((fn) => fn.bodyAst === undefined)).toBe(true);
+    expect(retained.functions.every((fn) => fn.bodyAst !== undefined)).toBe(true);
+    expect(byBase(retained.files, "a.ts")).not.toBe(byBase(released.files, "a.ts"));
+  });
 });

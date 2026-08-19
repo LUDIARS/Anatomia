@@ -20,7 +20,7 @@ import { normalize } from "./dag/normalize.js";
 import { assignAnchorId } from "./dag/hash.js";
 import { buildFileNode } from "./dag/merkle.js";
 import { toRepoRelative } from "./fs/repo-path.js";
-import { buildGraph, extractEdgeInfo, augmentGraph } from "./graph/build.js";
+import { buildGraph, extractEdgeInfo, extractFunctionEdgeInfo, augmentGraph } from "./graph/build.js";
 import type { CodeGraph } from "./graph/build.js";
 import { graphCacheKey, filesContentKey, localizeCachedGraph } from "./graph/cache.js";
 import { InMemoryCodeGraph } from "./graph/in-memory.js";
@@ -38,7 +38,14 @@ import {
   COMMITTED_ONTOLOGY_DIR_REL,
   type BuiltinSelection,
 } from "./domains/ontology.js";
+import type { DomainOntology } from "./domains/ontology.js";
 import { detectDomains, partitionDetectionResults } from "./domains/detect.js";
+import {
+  prepareTemplateMatchers,
+  recordTemplateMatches,
+  templateMatchKey,
+} from "./domains/template.js";
+import type { PreparedTemplateMatcher, TemplateRule } from "./domains/template.js";
 import { detectionCacheKey } from "./domains/cache.js";
 import { compileDomainRules } from "./domains/compile.js";
 import { generateCard, createCardCache } from "./domains/card.js";
@@ -229,6 +236,33 @@ export interface AnalyzeOptions {
    * later phase and every consumer requires.
    */
   scope?: AnalysisScope;
+  /**
+   * Keep every function's detached bodyAst mirror alive on the returned
+   * context (the pre-low-memory behavior). Default FALSE: analyze() extracts
+   * edge info + records template matches per file in phase 1 and then RELEASES
+   * the mirrors — on a large C++ repo they dominate peak heap (the 4-10GB OOMs
+   * this replaced). Set true only for consumers that walk bodyAst after
+   * analyze() (e.g. the dynamic-instrumentation CLI path).
+   */
+  retainAst?: boolean;
+  /**
+   * Per-file analysis disk cache (project/file-cache.ts): the cross-RESTART
+   * analogue of `priorFiles`. Keyed by absolute path + source SHA-256; stores
+   * the AST-less FileNode (functions with edgeInfo + templateMatches). On a
+   * phase-1 miss of `priorFiles`, a disk hit skips parse/extract entirely.
+   * Ignored while `retainAst` is set (stored nodes carry no AST). Failures
+   * inside the store must be swallowed by the implementation (cache, not
+   * correctness).
+   */
+  fileCache?: FileAnalysisCache;
+}
+
+/** Minimal surface analyze() needs from the per-file disk cache. */
+export interface FileAnalysisCache {
+  /** Stored FileNode for (absolute path, content SHA-256), or null. */
+  get(filePath: string, contentHash: string): Promise<FileNode | null>;
+  /** Persist an AST-less FileNode under (absolute path, content SHA-256). */
+  set(filePath: string, contentHash: string, file: FileNode): Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -403,6 +437,133 @@ export async function analyze(
     files: filePaths.length,
   });
 
+  // Ontology is resolved BEFORE phase 1 (it does not depend on the parsed
+  // files) so the active template rules are known while the ASTs are live:
+  // phase 1 records their matches per file, which is what lets the detached
+  // bodyAst mirrors — the dominant heap term on large repos — be released
+  // immediately instead of surviving until domain detection in phase 4.
+  // Load errors are kept and surfaced by phase 4 exactly as before.
+  const runDomains = options.scope?.domains !== false;
+  let ontology: DomainOntology | null = null;
+  let ontologyError: unknown = null;
+  if (runDomains) {
+    try {
+      // Ontology precedence: explicit pluginDir > ANATOMIA_PLUGIN_DIR (inside
+      // loadOntology) > the repo's committed `spec/data/ontology` (the retune
+      // register convention). The committed fallback is what lets ephemeral
+      // checkouts (Revisor PR review worktrees) see the project's semantic
+      // domains — local-only state like `.anatomia/` never exists there.
+      const committedOntologyDir = join(repoPath, COMMITTED_ONTOLOGY_DIR_REL);
+      const useCommitted =
+        options.pluginDir === undefined
+        && !process.env["ANATOMIA_PLUGIN_DIR"]
+        && existsSync(committedOntologyDir);
+      // The committed dir is content of the repo under analysis, which for a
+      // pr-review worktree is unreviewed author-controlled input — load it as
+      // DATA ONLY so a checked-in `.mjs` def cannot execute in this process.
+      // It is also AUTO-DISCOVERED rather than operator-chosen, so a stray or
+      // malformed `.json` there must cost only that file: without skipInvalid a
+      // single bad file throws, the domain phase is skipped, and the repo
+      // silently loses every domain — the failure the fallback exists to fix.
+      ontology = useCommitted
+        ? await loadOntology(committedOntologyDir, {
+            dataOnly: true,
+            skipInvalid: true,
+            builtins: options.builtins,
+          })
+        : await loadOntology(options.pluginDir, { builtins: options.builtins });
+    } catch (err) {
+      ontologyError = err;
+    }
+  }
+  // Active template rules, deduplicated by content key (language + pattern):
+  // rules sharing a pattern share recorded match results.
+  const activeTemplates: TemplateRule[] = [];
+  if (ontology) {
+    const seenTemplateKeys = new Set<string>();
+    for (const def of ontology.domains.values()) {
+      for (const tpl of def.templateRules) {
+        const key = templateMatchKey(tpl);
+        if (seenTemplateKeys.has(key)) continue;
+        seenTemplateKeys.add(key);
+        activeTemplates.push(tpl);
+      }
+    }
+  }
+  const templateKeys = activeTemplates.map(templateMatchKey);
+  const releaseAst = options.retainAst !== true;
+  let templateRecordingFailed = false;
+  let preparedTemplates: PreparedTemplateMatcher[] | null = null;
+  /**
+   * An AST-less FileNode (prior in-memory or disk-cached) is reusable only
+   * when its recorded template matches cover the active ontology's templates —
+   * otherwise the file is re-parsed so no template silently stops matching.
+   * A node whose functions still carry live ASTs is always coverable (the
+   * missing keys are recordable right now).
+   */
+  const coversTemplates = (file: FileNode): boolean => {
+    if (templateRecordingFailed) return true;
+    if (templateKeys.length === 0) return true;
+    const recorded = file.templateKeys;
+    if (
+      recorded
+      && templateKeys.every((key) => recorded.includes(key))
+      && file.functions.every((fn) =>
+        fn.bodyAst !== undefined
+        || (fn.templateMatches !== undefined && templateKeys.every((key) =>
+          Object.prototype.hasOwnProperty.call(fn.templateMatches, key))))
+    ) return true;
+    return file.functions.every((fn) => fn.bodyAst !== undefined);
+  };
+  /** Reuse requires either retained ASTs or the derived edge summary. */
+  const coversEdgeInfo = (file: FileNode): boolean =>
+    file.functions.every((fn) => fn.edgeInfo !== undefined || fn.bodyAst !== undefined);
+  /**
+   * Releasing a reused live AST must not mutate the caller's retained context.
+   * The derived fields are the only mutable per-function data in phase 1, so a
+   * shallow file/function copy is sufficient; the AST mirrors stay shared only
+   * until their property is deleted from the copied function.
+   */
+  const copyForAstRelease = (file: FileNode): FileNode => ({
+    ...file,
+    ...(file.templateKeys ? { templateKeys: [...file.templateKeys] } : {}),
+    functions: file.functions.map((fn) => ({
+      ...fn,
+      ...(fn.templateMatches ? { templateMatches: { ...fn.templateMatches } } : {}),
+    })),
+  });
+  /**
+   * Phase-1 per-file post-processing for the low-memory path: extract edge
+   * info + record template matches while the detached AST mirrors are live,
+   * then release the mirrors. Idempotent (reused nodes skip recorded work).
+   */
+  const consumeAndReleaseAsts = async (fileNode: FileNode): Promise<void> => {
+    for (const fn of fileNode.functions) {
+      if (fn.edgeInfo === undefined) fn.edgeInfo = extractFunctionEdgeInfo(fn);
+    }
+    if (
+      activeTemplates.length > 0
+      && fileNode.functions.length > 0
+      && !templateRecordingFailed
+    ) {
+      try {
+        preparedTemplates ??= await prepareTemplateMatchers(activeTemplates);
+        recordTemplateMatches(preparedTemplates, fileNode.functions);
+        const merged = new Set([...(fileNode.templateKeys ?? []), ...templateKeys]);
+        fileNode.templateKeys = [...merged];
+      } catch (err) {
+        // Before AST release, template compilation happened inside phase 4's
+        // guarded domain detection. Preserve that failure boundary: the base
+        // analysis succeeds, while phase 4 reports and skips invalid domains.
+        templateRecordingFailed = true;
+        ontologyError ??= err;
+      }
+    }
+    for (const fn of fileNode.functions) {
+      if (fn.bodyAst !== undefined) delete fn.bodyAst;
+    }
+  };
+
   const files: FileNode[] = [];
   const allFunctions: FunctionNode[] = [];
   const skipped: { filePath: string; reason: string }[] = [];
@@ -428,7 +589,10 @@ export async function analyze(
   };
 
   // Phase 1 — parse + extract + hash. Each file's tree is freed as soon as its
-  // functions (with detached bodyAst) and type decls are extracted.
+  // functions (with detached bodyAst) and type decls are extracted; on the
+  // low-memory path (releaseAst) the detached mirrors are also consumed
+  // (edge info + template matches) and released per file, so peak heap is
+  // bounded by ONE file's mirrors instead of the whole repo's.
   for (let index = 0; index < filePaths.length; index++) {
     const filePath = filePaths[index]!;
     if (index > 0 && index % 100 === 0) {
@@ -440,6 +604,12 @@ export async function analyze(
         skipped: skipped.length,
       });
     }
+    // Long analyses run inside the warm web server's event loop; yielding
+    // between files keeps its HTTP routes (project list, queue status)
+    // responsive instead of timing out for the whole analysis.
+    if (index > 0 && index % 20 === 0) {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
     let src: string;
     try {
       src = await readFile(filePath, "utf8");
@@ -448,20 +618,50 @@ export async function analyze(
       continue;
     }
     const contentHash = createHash("sha256").update(src, "utf8").digest("hex");
-    // Per-file reuse: an unchanged file's prior FileNode (with its detached
-    // bodyAst mirrors) is reused verbatim, skipping parse/extract entirely — so
-    // a partial edit only re-parses the files that actually changed. This also
-    // shrinks the live WASM heap pressure that the per-file tree.delete() guards
-    // against, since reused files never touch the parser at all.
+    // Per-file reuse: an unchanged file's prior FileNode skips parse/extract —
+    // so a partial edit only re-parses files that actually changed. On the
+    // low-memory path it must cover all derived data; a live-AST prior is
+    // copied before release so the retained source context stays intact. The
+    // retained-AST path cannot reuse an already released prior.
     const prior = options.priorFiles?.get(filePath);
-    const reused = prior != null && prior.contentHash === contentHash;
+    const priorReusable =
+      prior != null && prior.contentHash === contentHash
+      && (releaseAst
+        ? coversTemplates(prior) && coversEdgeInfo(prior)
+        : prior.functions.every((fn) => fn.bodyAst !== undefined));
+    // Cross-restart reuse: the per-file disk cache stores AST-less FileNodes,
+    // so it is consulted only on the low-memory path (retained-AST consumers
+    // could not be served from it).
+    let diskFile: FileNode | null = null;
+    if (!priorReusable && releaseAst && options.fileCache) {
+      diskFile = await options.fileCache.get(filePath, contentHash);
+      if (
+        diskFile
+        && (
+          diskFile.contentHash !== contentHash
+          || !coversTemplates(diskFile)
+          || !coversEdgeInfo(diskFile)
+        )
+      ) {
+        diskFile = null;
+      }
+    }
     options.transcript?.record({
       kind: "get", ts: Date.now(), session: options.session ?? "",
-      ns: "perfile", hit: reused, key: contentHash,
+      ns: "perfile", hit: priorReusable || diskFile !== null, key: contentHash,
     });
-    if (reused) {
-      files.push(prior);
-      allFunctions.push(...prior.functions);
+    if (priorReusable) {
+      const reusedFile = releaseAst && prior.functions.some((fn) => fn.bodyAst !== undefined)
+        ? copyForAstRelease(prior)
+        : prior;
+      if (releaseAst) await consumeAndReleaseAsts(reusedFile);
+      files.push(reusedFile);
+      allFunctions.push(...reusedFile.functions);
+      continue;
+    }
+    if (diskFile) {
+      files.push(diskFile);
+      allFunctions.push(...diskFile.functions);
       continue;
     }
     const lang = langFor(filePath);
@@ -477,7 +677,7 @@ export async function analyze(
       typeDecls = extractTypeDecls(tree, filePath);
       // Anchors fold the REPO-RELATIVE path, so the same commit yields the same
       // anchor in the repo and in any worktree of it.
-      for (const fn of fns) assignAnchorId(fn, normalize(fn.bodyAst), toRepoRelative(filePath, repoPath));
+      for (const fn of fns) assignAnchorId(fn, normalize(fn.bodyAst!), toRepoRelative(filePath, repoPath));
     } catch (err) {
       // Parse / extract / normalize failure on one file must not abort the run.
       warn(filePath, `parse/extract failed (${String(err)})`);
@@ -515,6 +715,14 @@ export async function analyze(
     }
     const fileNode = buildFileNode(filePath, fns, typeDecls);
     fileNode.contentHash = contentHash;
+    if (releaseAst) {
+      await consumeAndReleaseAsts(fileNode);
+      // Persist the now AST-less node so the NEXT process (warm-server
+      // restart, CLI rerun) skips parse/extract for this content entirely.
+      if (options.fileCache) {
+        await options.fileCache.set(filePath, contentHash, fileNode);
+      }
+    }
     files.push(fileNode);
     allFunctions.push(...fns);
   }
@@ -543,36 +751,15 @@ export async function analyze(
 
   // Phase 4 — domain detection (G3). Builtin ontology + optional plugins.
   // Staged execution: scope.domains === false skips the whole phase (the
-  // context then carries the `partial` marker).
-  const runDomains = options.scope?.domains !== false;
+  // context then carries the `partial` marker). The ontology itself was
+  // resolved before phase 1 (template rules must be known while ASTs are
+  // live); a load failure there surfaces here, matching the old behavior.
   let domains: DetectionResult[] = [];
   let policyResults: DetectionResult[] = [];
   let rules: Rule[] = [];
   if (runDomains) try {
-    // Ontology precedence: explicit pluginDir > ANATOMIA_PLUGIN_DIR (inside
-    // loadOntology) > the repo's committed `spec/data/ontology` (the retune
-    // register convention). The committed fallback is what lets ephemeral
-    // checkouts (Revisor PR review worktrees) see the project's semantic
-    // domains — local-only state like `.anatomia/` never exists there.
-    const committedOntologyDir = join(repoPath, COMMITTED_ONTOLOGY_DIR_REL);
-    const useCommitted =
-      options.pluginDir === undefined
-      && !process.env["ANATOMIA_PLUGIN_DIR"]
-      && existsSync(committedOntologyDir);
-    // The committed dir is content of the repo under analysis, which for a
-    // pr-review worktree is unreviewed author-controlled input — load it as
-    // DATA ONLY so a checked-in `.mjs` def cannot execute in this process.
-    // It is also AUTO-DISCOVERED rather than operator-chosen, so a stray or
-    // malformed `.json` there must cost only that file: without skipInvalid a
-    // single bad file throws, this whole phase is caught below, and the repo
-    // silently loses every domain — the failure the fallback exists to fix.
-    const ontology = useCommitted
-      ? await loadOntology(committedOntologyDir, {
-          dataOnly: true,
-          skipInvalid: true,
-          builtins: options.builtins,
-        })
-      : await loadOntology(options.pluginDir, { builtins: options.builtins });
+    if (ontologyError) throw ontologyError;
+    if (!ontology) throw new Error("ontology unavailable");
     // Detection is O(domains × functions). Reuse the prior result when the code
     // identity (file paths + source content hashes) and ontology are unchanged — the
     // spec/config-only-edit case, where the fingerprint busts but the DAG does
@@ -1000,7 +1187,7 @@ export async function buildVerdict(
   try {
   const fns = extractFunctions(tree, source, resolvedPath ?? "<diff>");
   const diffTypes = extractTypeDecls(tree, resolvedPath ?? "<diff>");
-  for (const fn of fns) assignAnchorId(fn, normalize(fn.bodyAst));
+  for (const fn of fns) assignAnchorId(fn, normalize(fn.bodyAst!));
 
   // Diff-augmented graph: overlay the new functions + their outgoing edges onto
   // the analyzed graph so rule_conformance sees brand-new violating calls (a

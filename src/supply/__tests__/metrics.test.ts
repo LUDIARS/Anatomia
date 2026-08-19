@@ -85,6 +85,29 @@ describe("T26 computeMetrics", () => {
     expect(f1.crossDomainDepth).toBe(2);
   });
 
+  it("counts a crossing back-edge without walking the cycle forever", async () => {
+    // A -> B -> A is recursive; B -> C is the non-recursive continuation.
+    // The B -> A back-edge itself crosses the domain boundary and must not be
+    // discarded merely because A is already on the traversal stack.
+    const edges: Edge[] = [
+      { from: a("A"), to: a("B"), kind: "calls" },
+      { from: a("B"), to: a("A"), kind: "calls" },
+      { from: a("B"), to: a("C"), kind: "calls" },
+    ];
+    const g = makeGraph(["A", "B", "C"], edges);
+    const membership = new Map<string, AnchorId[]>([
+      ["X", [a("A")]],
+      ["Y", [a("B"), a("C")]],
+    ]);
+
+    const metrics = await computeMetrics(g, membership, 8);
+    const depthOf = (id: string): number =>
+      metrics.find((metric) => metric.anchor === a(id))!.crossDomainDepth;
+    expect(depthOf("A")).toBe(2);
+    expect(depthOf("B")).toBe(1);
+    expect(depthOf("C")).toBe(0);
+  });
+
   it("computes auxiliary fan-in/out/coupling and cyclomatic", async () => {
     const edges: Edge[] = [
       { from: a("caller"), to: a("callee"), kind: "calls" },

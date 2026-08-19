@@ -38,6 +38,12 @@ export function assignAnchorId(
   normalized: string,
   locationScope?: string,
 ): AnchorId {
+  // Hashing consumes the AST: it must run before analyze() releases the
+  // detached mirrors. Fail fast on a mis-ordered caller instead of hashing a
+  // wrong (empty) signature shape.
+  if (!fn.bodyAst) {
+    throw new Error(`assignAnchorId: bodyAst already released for "${fn.name}"`);
+  }
   const sigShape = normalizeSignatureShape(fn.bodyAst);
   fn.signatureShape = sigShape;
   // Path-independent structural hash: same body+signature → same hash regardless

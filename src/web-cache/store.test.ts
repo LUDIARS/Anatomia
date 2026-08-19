@@ -6,7 +6,13 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { writeWebCache, readWebManifest, readWebView, webDir } from "./store.js";
+import {
+  writeWebCache,
+  readWebGraphSlice,
+  readWebManifest,
+  readWebView,
+  webDir,
+} from "./store.js";
 import {
   WEB_CACHE_SCHEMA_VERSION,
   type WebCacheBundle,
@@ -68,6 +74,30 @@ describe("web cache store", () => {
   it("returns null for a never-prepared project / view", async () => {
     expect(await readWebManifest(join(dir, "nope"))).toBeNull();
     expect(await readWebView(join(dir, "nope"), "graph")).toBeNull();
+  });
+
+  it("counts function nodes from a graph overview manifest", async () => {
+    const overviewBundle: WebCacheBundle = {
+      ...bundle,
+      graph: {
+        schema: "graph-overview-v1",
+        overview: { nodes: [{ id: "group" }], edges: [] },
+        summary: { funcCount: 37 },
+      },
+    };
+    const manifest = await writeWebCache(
+      join(dir, "overview"),
+      "proj-overview",
+      "fp-overview",
+      overviewBundle,
+      "2026-06-23T00:00:00.000Z",
+    );
+    expect(manifest.counts.graph).toBe(37);
+  });
+
+  it("rejects malformed graph-slice keys instead of aliasing them", async () => {
+    await expect(readWebGraphSlice(dir, "function", "aa/../0123456789abcdef"))
+      .resolves.toBeNull();
   });
 
   it("rejects every legacy prepared-cache envelope", async () => {

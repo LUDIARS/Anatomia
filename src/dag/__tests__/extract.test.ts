@@ -53,7 +53,7 @@ describe("T04 extractFunctions", () => {
     expect(fn!.name).toBe("add");
     expect(fn!.signature).toContain("int add(int a, int b)");
     expect(fn!.signature).not.toContain("return");
-    expect(fn!.bodyAst.type).toBe("compound_statement");
+    expect(fn!.bodyAst!.type).toBe("compound_statement");
     tree.delete();
   });
 

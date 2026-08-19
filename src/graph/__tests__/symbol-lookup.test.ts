@@ -21,7 +21,7 @@ let ctx: AnalysisContext;
 beforeAll(async () => {
   const tree = await parse(SRC, "cpp");
   const functions = extractFunctions(tree, SRC, "/repo/src/main.cpp");
-  for (const fn of functions) assignAnchorId(fn, normalize(fn.bodyAst));
+  for (const fn of functions) assignAnchorId(fn, normalize(fn.bodyAst!));
   const file = buildFileNode("/repo/src/main.cpp", functions);
   const edgeInfo = extractEdgeInfo([file]);
   tree.delete();

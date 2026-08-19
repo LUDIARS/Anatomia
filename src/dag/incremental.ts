@@ -27,7 +27,7 @@ export async function buildFileNodeFromSource(
   try {
     const functions = extractFunctions(tree, source, filePath);
     for (const fn of functions) {
-      assignAnchorId(fn, normalize(fn.bodyAst));
+      assignAnchorId(fn, normalize(fn.bodyAst!));
     }
     return buildFileNode(filePath, functions);
   } finally {

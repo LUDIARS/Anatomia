@@ -27,7 +27,7 @@ let idOf: Record<string, string>;
 beforeAll(async () => {
   const tree = await parse(SRC, "cpp");
   functions = extractFunctions(tree, SRC, "/d.cpp");
-  for (const fn of functions) assignAnchorId(fn, normalize(fn.bodyAst));
+  for (const fn of functions) assignAnchorId(fn, normalize(fn.bodyAst!));
   const file: FileNode = buildFileNode("/d.cpp", functions);
   const ei = extractEdgeInfo([file]);
   // NOTE: keep tree alive — detection re-reads bodyAst for templates.

@@ -50,6 +50,83 @@ export function encodePattern(pattern: string): string {
     .replace(/\$([A-Z_][A-Z0-9_]*)/g, "ANATOMIA_META_$1");
 }
 
+// ---------------------------------------------------------------------------
+// Precomputed matches (low-memory analyze: run while ASTs are live)
+// ---------------------------------------------------------------------------
+
+/**
+ * Content key identifying WHAT a template matches: language + pattern.
+ * Matching is polarity-independent (positive/negative only changes how a match
+ * turns into a violation), so two rules sharing a pattern share recorded
+ * results. Keys FunctionNode.templateMatches / FileNode.templateKeys.
+ */
+export function templateMatchKey(tpl: TemplateRule): string {
+  return `${tpl.language}\0${tpl.pattern}`;
+}
+
+/** Detached, reusable template AST prepared once for one analyze run. */
+export interface PreparedTemplateMatcher {
+  key: string;
+  root: AstNode;
+}
+
+/** Binding summary string used in violation evidence ("K=V, K=V"). */
+function bindsOf(match: MatchResult): string {
+  return [...match.bindings.entries()].map(([k, v]) => `${k}=${v}`).join(", ");
+}
+
+/** Inverse of bindsOf, for answering matchTemplate from a recorded result. */
+function parseBinds(binds: string): Map<string, string> {
+  const map = new Map<string, string>();
+  if (!binds) return map;
+  for (const part of binds.split(", ")) {
+    const eq = part.indexOf("=");
+    if (eq > 0) map.set(part.slice(0, eq), part.slice(eq + 1));
+  }
+  return map;
+}
+
+/**
+ * Parse each distinct template once. extractPatternRoot returns a detached AST
+ * mirror, so the native parser tree can be released before this returns.
+ */
+export async function prepareTemplateMatchers(
+  templates: readonly TemplateRule[],
+): Promise<PreparedTemplateMatcher[]> {
+  const prepared: PreparedTemplateMatcher[] = [];
+  for (const tpl of templates) {
+    const compiled = await compilePatternAst(tpl);
+    try {
+      prepared.push({ key: templateMatchKey(tpl), root: compiled.root });
+    } finally {
+      compiled.tree.delete();
+    }
+  }
+  return prepared;
+}
+
+/**
+ * Match prepared templates against every function that still has a live bodyAst and
+ * RECORD the result on the node (templateMatches[key] = binds | null). Called
+ * by analyze() phase 1, per file, right before the ASTs are released — after
+ * this, evaluateTemplate / matchTemplate answer from the recorded results and
+ * never need the AST back. Keys already recorded are skipped (idempotent).
+ */
+export function recordTemplateMatches(
+  templates: readonly PreparedTemplateMatcher[],
+  functions: FunctionNode[],
+): void {
+  for (const tpl of templates) {
+    for (const fn of functions) {
+      if (!fn.bodyAst) continue;
+      const rec = (fn.templateMatches ??= {});
+      if (tpl.key in rec) continue;
+      const match = matchTemplateAst(tpl.root, fn.bodyAst);
+      rec[tpl.key] = match ? bindsOf(match) : null;
+    }
+  }
+}
+
 /**
  * Compile a TemplateRule into a TemplatePredicate. The predicate merely
  * references the template by id; evaluateTemplate performs the actual matching.
@@ -69,7 +146,8 @@ function extractPatternRoot(tree: Tree): AstNode {
   // Find that function, then its body, then the first meaningful child.
   const fns = extractFunctions(tree, "", "<template>");
   if (fns.length > 0 && fns[0]) {
-    const body = fns[0].bodyAst;
+    // Freshly extracted from the parsed wrapper — the detached body is present.
+    const body = fns[0].bodyAst!;
     for (const child of body.namedChildren) {
       if (!child) continue;
       if (child.type === "comment" || child.isExtra) continue;
@@ -82,7 +160,7 @@ function extractPatternRoot(tree: Tree): AstNode {
     }
     return body;
   }
-  return tree.rootNode;
+  throw new Error("template wrapper did not yield an extractable function body");
 }
 
 /** Parse + encode a template fragment into its pattern root AST node. */
@@ -104,13 +182,19 @@ async function compilePatternAst(tpl: TemplateRule): Promise<{ tree: Tree; root:
  * Structurally match a template against a single function body AST.
  * Returns the MatchResult (with metavar bindings) or null.
  *
- * NOTE: the caller must keep the underlying tree-sitter tree alive while the
- * FunctionNode.bodyAst is read (same constraint as the rest of the DAG layer).
+ * FunctionNode.bodyAst is a detached mirror, so the source parser tree need
+ * not remain alive while matching.
  */
 export async function matchTemplate(
   tpl: TemplateRule,
   fn: FunctionNode,
 ): Promise<MatchResult | null> {
+  if (!fn.bodyAst) {
+    // AST released — answer from the result recorded while it was live.
+    const stored = fn.templateMatches?.[templateMatchKey(tpl)];
+    if (stored === undefined || stored === null) return null;
+    return { bindings: parseBinds(stored) };
+  }
   const { tree, root } = await compilePatternAst(tpl);
   try {
     return matchTemplateAst(root, fn.bodyAst);
@@ -135,13 +219,32 @@ export async function evaluateTemplate(
   functions: FunctionNode[],
   ruleId = tpl.id,
 ): Promise<Violation[]> {
-  const { tree, root } = await compilePatternAst(tpl);
+  const key = templateMatchKey(tpl);
   const out: Violation[] = [];
+  // The pattern is compiled lazily: when every function carries a recorded
+  // result (the low-memory analyze path), no parse happens at all.
+  let compiled: { tree: Tree; root: AstNode } | null = null;
   try {
     for (const fn of functions) {
       if (!fn.id) continue;
-      const match = matchTemplateAst(root, fn.bodyAst);
-      const matched = match !== null;
+      let matched: boolean;
+      let binds = "";
+      const stored = fn.templateMatches?.[key];
+      if (stored !== undefined) {
+        // Recorded while the AST was live (analyze phase 1 / disk cache).
+        matched = stored !== null;
+        binds = stored ?? "";
+      } else if (fn.bodyAst) {
+        compiled ??= await compilePatternAst(tpl);
+        const match = matchTemplateAst(compiled.root, fn.bodyAst);
+        matched = match !== null;
+        binds = match ? bindsOf(match) : "";
+      } else {
+        // AST released and nothing recorded: analyze() only releases after
+        // recording the active ontology's templates, so this is a foreign
+        // template — treat as unmatched rather than crash.
+        matched = false;
+      }
       if (tpl.positive && !matched) {
         out.push({
           ruleId,
@@ -150,9 +253,6 @@ export async function evaluateTemplate(
           severity: "warning",
         });
       } else if (!tpl.positive && matched) {
-        const binds = match
-          ? [...match.bindings.entries()].map(([k, v]) => `${k}=${v}`).join(", ")
-          : "";
         out.push({
           ruleId,
           anchors: [fn.id],
@@ -162,7 +262,7 @@ export async function evaluateTemplate(
       }
     }
   } finally {
-    tree.delete();
+    compiled?.tree.delete();
   }
   return out;
 }

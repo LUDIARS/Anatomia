@@ -139,7 +139,8 @@ export function detectMainLoopCandidates(
   return functions
     .filter((fn) => fn.id !== null && isCandidate(fn))
     .map((fn) => {
-      const loop = findTopLoopBounds(fn.bodyAst);
+      // AST released (low-memory analyze) → fall back to function bounds.
+      const loop = fn.bodyAst ? findTopLoopBounds(fn.bodyAst) : null;
       if (loop) {
         return {
           filePath: fn.sourceRange.filePath,

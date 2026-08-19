@@ -36,7 +36,7 @@ async function makeFile(
 ): Promise<{ file: FileNode; edgeInfo: Map<AnchorId, FunctionEdgeInfo> }> {
   const tree = await parse(src, "cpp");
   const fns = extractFunctions(tree, src, path);
-  for (const fn of fns) assignAnchorId(fn, normalize(fn.bodyAst));
+  for (const fn of fns) assignAnchorId(fn, normalize(fn.bodyAst!));
   const file = buildFileNode(path, fns);
   const edgeInfo = extractEdgeInfo([file]);  // before tree.delete()
   tree.delete();

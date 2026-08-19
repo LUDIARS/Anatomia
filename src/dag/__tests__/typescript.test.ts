@@ -32,7 +32,7 @@ async function anchorOf(src: string, lang: "typescript" | "tsx" = "typescript"):
     const fns = extractFunctions(tree, src, "/x.ts");
     if (fns.length === 0) throw new Error("no function extracted from: " + src.slice(0, 60));
     const fn = fns[0]!;
-    return assignAnchorId(fn, normalize(fn.bodyAst));
+    return assignAnchorId(fn, normalize(fn.bodyAst!));
   } finally {
     tree.delete();
   }
@@ -41,7 +41,7 @@ async function anchorOf(src: string, lang: "typescript" | "tsx" = "typescript"):
 async function normOf(src: string, lang: "typescript" | "tsx" = "typescript"): Promise<string> {
   const tree = await parse(src, lang);
   const fns = extractFunctions(tree, src, "/x.ts");
-  const out = normalize(fns[0]!.bodyAst);
+  const out = normalize(fns[0]!.bodyAst!);
   tree.delete();
   return out;
 }
@@ -115,7 +115,7 @@ describe("T04 extractFunctions — TypeScript", () => {
     const fns = extractFunctions(tree, src, "/x.ts");
     const fn = fns[0]!;
     expect(fn.name).toBe("add");
-    expect(fn.bodyAst.type).toBe("statement_block");
+    expect(fn.bodyAst!.type).toBe("statement_block");
     expect(fn.signature).toContain("add");
     expect(fn.signature).not.toContain("return");
     tree.delete();

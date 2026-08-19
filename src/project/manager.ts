@@ -15,6 +15,7 @@ import type { AnalysisContext, AnalysisScope, AnalyzeOptions } from "../core.js"
 import { ProjectRegistry } from "./registry.js";
 import { AnalysisCache, computeFingerprint, summarize } from "./cache.js";
 import type { SummaryCounts } from "./cache.js";
+import { FileAnalysisDiskCache } from "./file-cache.js";
 import { loadRegistry, saveRegistry } from "./store.js";
 import type { Project, ProjectInput } from "./types.js";
 import { createMemoryStore, type CacheStore } from "../cache/store.js";
@@ -71,6 +72,12 @@ export class ProjectManager {
   private readonly analyzeOptions: AnalyzeOptions;
   /** Project ids with an in-flight background revalidation (SWR de-dup). */
   private readonly revalidating = new Set<string>();
+  /**
+   * Per-project persistent per-file analysis caches (project/file-cache.ts):
+   * the cross-restart analogue of `priorFiles`. Keyed by project id; each
+   * lives under the project's cache dir (cache/<id>/files/).
+   */
+  private readonly fileCaches = new Map<string, FileAnalysisDiskCache>();
   /**
    * Memoized spec-source resolution per project id. "root" and the persisted
    * outcomes are stable for a process lifetime; "missing" is memoized too so a
@@ -190,10 +197,21 @@ export class ProjectManager {
     const ok = this.registry.remove(id);
     if (ok) {
       this.cache.invalidate(id);
+      this.fileCaches.delete(id);
       await this.save();
       vgWrite("info", "project removed", { project: id });
     }
     return ok;
+  }
+
+  /** Lazily-built per-file disk cache under the project's cache dir. */
+  private fileCacheFor(projectId: string): FileAnalysisDiskCache {
+    let cache = this.fileCaches.get(projectId);
+    if (!cache) {
+      cache = new FileAnalysisDiskCache(join(this.cache.dirFor(projectId), "files"));
+      this.fileCaches.set(projectId, cache);
+    }
+    return cache;
   }
 
   list(): Project[] {
@@ -328,6 +346,9 @@ export class ProjectManager {
       // FileNodes so it only re-parses the ones whose content actually moved;
       // unchanged files are reused from the last (in-memory) context.
       priorFiles: this.cache.lastFiles(projectId),
+      // Cross-restart per-file reuse: unchanged files whose in-memory prior is
+      // gone (fresh process) come from disk instead of being re-parsed.
+      fileCache: this.fileCacheFor(projectId),
       // Reuse domain detection when code identity + ontology are unchanged
       // (e.g. a spec/config-only edit that busts the fingerprint).
       detectionCache: this.detectionCache,

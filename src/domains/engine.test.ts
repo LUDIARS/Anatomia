@@ -34,7 +34,7 @@ let idOf: Record<string, AnchorId>;
 beforeAll(async () => {
   const tree = await parse(SRC, "cpp");
   const fns = extractFunctions(tree, SRC, "/chain.cpp");
-  for (const fn of fns) assignAnchorId(fn, normalize(fn.bodyAst));
+  for (const fn of fns) assignAnchorId(fn, normalize(fn.bodyAst!));
   const file: FileNode = buildFileNode("/chain.cpp", fns);
   const edgeInfo: Map<AnchorId, FunctionEdgeInfo> = extractEdgeInfo([file]);
   tree.delete();

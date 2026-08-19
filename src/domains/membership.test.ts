@@ -34,7 +34,7 @@ beforeAll(async () => {
   const gFns = extractFunctions(gTree, GRAPH_SRC, gPath);
   const wFns = extractFunctions(wTree, WEB_SRC, wPath);
   functions = [...gFns, ...wFns];
-  for (const fn of functions) assignAnchorId(fn, normalize(fn.bodyAst));
+  for (const fn of functions) assignAnchorId(fn, normalize(fn.bodyAst!));
   const gFile: FileNode = buildFileNode(gPath, gFns);
   const wFile: FileNode = buildFileNode(wPath, wFns);
   const ei = extractEdgeInfo([gFile, wFile]);
@@ -155,7 +155,7 @@ async function analyzeSources(
   for (const input of sources) {
     const tree = await parse(input.source, "cpp");
     const extracted = extractFunctions(tree, input.source, input.path);
-    for (const fn of extracted) assignAnchorId(fn, normalize(fn.bodyAst));
+    for (const fn of extracted) assignAnchorId(fn, normalize(fn.bodyAst!));
     files.push(buildFileNode(input.path, extracted));
   }
   const edgeInfo = extractEdgeInfo(files);

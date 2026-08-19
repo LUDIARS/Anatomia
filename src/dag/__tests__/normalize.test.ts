@@ -6,7 +6,7 @@ import { normalize } from "../normalize.js";
 async function norm(src: string, lang: "cpp" | "c_sharp" = "cpp"): Promise<string> {
   const tree = await parse(src, lang);
   const fns = extractFunctions(tree, src);
-  const out = normalize(fns[0]!.bodyAst);
+  const out = normalize(fns[0]!.bodyAst!);
   tree.delete();
   return out;
 }

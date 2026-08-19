@@ -119,7 +119,7 @@ describe("T15 preset evaluation", () => {
   beforeAll(async () => {
     const tree = await parse(SRC, "cpp");
     const fns = extractFunctions(tree, SRC, "/r.cpp");
-    for (const fn of fns) assignAnchorId(fn, normalize(fn.bodyAst));
+    for (const fn of fns) assignAnchorId(fn, normalize(fn.bodyAst!));
     const file: FileNode = buildFileNode("/r.cpp", fns);
     const ei = extractEdgeInfo([file]);
     tree.delete();

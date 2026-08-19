@@ -27,7 +27,7 @@ export async function hashSnippet(source: string, lang: Lang = "cpp"): Promise<s
     const fns = extractFunctions(tree, source);
     if (fns.length === 0) throw new Error("no function found in snippet");
     const fn = fns[0]!;
-    return assignAnchorId(fn, normalize(fn.bodyAst));
+    return assignAnchorId(fn, normalize(fn.bodyAst!));
   } finally {
     tree.delete();
   }
@@ -99,7 +99,7 @@ export async function insertBodyComment(
     const fn = pickFunction(fns, name, occurrence);
     if (!fn) return null;
     // bodyAst is the compound_statement / statement_block; its first byte is `{`.
-    const body = fn.bodyAst;
+    const body = fn.bodyAst!;
     const insertAt = body.startIndex + 1; // right after the opening brace
     if (insertAt <= 0 || insertAt > source.length) return null;
     return source.slice(0, insertAt) + " " + comment + " " + source.slice(insertAt);
@@ -127,7 +127,7 @@ export async function hashNamedSnippet(
     const fns = extractFunctions(tree, source, filePath);
     const fn = pickFunction(fns, name, occurrence);
     if (!fn) return null;
-    return assignAnchorId(fn, normalize(fn.bodyAst));
+    return assignAnchorId(fn, normalize(fn.bodyAst!));
   } finally {
     tree.delete();
   }

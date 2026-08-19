@@ -127,7 +127,7 @@ function inferRisks(functions: FunctionNode[], priority: FocusPriority): FocusRi
     fn.name,
     fn.signature,
     ...(fn.params ?? []).map((parameter) => `${parameter.name} ${parameter.type ?? ''}`),
-    fn.bodyAst.text ?? '',
+    fn.bodyAst?.text ?? '',
   ].join(' ')).join(' ').toLowerCase();
   const risks = new Set<FocusRisk>(['boundary', 'contract']);
   const hasNativeCriticalTarget = priority === 'critical' && functions.some((fn) => /\.(cpp|cc|cxx|h|hpp)$/i.test(fn.sourceRange.filePath));

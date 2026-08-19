@@ -27,7 +27,7 @@ import type { Hono } from "hono";
 import type { ProjectManager } from "../../../project/manager.js";
 import type { LLMClient } from "../../../domains/card.js";
 import { buildWebCacheBundle } from "../../../web-cache/build.js";
-import { writeWebCache, readWebManifest, readWebView } from "../../../web-cache/store.js";
+import { writeWebCache, readWebManifest, readWebView, readWebGraphSlice } from "../../../web-cache/store.js";
 import { PrepareQueue } from "../../../web-cache/prepare-queue.js";
 import { WEB_VIEWS } from "../../../web-cache/types.js";
 import type { WebViewName, SearchCorpus, EntryPointViewPayload } from "../../../web-cache/types.js";
@@ -84,7 +84,7 @@ export function mountWebCacheRoutes(app: Hono, deps: WebCacheRouteDeps): void {
     const knowledgeState = await application.domains.state();
     const domainCorrespondence = await prepareDomainCorrespondenceWebCache(manager!.cache.dirFor(project.id), knowledgeState);
     setPhase("building views");
-    const bundle = await buildWebCacheBundle(ctx, { sceneModel, sceneInspection, screenGraph, domainCorrespondence, knowledgeState, projectId });
+    const { bundle, graphSlices } = await buildWebCacheBundle(ctx, { sceneModel, sceneInspection, screenGraph, domainCorrespondence, knowledgeState, projectId });
     setPhase("writing");
     const preparedAt = new Date().toISOString();
     const manifest = await writeWebCache(
@@ -93,6 +93,7 @@ export function mountWebCacheRoutes(app: Hono, deps: WebCacheRouteDeps): void {
       fingerprint,
       bundle,
       preparedAt,
+      graphSlices,
     );
     return { views: manifest.views.length, counts: manifest.counts };
   });
@@ -181,6 +182,27 @@ export function mountWebCacheRoutes(app: Hono, deps: WebCacheRouteDeps): void {
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : String(err) }, 500);
     }
+  });
+
+  // GET web/graph-slice/:mode/:key — one prepared per-group graph slice
+  // (the zoom-in target of the overview graph), or 409 when not prepared.
+  app.get("/api/projects/:id/web/graph-slice/:mode/:key", async (c) => {
+    if (!manager) return c.json({ error: "web cache requires manager mode" }, 501);
+    const id = c.req.param("id");
+    const mode = c.req.param("mode");
+    const key = c.req.param("key");
+    if (mode !== "function" && mode !== "class") {
+      return c.json({ error: `unknown graph mode "${mode}"` }, 404);
+    }
+    let projectId: string;
+    try {
+      projectId = manager.resolveId(id);
+    } catch {
+      return c.json({ error: `no such project "${id}"` }, 404);
+    }
+    const env = await readWebGraphSlice(manager.cache.dirFor(projectId), mode, key);
+    if (!env) return c.json({ error: "not-prepared", view: "graph-slice", mode, key }, 409);
+    return c.json({ view: "graph-slice", preparedAt: env.preparedAt, fingerprint: env.fingerprint, data: env.data });
   });
 
   // GET web/:view — one prepared view, or 409 when not prepared.

@@ -35,7 +35,7 @@ int b2() { return 2; }
 async function makeFile(src: string, path: string): Promise<FileNode> {
   const tree = await parse(src, "cpp");
   const fns = extractFunctions(tree, src, path);
-  for (const fn of fns) assignAnchorId(fn, normalize(fn.bodyAst));
+  for (const fn of fns) assignAnchorId(fn, normalize(fn.bodyAst!));
   const file = buildFileNode(path, fns);
   return file;
 }

@@ -12,6 +12,8 @@
 import type { AnalysisContext } from "../core.js";
 import { evaluateModulesFromGraph } from "../modules/evaluate.js";
 import { buildVisData } from "../adapters/web/vis-data.js";
+import { buildGraphOverview, buildGraphSlices } from "./graph-split.js";
+import type { GraphSliceMap } from "./graph-split.js";
 import { loadTaxonomyResolver } from "../domains/retune/load-taxonomy.js";
 import { buildDomainViewPayload } from "../domains/domain-view-payload.js";
 import { buildHotspots } from "../supply/hotspots.js";
@@ -43,11 +45,17 @@ export interface BuildWebCacheOptions {
   projectId?: string;
 }
 
+/** A prepare run's output: the view bundle + the per-group graph slices. */
+export interface WebCacheBuild {
+  bundle: WebCacheBundle;
+  graphSlices: GraphSliceMap;
+}
+
 /** Build every web-display view from an analyzed context. */
 export async function buildWebCacheBundle(
   ctx: AnalysisContext,
   options: BuildWebCacheOptions = {},
-): Promise<WebCacheBundle> {
+): Promise<WebCacheBuild> {
   const sceneModel = options.sceneModel ?? emptySceneModel();
   const sceneView = options.sceneInspection && options.screenGraph && options.domainCorrespondence
     ? buildSceneViewPayload(options.sceneInspection, options.screenGraph, options.domainCorrespondence)
@@ -92,18 +100,28 @@ export async function buildWebCacheBundle(
     violationCount: d.violations.length,
   }));
 
+  // The full VisData is a build intermediate only: at real-repo scale it is
+  // unservable as one payload (measured 353MB), so the persisted graph view is
+  // the small group-granularity OVERVIEW and the panel zooms into per-group
+  // slices fetched lazily (graph-split.ts).
+  const overview = buildGraphOverview(graph);
+  const graphSlices = buildGraphSlices(graph);
+
   return {
-    graph,
-    "domain-view": domainView,
-    "business-domain-view": businessDomainView,
-    "program-domain-view": programDomainView,
-    "scene-view": sceneView,
-    "entrypoint-view": entrypointView,
-    "access-patterns": accessPatterns,
-    hotspots,
-    "spec-links": specLinks,
-    domains,
-    "scene-modules": sceneModules,
-    "search-corpus": searchCorpus,
+    bundle: {
+      graph: overview,
+      "domain-view": domainView,
+      "business-domain-view": businessDomainView,
+      "program-domain-view": programDomainView,
+      "scene-view": sceneView,
+      "entrypoint-view": entrypointView,
+      "access-patterns": accessPatterns,
+      hotspots,
+      "spec-links": specLinks,
+      domains,
+      "scene-modules": sceneModules,
+      "search-corpus": searchCorpus,
+    },
+    graphSlices,
   };
 }

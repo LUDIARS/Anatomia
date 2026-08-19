@@ -24,7 +24,7 @@ export interface BuiltGraph {
 export async function buildFromSource(src: string, path = "/t.cpp"): Promise<BuiltGraph> {
   const tree = await parse(src, "cpp");
   const functions = extractFunctions(tree, src, path);
-  for (const fn of functions) assignAnchorId(fn, normalize(fn.bodyAst));
+  for (const fn of functions) assignAnchorId(fn, normalize(fn.bodyAst!));
   const file = buildFileNode(path, functions);
   const edgeInfo = extractEdgeInfo([file]);
   const graph = new InMemoryCodeGraph(buildGraph([file], edgeInfo));

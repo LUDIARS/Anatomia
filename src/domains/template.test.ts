@@ -19,7 +19,7 @@ import type { TemplateRule as TplRule } from "./template.js";
 async function functionsFrom(src: string): Promise<FunctionNode[]> {
   const tree = await parse(src, "cpp");
   const fns = extractFunctions(tree, src, "/t.cpp");
-  for (const fn of fns) assignAnchorId(fn, normalize(fn.bodyAst));
+  for (const fn of fns) assignAnchorId(fn, normalize(fn.bodyAst!));
   // NOTE: tree intentionally kept alive (bodyAst is read by the matcher).
   return fns;
 }

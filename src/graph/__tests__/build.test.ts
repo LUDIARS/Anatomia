@@ -29,7 +29,7 @@ async function makeFileWithEdgeInfo(
   const tree = await parse(src, "cpp");
   const fns = extractFunctions(tree, src, path);
   for (const fn of fns) {
-    assignAnchorId(fn, normalize(fn.bodyAst));
+    assignAnchorId(fn, normalize(fn.bodyAst!));
   }
   // *** extractEdgeInfo BEFORE tree.delete() ***
   const file = buildFileNode(path, fns);

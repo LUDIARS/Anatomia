@@ -925,6 +925,9 @@
     state.rawVisData = null;
     state.graphPayload = null;
     state.graphMode = null;
+    state.gzActive = false;
+    state.gzSlices = null;
+    state.gzCurrentKey = null;
     state.branchDiff = null;
     state.branchDiffBase = null;
     state.domainViewLoaded = false;
@@ -1490,6 +1493,9 @@
       state.graphPayload = null;
       state.graphMode = null;
       state.graphLoaded = false;
+      state.gzActive = false;
+      state.gzSlices = null;
+      state.gzCurrentKey = null;
       state.branchDiff = null;
       state.branchDiffBase = null;
       state.domainViewLoaded = false;
@@ -1509,7 +1515,7 @@
   // ── Graph tab ──────────────────────────────────────────────────────────────
 
   async function loadGraph(id) {
-    if (state.graphLoaded && state.rawVisData) return; // already rendered
+    if (state.graphLoaded && (state.rawVisData || state.gzActive)) return; // already rendered
     state.graphLoaded = false;
 
     // Cache-gate: the graph is a pre-computed web view too. Probe it first; on
@@ -1533,6 +1539,13 @@
       state.graphPayload = probe.data;
     }
     var payload = state.graphPayload;
+    // New zoomable schema: small group-granularity overview + lazy per-group
+    // slices (large repos). The legacy whole-graph path below still serves
+    // caches prepared before the split.
+    if (payload && payload.schema === 'graph-overview-v1') {
+      await loadGraphZoom(id, payload);
+      return;
+    }
     if (!state.graphMode) state.graphMode = payload.defaultView || 'function';
     state.rawVisData = payload.views && payload.views[state.graphMode]
       ? payload.views[state.graphMode]
@@ -1769,6 +1782,327 @@
     // Re-apply any sticky diff/group selection after a graph reload.
     renderBranchSummary();
     applyGraphFilters();
+  }
+
+  // ── Zoomable graph (schema graph-overview-v1) ────────────────────────────────
+  // Large repos: the prepared graph view is a GROUP-granularity overview; a
+  // group's real nodes are fetched as a slice only when the user zooms in
+  // (double-click / group selector). Boundary pseudo-nodes (@group:) hop to
+  // the neighbouring group's slice.
+  async function loadGraphZoom(id, payload) {
+    state.graphLoaded = true;
+    state.gzActive = true;
+    state.gzSlices = state.gzSlices || {};
+    if (!state.graphMode) state.graphMode = payload.defaultView || 'function';
+    var loadEl = document.getElementById('graph-loading');
+    var sliceRequest = 0;
+    function isCurrentSliceRequest(request) {
+      return request === sliceRequest && state.projectId === id && state.gzActive &&
+        state.graphPayload === payload;
+    }
+    var nameByKey = {};
+    payload.groups.forEach(function (g) { nameByKey[g.key] = g.name; });
+
+    // Group selector doubles as the slice selector ('' = overview).
+    var gf = document.getElementById('graph-group-filter');
+    while (gf.options.length > 1) gf.remove(1);
+    gf.options[0].textContent = '俯瞰（全体）';
+    payload.groups.forEach(function (g) {
+      var opt = document.createElement('option');
+      opt.value = g.key;
+      opt.textContent = g.name + ' (' + g.functionCount + ')';
+      gf.appendChild(opt);
+    });
+    gf.onchange = function () { if (gf.value === '') showOverview(); else showSlice(gf.value); };
+
+    // Breadcrumb lives in the filter bar (created once per panel lifetime).
+    var crumb = document.getElementById('graph-crumb');
+    if (!crumb) {
+      crumb = document.createElement('span');
+      crumb.id = 'graph-crumb';
+      crumb.style.cssText = 'font-size:.78rem;color:#8b949e;margin-left:8px;';
+      var bar = document.getElementById('graph-filter-bar');
+      if (bar) bar.appendChild(crumb);
+    }
+
+    // Granularity toggle re-fetches the current slice (overview is mode-free).
+    var fnBtn = document.getElementById('graph-view-function');
+    var clBtn = document.getElementById('graph-view-class');
+    function syncModeButtons() {
+      fnBtn.classList.toggle('btn-primary', state.graphMode === 'function');
+      clBtn.classList.toggle('btn-primary', state.graphMode === 'class');
+    }
+    function setMode(mode) {
+      if (state.graphMode === mode) return;
+      state.graphMode = mode;
+      syncModeButtons();
+      if (state.gzCurrentKey) showSlice(state.gzCurrentKey);
+    }
+    fnBtn.onclick = function () { setMode('function'); };
+    clBtn.onclick = function () { setMode('class'); };
+    syncModeButtons();
+
+    // Legend: group count is unbounded on big repos — show a summary line.
+    var legendEl = document.getElementById('graph-legend-groups');
+    legendEl.innerHTML = '<div style="font-size:.75rem;color:#8b949e">' +
+      payload.groups.length + ' groups / ' + esc(String(payload.summary.funcCount)) + ' fns' +
+      (payload.prunedEdgeCount > 0
+        ? '<br>俯瞰エッジは強い接続のみ表示（' + payload.prunedEdgeCount + ' 組を刈り取り）'
+        : '') +
+      '</div>';
+
+    // Branch-diff wiring (only meaningful inside a slice).
+    var bdToggle = document.getElementById('bd-toggle');
+    var bdNeighbors = document.getElementById('bd-neighbors');
+    var bdBase = document.getElementById('bd-base');
+    var sumEl = document.getElementById('branch-diff-summary');
+    async function ensureDiff() {
+      var base = bdBase.value || '';
+      if (state.branchDiff && state.branchDiffBase === base) return state.branchDiff;
+      try {
+        state.branchDiff = await apiFetch('/api/projects/' + encodeURIComponent(id) + '/branch-diff' +
+          (base ? '?base=' + encodeURIComponent(base) : ''));
+      } catch (e) { state.branchDiff = { available: false, reason: e.message }; }
+      state.branchDiffBase = base;
+      return state.branchDiff;
+    }
+    async function populateBases() {
+      if (bdBase.dataset.loaded) return;
+      bdBase.dataset.loaded = '1';
+      try {
+        var info = await apiFetch('/api/projects/' + encodeURIComponent(id) + '/branches');
+        if (info.autoBase) bdBase.options[0].textContent = 'auto (' + info.autoBase + ')';
+        (info.candidates || []).forEach(function (b) {
+          var opt = document.createElement('option');
+          opt.value = b; opt.textContent = b;
+          bdBase.appendChild(opt);
+        });
+      } catch (e) { /* selector stays auto-only */ }
+    }
+    function renderDiffSummary() {
+      var bd = state.branchDiff;
+      if (!bdToggle.checked) { sumEl.textContent = ''; return; }
+      if (state.gzCurrentKey == null) { sumEl.textContent = 'diff はズームイン先のグループ内で有効'; return; }
+      if (!bd) { sumEl.textContent = 'loading diff…'; return; }
+      if (!bd.available) { sumEl.textContent = 'n/a: ' + (bd.reason || 'no diff'); return; }
+      var s = bd.summary;
+      sumEl.innerHTML = 'base <b>' + esc(bd.base) + '</b> · ' +
+        '<span class="bd-add">+' + s.functionsAdded + '</span> ' +
+        '<span class="bd-chg">~' + s.functionsChanged + '</span> ' +
+        '<span class="bd-rem">−' + s.functionsRemoved + '</span> · ' +
+        s.filesChanged + ' files';
+    }
+    bdToggle.onchange = async function () {
+      if (bdToggle.checked) { populateBases(); renderDiffSummary(); await ensureDiff(); }
+      renderDiffSummary();
+      if (state.gzCurrentKey) showSlice(state.gzCurrentKey);
+    };
+    bdNeighbors.onchange = function () { if (state.gzCurrentKey) showSlice(state.gzCurrentKey); };
+    bdBase.onchange = async function () {
+      if (!bdToggle.checked) return;
+      state.branchDiff = null;
+      renderDiffSummary();
+      await ensureDiff();
+      renderDiffSummary();
+      if (state.gzCurrentKey) showSlice(state.gzCurrentKey);
+    };
+
+    function destroyNet() {
+      if (state.network) { state.network.destroy(); state.network = null; }
+    }
+    function netOptions(nodeCount) {
+      var big = nodeCount > 800;
+      return {
+        layout: { improvedLayout: !big },
+        physics: {
+          solver: 'forceAtlas2Based',
+          forceAtlas2Based: { gravitationalConstant: -50, springLength: 100, damping: 0.5 },
+          stabilization: { iterations: big ? 120 : 200, updateInterval: 25 },
+        },
+        interaction: { hover: true, tooltipDelay: 120, navigationButtons: true, keyboard: true },
+        nodes: { shape: 'dot', borderWidth: 2 },
+        edges: big ? { smooth: false } : { smooth: { type: 'continuous', roundness: 0.3 } },
+      };
+    }
+    function renderDetailRows(rows) {
+      var phEl = document.getElementById('graph-placeholder');
+      var rowEl = document.getElementById('graph-detail-rows');
+      if (!rows) { phEl.style.display = ''; rowEl.style.display = 'none'; return; }
+      phEl.style.display = 'none';
+      rowEl.style.display = '';
+      rowEl.innerHTML = rows.map(function (r) {
+        return '<div class="detail-row"><span class="detail-label">' + esc(String(r[0])) +
+          '</span><span class="detail-val">' + esc(String(r[1])) + '</span></div>';
+      }).join('');
+    }
+
+    function showOverview() {
+      sliceRequest += 1; // cancel any in-flight slice fetch/diff overlay
+      state.gzCurrentKey = null;
+      state.rawVisData = null;
+      gf.value = '';
+      crumb.textContent = '俯瞰: ダブルクリックでズームイン';
+      renderDiffSummary();
+      loadEl.style.display = '';
+      loadEl.textContent = 'Rendering overview…';
+      destroyNet();
+      var container = document.getElementById('graph-canvas');
+      var net = new vis.Network(container, {
+        nodes: new vis.DataSet(payload.overview.nodes),
+        edges: new vis.DataSet(payload.overview.edges),
+      }, netOptions(payload.overview.nodes.length));
+      state.network = net;
+      net.once('stabilizationIterationsDone', function () {
+        if (state.network === net) loadEl.style.display = 'none';
+      });
+      setTimeout(function () {
+        if (state.network === net) loadEl.style.display = 'none';
+      }, 12000);
+      var byKey = {};
+      payload.groups.forEach(function (g) { byKey[g.key] = g; });
+      net.on('click', function (params) {
+        if (!params.nodes || params.nodes.length === 0) { renderDetailRows(null); return; }
+        var g = byKey[params.nodes[0]];
+        if (!g) return;
+        renderDetailRows([
+          ['Group', g.name],
+          ['Functions', g.functionCount],
+          ['Classes', g.classCount],
+          ['Zoom', 'ダブルクリックでこのグループを表示'],
+        ]);
+      });
+      net.on('doubleClick', function (params) {
+        if (params.nodes && params.nodes.length > 0) showSlice(params.nodes[0]);
+      });
+    }
+
+    async function showSlice(key) {
+      var request = ++sliceRequest;
+      var mode = state.graphMode;
+      loadEl.style.display = '';
+      loadEl.textContent = 'Loading ' + (nameByKey[key] || key) + '…';
+      var perMode = state.gzSlices[mode] = state.gzSlices[mode] || {};
+      var slice = perMode[key];
+      if (!slice) {
+        var res;
+        var body;
+        try {
+          res = await fetch('/api/projects/' + encodeURIComponent(id) +
+            '/web/graph-slice/' + encodeURIComponent(mode) + '/' + encodeURIComponent(key));
+          body = await res.json().catch(function () { return {}; });
+        } catch (e) {
+          if (isCurrentSliceRequest(request)) {
+            loadEl.textContent = 'スライス取得に失敗: ' + e.message;
+          }
+          return;
+        }
+        if (!isCurrentSliceRequest(request)) return;
+        if (!res.ok) {
+          loadEl.textContent = 'スライス取得に失敗: ' + (body.error || res.status);
+          return;
+        }
+        slice = perMode[key] = body.data;
+      }
+      state.gzCurrentKey = key;
+      gf.value = key;
+      // Diff overlay operates on the slice's real nodes.
+      state.rawVisData = { nodes: slice.nodes, edges: slice.edges };
+      var diff = null;
+      if (bdToggle.checked) {
+        var bd = await ensureDiff();
+        if (!isCurrentSliceRequest(request)) return;
+        if (bd && bd.available) {
+          var addedA = {}, changedA = {};
+          bd.anchors.added.forEach(function (a) { addedA[a] = 1; });
+          bd.anchors.changed.forEach(function (a) { changedA[a] = 1; });
+          diff = { added: {}, changed: {}, all: {} };
+          slice.nodes.forEach(function (n) {
+            var members = n._meta && n._meta.memberAnchors ? n._meta.memberAnchors : [n.id];
+            if (members.some(function (a) { return addedA[a]; })) diff.added[n.id] = 1;
+            if (members.some(function (a) { return changedA[a]; })) diff.changed[n.id] = 1;
+            if (diff.added[n.id] || diff.changed[n.id]) diff.all[n.id] = 1;
+          });
+          if (bdNeighbors.checked) {
+            slice.edges.forEach(function (e) {
+              if (diff.all[e.from] || diff.all[e.to]) { diff.all[e.from] = 1; diff.all[e.to] = 1; }
+            });
+          }
+        }
+      }
+      renderDiffSummary();
+      var nodeCount = slice.totalNodeCount || slice.nodes.length;
+      var pruned = (slice.prunedNodeCount || 0) + (slice.prunedEdgeCount || 0);
+      crumb.innerHTML = '<a href="#" id="gz-back" style="color:#58a6ff">← 俯瞰へ戻る</a> · ' +
+        esc(nameByKey[key] || key) + ' (' + slice.nodes.length +
+        (nodeCount !== slice.nodes.length ? '/' + nodeCount : '') + ' nodes)' +
+        (pruned > 0
+          ? ' · 表示上限により ' + (slice.prunedNodeCount || 0) + ' nodes / ' +
+            (slice.prunedEdgeCount || 0) + ' edges を省略'
+          : '');
+      document.getElementById('gz-back').onclick = function (ev) {
+        ev.preventDefault();
+        showOverview();
+      };
+
+      destroyNet();
+      var nodeById = {};
+      slice.nodes.forEach(function (n) { nodeById[n.id] = n; });
+      var visNodes = slice.nodes.map(function (n) {
+        var border = n.color.border;
+        var hidden = false;
+        if (diff) {
+          if (diff.added[n.id]) border = '#3fb950';
+          else if (diff.changed[n.id]) border = '#d29922';
+          if (!diff.all[n.id]) hidden = true;
+        }
+        return { id: n.id, label: n.label, title: n.title, group: n.group, size: n.size,
+                 font: n.font, hidden: hidden,
+                 color: { background: n.color.background, border: border, highlight: n.color.highlight } };
+      }).concat(diff ? [] : slice.boundary);
+      var container = document.getElementById('graph-canvas');
+      var net = new vis.Network(container, {
+        nodes: new vis.DataSet(visNodes),
+        edges: new vis.DataSet(diff
+          ? slice.edges.filter(function (e) { return diff.all[e.from] && diff.all[e.to]; })
+          : slice.edges),
+      }, netOptions(slice.nodes.length + slice.boundary.length));
+      state.network = net;
+      net.once('stabilizationIterationsDone', function () {
+        if (state.network === net) loadEl.style.display = 'none';
+      });
+      setTimeout(function () {
+        if (state.network === net) loadEl.style.display = 'none';
+      }, 12000);
+      net.on('click', function (params) {
+        if (!params.nodes || params.nodes.length === 0) { renderDetailRows(null); return; }
+        var nid = String(params.nodes[0]);
+        if (nid.indexOf('@group:') === 0) {
+          var gk = nid.slice('@group:'.length);
+          renderDetailRows([
+            ['Group', nameByKey[gk] || gk],
+            ['Zoom', 'ダブルクリックでこのグループへ移動'],
+          ]);
+          return;
+        }
+        var n = nodeById[nid];
+        if (!n || !n._meta) return;
+        var m = n._meta;
+        renderDetailRows([
+          ['Name', m.name], ['Kind', m.kind], ['File', m.file], ['Line', m.line],
+          ['Domain', m.domain || '—'], ['Coupling', m.coupling],
+          ['Fan-in', m.fanIn], ['Fan-out', m.fanOut], ['Cyclomatic', m.cyclomatic],
+          ['Members', m.memberCount || 1],
+          ['Dom. overlap', m.domainOverlap], ['Cross-dom. depth', m.crossDomainDepth],
+        ]);
+      });
+      net.on('doubleClick', function (params) {
+        if (!params.nodes || params.nodes.length === 0) return;
+        var nid = String(params.nodes[0]);
+        if (nid.indexOf('@group:') === 0) showSlice(nid.slice('@group:'.length));
+      });
+    }
+
+    showOverview();
   }
 
   // ── Domain View tab ──────────────────────────────────────────────────────────

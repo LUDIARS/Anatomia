@@ -29,7 +29,7 @@ let fnByName: Record<string, FunctionNode>;
 beforeAll(async () => {
   const tree = await parse(SRC, "cpp");
   const fns = extractFunctions(tree, SRC, "/m.cpp");
-  for (const fn of fns) assignAnchorId(fn, normalize(fn.bodyAst));
+  for (const fn of fns) assignAnchorId(fn, normalize(fn.bodyAst!));
   const file: FileNode = buildFileNode("/m.cpp", fns);
   const ei = extractEdgeInfo([file]);
   tree.delete();
