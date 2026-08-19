@@ -28,6 +28,7 @@ anatomia <verify|context|where|find|callers|callees|review|spec-review|domain-re
 | `cache-stats` | A-3 cache transcript を hit 率レポートに集計 | レポート / JSON |
 | `integral --entry <ref>` | 3 層スコープド検索（→ feature/integral-search.md） | レポート / 0 |
 | `domains <draft\|list\|reconstruct\|suggest>` | ドメイン authoring（→ feature/domain-authoring.md） | 下記 |
+| `domains program [--project <id> \| --repo <path>] [--json] [--unclassified]` | プログラムドメイン（二層）診断: layer 別集計 + `.anatomia/layers.json` が覆わない unclassified module 一覧（→ feature/domain-dual-layer.md）。gate ではなく lens（常に exit 0） | レポート / JSON |
 | `trace <plan\|ingest>` | 動的トレース準備 / 取り込み（→ feature/trace-recording.md）。`plan --lang cpp\|csharp` でランタイム + patch 出力（既定 cpp、正本は `runtime/`） | 下記 |
 | `screens` | 静的画面構成の検出（→ feature/screen-composition.md） | 一覧 / 0 |
 | `scenes` | シーン導出 + シーンキャッシュ（→ feature/scene-derivation.md） | 一覧 / 0 |

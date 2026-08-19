@@ -137,6 +137,10 @@ Revisor の PR レビュー（[pr-diff-review.md](./pr-diff-review.md) の `doma
   （構造の話はプログラムドメイン、意味の話はビジネスドメイン）。
 - Revisor domain gate は「.json ドメイン定義への紐づけ」から本仕様の二層判定へ移行する。
   移行期間は両判定を併走させ、差分を advisory で出してから切り替える。
+- 移行の前提は各リポの `.anatomia/layers.json` が全 module を覆うこと。投入前点検は
+  `anatomia domains program --project <id> [--json] [--unclassified]`（→ interface/cli.md）で
+  行う。CLI と Revisor gate は同じ module/symbol 構築 (`domains/program/diagnose.ts`) を読むので、
+  CLI で `unclassified: 0` なら gate のプログラム側判定も pass する。
 
 ## 関連
 

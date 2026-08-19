@@ -100,6 +100,7 @@ import {
   seedDraftsFromStructure,
   type DomainDraft,
 } from "../domains/authoring/index.js";
+import { diagnoseProgramDomains, type ProgramDomainDiagnosis } from "../domains/program/index.js";
 import { generateCppHeader, generateCppPatches, type DomainEntryPoint } from "../dynamic/inject-cpp.js";
 import { generateCSharpStub, generateCSharpPatches } from "../dynamic/inject-csharp.js";
 import { sceneModelFromTraceFile } from "../dynamic/record/ingest.js";
@@ -122,7 +123,7 @@ import {
 // ---------------------------------------------------------------------------
 
 export type ProjectAction = "add" | "list" | "remove" | "analyze" | "spec";
-export type DomainsAction = "draft" | "list" | "reconstruct" | "suggest";
+export type DomainsAction = "draft" | "list" | "reconstruct" | "suggest" | "program";
 export type TraceAction = "plan" | "ingest";
 export type LinksAction = "list" | "ratify" | "candidates";
 export type KnowledgeAction = "status" | "migration-plan";
@@ -201,6 +202,8 @@ export interface CliArgs {
   noLlm?: boolean;
   /** For domains: explicit domains dir (default <repoRoot>/.anatomia/domains). */
   dir?: string;
+  /** For domains program: list only the unclassified modules. */
+  unclassifiedOnly?: boolean;
   /** For trace: action (plan | ingest). */
   traceAction?: TraceAction;
   /** For trace plan: output dir for the generated header. */
@@ -539,8 +542,8 @@ function parseIntegralArgs(args: string[]): CliArgs {
 
 function parseDomainsArgs(args: string[]): CliArgs {
   const action = args.shift();
-  if (action !== "draft" && action !== "list" && action !== "reconstruct" && action !== "suggest") {
-    throw new Error(`Unknown domains action "${action ?? ""}". Expected: draft | list | reconstruct | suggest`);
+  if (action !== "draft" && action !== "list" && action !== "reconstruct" && action !== "suggest" && action !== "program") {
+    throw new Error(`Unknown domains action "${action ?? ""}". Expected: draft | list | reconstruct | suggest | program`);
   }
   let repoPath = process.cwd();
   let project: string | undefined;
@@ -549,17 +552,26 @@ function parseDomainsArgs(args: string[]): CliArgs {
   let force = false;
   let noLlm = false;
   let json = false;
+  let unclassifiedOnly = false;
+  let repoSpecified = false;
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
-    if (a === "--repo" || a === "-r") repoPath = args[++i] ?? repoPath;
+    if (a === "--repo" || a === "-r") {
+      repoPath = args[++i] ?? repoPath;
+      repoSpecified = true;
+    }
     else if (a === "--project" || a === "-p") project = args[++i];
     else if (a === "--dir") dir = args[++i];
     else if (a === "--only") only = (args[++i] ?? "").split(",").map((s) => s.trim()).filter(Boolean);
     else if (a === "--force") force = true;
     else if (a === "--no-llm") noLlm = true;
+    else if (a === "--unclassified") unclassifiedOnly = true;
     else if (a === "--json" || a === "-j") json = true;
   }
-  return { subcommand: "domains", repoPath, project, domainsAction: action, dir, only, force, noLlm, json };
+  if (action === "program" && project && repoSpecified) {
+    throw new Error("domains program accepts either --project <id> or --repo <path>, not both");
+  }
+  return { subcommand: "domains", repoPath, project, domainsAction: action, dir, only, force, noLlm, json, unclassifiedOnly };
 }
 
 function parseTraceArgs(args: string[]): CliArgs {
@@ -1303,6 +1315,15 @@ async function runDomains(args: CliArgs): Promise<{ exitCode: number; output: st
     return { exitCode: 0, output: lines.join("\n") };
   }
 
+  if (args.domainsAction === "program") {
+    // Program-domain (two-layer) diagnosis: the operator's check that
+    // `.anatomia/layers.json` covers every module before the Revisor gate is
+    // switched to enforced. A lens, not a gate: exit 0 regardless of count.
+    const ctx = args.project ? await mgr!.getContext(projectId) : await analyze(repoRoot, { quiet: true });
+    const diagnosis = await diagnoseProgramDomains({ repoPath: repoRoot, functions: ctx.functions });
+    return { exitCode: 0, output: formatProgramDiagnosis(diagnosis, { json: args.json === true, unclassifiedOnly: args.unclassifiedOnly === true }) };
+  }
+
   if (args.domainsAction !== "suggest") {
     return {
       exitCode: 1,
@@ -1348,6 +1369,44 @@ async function runDomains(args: CliArgs): Promise<{ exitCode: number; output: st
   }
 
   throw new Error("unreachable domains action");
+}
+
+/** Render `domains program` output (JSON or a layer → unclassified summary). */
+function formatProgramDiagnosis(
+  diagnosis: ProgramDomainDiagnosis,
+  options: { json: boolean; unclassifiedOnly: boolean },
+): string {
+  if (options.json) {
+    const { graph: _graph, ...rest } = diagnosis;
+    const payload = options.unclassifiedOnly
+      ? { repoPath: rest.repoPath, configPresent: rest.configPresent, totals: rest.totals, unclassified: rest.unclassified }
+      : rest;
+    return JSON.stringify(payload, null, 2);
+  }
+  const lines: string[] = [];
+  if (!options.unclassifiedOnly) {
+    lines.push(
+      `program domains: ${diagnosis.totals.domains} (modules ${diagnosis.totals.modules}, symbols ${diagnosis.totals.symbols})`,
+      `layers.json: ${diagnosis.configPresent ? `${diagnosis.config.layers.length} rule(s)` : "absent (builtin + framework + heuristic only)"}`,
+    );
+    if (diagnosis.layers.length) {
+      lines.push("layers:");
+      for (const layer of diagnosis.layers) {
+        lines.push(`  ${layer.layer}\t${layer.domainCount} domain(s)\t${layer.moduleCount} module(s)\t${layer.symbolCount} symbol(s)`);
+      }
+    }
+  }
+  lines.push(`unclassified: ${diagnosis.totals.unclassifiedModules} module(s), ${diagnosis.totals.unclassifiedSymbols} symbol(s)`);
+  for (const item of diagnosis.unclassified) {
+    lines.push(`  - ${item.moduleId}\t${item.symbolCount} symbol(s)\t${item.reason}`);
+    for (const file of item.files) lines.push(`      ${file}`);
+  }
+  if (diagnosis.unclassified.length === 0) {
+    lines.push("  (every module has a layer — the two-layer program gate would pass)");
+  } else {
+    lines.push("hint: add { \"glob\": \"<path glob>\", \"layer\": \"<layer>\" } entries to .anatomia/layers.json for the files above.");
+  }
+  return lines.join("\n");
 }
 
 // ---------------------------------------------------------------------------

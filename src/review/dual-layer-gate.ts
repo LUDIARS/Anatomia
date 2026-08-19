@@ -5,11 +5,10 @@
  * is semantic and required only for changed specification clauses.
  */
 
-import { basename, relative } from "node:path";
-import { deriveProgramDomains, isDependencyArtifactPath, loadProgramDomainConfig } from "../domains/program/index.js";
+import { basename } from "node:path";
+import { buildProgramDomainInputs, deriveProgramDomains, isDependencyArtifactPath, loadProgramDomainConfig } from "../domains/program/index.js";
 import type { EditableDomainDef } from "../domains/authoring/index.js";
 import { normalizeIdSegment } from "../knowledge/identity.js";
-import { buildModules } from "../modules/build.js";
 import type { FunctionNode, SpecClause } from "../types.js";
 
 export type DualLayerGateMode = "advisory" | "enforced";
@@ -78,14 +77,9 @@ export async function buildDualLayerReview(input: {
   mode: DualLayerGateMode;
 }): Promise<DualLayerReview> {
   const config = await loadProgramDomainConfig(input.repoPath);
-  const modules = buildModules(input.functions);
-  const moduleByAnchor = new Map(modules.flatMap((module) => module.anchors.map((anchor) => [String(anchor), module.id])));
-  const symbols = input.functions.flatMap((fn) => {
-    if (!fn.id) return [];
-    const moduleId = moduleByAnchor.get(String(fn.id));
-    if (!moduleId) return [];
-    return [{ id: String(fn.id), moduleId, path: normalizePath(relative(input.repoPath, fn.sourceRange.filePath)) }];
-  });
+  // Same module/symbol construction as `anatomia domains program`, so the
+  // operator's unclassified=0 check and this gate cannot disagree.
+  const { modules, symbols } = buildProgramDomainInputs(input.repoPath, input.functions);
   const graph = deriveProgramDomains({
     projectId: normalizeIdSegment(basename(input.repoPath), "project"),
     sourceRevision: input.sourceRevision,
