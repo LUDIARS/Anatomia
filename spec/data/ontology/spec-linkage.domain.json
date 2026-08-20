@@ -5,6 +5,12 @@
   "templateRules": [],
   "membership": [
     {
+      "pathPattern": "(^|/)src/spec/__tests__/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/spec-review/[^/]+$"
+    },
+    {
       "pathPattern": "(^|/)src/spec/[^/]+$"
     }
   ],

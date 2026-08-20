@@ -12,6 +12,7 @@ import { computeBranchDiff, type BranchDiff } from "../branch/diff.js";
 import { branchDiffText } from "../branch/git.js";
 import { changedFiles as changedBranchPaths } from "../branch/git.js";
 import { domainsDir, loadEditableDomains } from "../domains/authoring/index.js";
+import { resolveCommittedOntologyDir } from "../domains/ontology.js";
 import { computeMetrics, type NodeMetrics } from "../supply/metrics.js";
 import { isTestFilePath } from "../supply/gates/types.js";
 import type { AnchorId, Verdict } from "../types.js";
@@ -127,6 +128,10 @@ export async function buildPrDiffReview(
   const changedPaths = diff.available && diff.mergeBase
     ? await changedBranchPaths(ctx.repoPath, diff.mergeBase)
     : [];
+  const operatorDomainsDir = process.env["ANATOMIA_PLUGIN_DIR"];
+  const businessDomainsDir = operatorDomainsDir
+    ?? resolveCommittedOntologyDir(ctx.repoPath)
+    ?? domainsDir(ctx.repoPath);
   const dualLayer = await buildDualLayerReview({
     repoPath: ctx.repoPath,
     sourceRevision: diff.head ?? "worktree",
@@ -135,7 +140,9 @@ export async function buildPrDiffReview(
     businessOwnedAnchors: assigned,
     changedPaths,
     specClauses: ctx.specClauses ?? [],
-    businessDomains: await loadEditableDomains(domainsDir(ctx.repoPath)),
+    businessDomains: await loadEditableDomains(businessDomainsDir, {
+      skipInvalid: operatorDomainsDir === undefined,
+    }),
     mode: options.dualLayerMode ?? "advisory",
   });
   const rawDiff = diff.available && diff.mergeBase && diff.files.length > 0

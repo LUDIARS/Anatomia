@@ -9,6 +9,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SpecClause } from "../../../types.js";
+import { BUILTIN_SELECTION_FILE } from "../../ontology.js";
 import {
   draftToEditableDef,
   loadEditableDomains,
@@ -93,6 +94,29 @@ describe("store roundtrip", () => {
     // re-saving without source is not possible here, so just assert it loads.
     const back = await loadEditableDomains(dir);
     expect(back[0]!.name).toBe("ai");
+  });
+
+  it("ignores the ontology builtin-selection document", async () => {
+    const dir = await tempDir();
+    await writeFile(
+      join(dir, BUILTIN_SELECTION_FILE),
+      JSON.stringify({ enabled: ["transition-guard-example"] }),
+      "utf8",
+    );
+    await saveEditableDomains(dir, [draftToEditableDef(draft())]);
+
+    const back = await loadEditableDomains(dir);
+    expect(back.map((definition) => definition.name)).toEqual(["combat"]);
+  });
+
+  it("can skip one invalid document in auto-discovered repository input", async () => {
+    const dir = await tempDir();
+    await saveEditableDomains(dir, [draftToEditableDef(draft())]);
+    await writeFile(join(dir, "notes.json"), JSON.stringify({ note: "not a domain" }), "utf8");
+
+    await expect(loadEditableDomains(dir)).rejects.toThrow(/invalid domain def/);
+    const back = await loadEditableDomains(dir, { skipInvalid: true });
+    expect(back.map((definition) => definition.name)).toEqual(["combat"]);
   });
 
   it("rejects a persisted editable def named unassigned", async () => {

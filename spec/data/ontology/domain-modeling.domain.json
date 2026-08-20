@@ -5,6 +5,27 @@
   "templateRules": [],
   "membership": [
     {
+      "pathPattern": "(^|/)src/domains/__tests__/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/domains/discovery/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/domains/discovery/__tests__/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/domains/organize/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/domains/program/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/domains/workflow/__tests__/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/scenes/__tests__/[^/]+$"
+    },
+    {
       "pathPattern": "(^|/)src/domains/[^/]+$"
     },
     {

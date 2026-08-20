@@ -1,6 +1,7 @@
 /**
  * analyze() ontology precedence — explicit pluginDir > ANATOMIA_PLUGIN_DIR >
- * the repo's committed `spec/data/ontology`. The committed fallback is what
+ * the repo's committed `spec/domains` (then the legacy dirs it replaced).
+ * The committed fallback is what
  * lets an ephemeral checkout (a PR review worktree, which has no `.anatomia/`)
  * see the project's semantic domains, and it must load DATA ONLY: the dir is
  * content of the analyzed repo, so an executable `.mjs` def there would run
@@ -12,6 +13,7 @@ import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { analyze } from "../core.js";
+import { resolveCommittedOntologyDir } from "../domains/ontology.js";
 
 const RAN_FLAG = "__anatomiaCommittedOntologyPluginRan";
 const globals = globalThis as unknown as Record<string, unknown>;
@@ -34,7 +36,7 @@ let savedPluginDirEnv: string | undefined;
 beforeAll(async () => {
   savedPluginDirEnv = process.env["ANATOMIA_PLUGIN_DIR"];
   repo = await mkdtemp(join(tmpdir(), "anatomia-committed-onto-"));
-  const ontologyDir = join(repo, "spec", "data", "ontology");
+  const ontologyDir = join(repo, "spec", "domains");
   explicitDir = join(repo, "explicit-domains");
   envDir = join(repo, "env-domains");
   await mkdir(join(repo, "src"), { recursive: true });
@@ -64,7 +66,7 @@ afterEach(() => {
 });
 
 describe("analyze committed ontology fallback", () => {
-  it("loads the repo's committed spec/data/ontology when no plugin dir is configured", async () => {
+  it("loads the repo's committed spec/domains when no plugin dir is configured", async () => {
     delete process.env["ANATOMIA_PLUGIN_DIR"];
     const ctx = await analyze(repo, { quiet: true });
     expect(ctx.domains!.map((d) => d.domain)).toContain("committed-domain");
@@ -107,6 +109,7 @@ describe("analyze committed ontology fallback", () => {
       await writeFile(join(ontologyDir, "good.domain.json"), domainDef("surviving-domain"));
       await writeFile(join(ontologyDir, "notes.json"), JSON.stringify({ note: "not a def" }));
       await writeFile(join(ontologyDir, "broken.json"), "{ this is not json");
+      await writeFile(join(ontologyDir, "builtins.json"), JSON.stringify({ enabled: 42 }));
 
       delete process.env["ANATOMIA_PLUGIN_DIR"];
       const ctx = await analyze(strayRepo, { quiet: true });
@@ -114,5 +117,68 @@ describe("analyze committed ontology fallback", () => {
     } finally {
       await rm(strayRepo, { recursive: true, force: true });
     }
+  });
+});
+
+/**
+ * Migration window: repos move to `spec/domains` one PR at a time, so a repo
+ * that still carries only a legacy dir must keep its domains — and a repo that
+ * carries BOTH must read the new dir, otherwise a migration PR would leave
+ * everyday analysis and the Revisor PR gate on different definitions (the exact
+ * split this move exists to end).
+ */
+describe("committed ontology legacy fallback", () => {
+  const madeRepos: string[] = [];
+
+  async function repoWith(dirs: Record<string, string>): Promise<string> {
+    const root = await mkdtemp(join(tmpdir(), "anatomia-legacy-onto-"));
+    madeRepos.push(root);
+    await mkdir(join(root, "src"), { recursive: true });
+    await writeFile(join(root, "src", "enemy.cpp"), "int spawn_slime() { return 1; }\n");
+    for (const [rel, name] of Object.entries(dirs)) {
+      const dir = join(root, ...rel.split("/"));
+      await mkdir(dir, { recursive: true });
+      await writeFile(join(dir, `${name}.domain.json`), domainDef(name));
+    }
+    return root;
+  }
+
+  afterAll(async () => {
+    for (const root of madeRepos) await rm(root, { recursive: true, force: true });
+  });
+
+  it("still reads a repo that only has the legacy spec/data/ontology", async () => {
+    const root = await repoWith({ "spec/data/ontology": "legacy-ontology-domain" });
+    const ctx = await analyze(root, { quiet: true });
+    expect(ctx.domains!.map((d) => d.domain)).toContain("legacy-ontology-domain");
+  });
+
+  it("still reads a repo that only has the legacy .anatomia/domains", async () => {
+    const root = await repoWith({ ".anatomia/domains": "legacy-editable-domain" });
+    const ctx = await analyze(root, { quiet: true });
+    expect(ctx.domains!.map((d) => d.domain)).toContain("legacy-editable-domain");
+  });
+
+  it("prefers spec/domains over every legacy dir when both exist", async () => {
+    const root = await repoWith({
+      "spec/domains": "current-domain",
+      "spec/data/ontology": "legacy-ontology-domain",
+      ".anatomia/domains": "legacy-editable-domain",
+    });
+    const names = (await analyze(root, { quiet: true })).domains!.map((d) => d.domain);
+    expect(names).toContain("current-domain");
+    expect(names).not.toContain("legacy-ontology-domain");
+    expect(names).not.toContain("legacy-editable-domain");
+  });
+
+  it("does not let a non-directory primary path mask a valid legacy directory", async () => {
+    const root = await mkdtemp(join(tmpdir(), "anatomia-legacy-onto-"));
+    madeRepos.push(root);
+    await mkdir(join(root, "spec"), { recursive: true });
+    await writeFile(join(root, "spec", "domains"), "not a directory\n");
+    const legacyDir = join(root, "spec", "data", "ontology");
+    await mkdir(legacyDir, { recursive: true });
+
+    expect(resolveCommittedOntologyDir(root)).toBe(legacyDir);
   });
 });

@@ -11,7 +11,6 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { basename, extname, join, relative } from "node:path";
-import { existsSync } from "node:fs";
 import type { Tree } from "web-tree-sitter";
 import { collectProjectFiles } from "./fs/walk.js";
 import { parse } from "./dag/parser.js";
@@ -35,7 +34,7 @@ import { rankExemplars, rankSpecClauses, RELEVANCE_VERSION } from "./supply/rele
 import { selectSiblings, verifyThresholds } from "./supply/verify-inputs.js";
 import {
   loadOntology,
-  COMMITTED_ONTOLOGY_DIR_REL,
+  resolveCommittedOntologyDir,
   type BuiltinSelection,
 } from "./domains/ontology.js";
 import type { DomainOntology } from "./domains/ontology.js";
@@ -449,15 +448,15 @@ export async function analyze(
   if (runDomains) {
     try {
       // Ontology precedence: explicit pluginDir > ANATOMIA_PLUGIN_DIR (inside
-      // loadOntology) > the repo's committed `spec/data/ontology` (the retune
-      // register convention). The committed fallback is what lets ephemeral
-      // checkouts (Revisor PR review worktrees) see the project's semantic
-      // domains — local-only state like `.anatomia/` never exists there.
-      const committedOntologyDir = join(repoPath, COMMITTED_ONTOLOGY_DIR_REL);
-      const useCommitted =
-        options.pluginDir === undefined
-        && !process.env["ANATOMIA_PLUGIN_DIR"]
-        && existsSync(committedOntologyDir);
+      // loadOntology) > the repo's committed `spec/domains` (plus the legacy
+      // locations resolveCommittedOntologyDir still accepts). The committed
+      // fallback is what lets ephemeral checkouts (Revisor PR review worktrees)
+      // see the project's semantic domains.
+      const committedOntologyDir =
+        options.pluginDir === undefined && !process.env["ANATOMIA_PLUGIN_DIR"]
+          ? resolveCommittedOntologyDir(repoPath)
+          : null;
+
       // The committed dir is content of the repo under analysis, which for a
       // pr-review worktree is unreviewed author-controlled input — load it as
       // DATA ONLY so a checked-in `.mjs` def cannot execute in this process.
@@ -465,7 +464,7 @@ export async function analyze(
       // malformed `.json` there must cost only that file: without skipInvalid a
       // single bad file throws, the domain phase is skipped, and the repo
       // silently loses every domain — the failure the fallback exists to fix.
-      ontology = useCommitted
+      ontology = committedOntologyDir !== null
         ? await loadOntology(committedOntologyDir, {
             dataOnly: true,
             skipInvalid: true,

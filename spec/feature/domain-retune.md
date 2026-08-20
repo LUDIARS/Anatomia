@@ -29,8 +29,8 @@ spec 節）+ 既存 taxonomy（2 回目以降）。
 3. **結合できない小さいノードをグループ化検討**（LLM）。(2) で確信を持って割り当たらなかった
    ディレクトリ/ファイル群を新規モジュールにまとめられるか提案させる。
 4. **グループを spec に新規登録、ノードを関連付ける**（機械的）。(1)〜(3) を taxonomy に確定し、
-   `spec/data/ontology/<project>.taxonomy.json` + ドメインごとの `*.domain.json`（membership
-   付き DomainDef）+ `spec/feature/domain-taxonomy.<project>.md` を冪等に書き出す。
+   `spec/data/<project>.taxonomy.json` + `spec/domains/` のドメインごとの `*.domain.json`
+   （membership 付き DomainDef）+ `spec/feature/domain-taxonomy.<project>.md` を冪等に書き出す。
 5. **大きいドメイン（モジュール過多）を分割**（サイズは機械的、分割は LLM）。
    モジュール数が `RETUNE_MAX_MODULES_PER_DOMAIN`(=6) を超えるドメインを、LLM にサブドメインへ
    割らせる。
@@ -65,8 +65,8 @@ LLM は providers（[providers](../../src/providers/index.ts)）の既定（`cla
 
 - LLM 出力は短い構造化 JSON のみを要求する（長文 Markdown を JSON で返させない:
   メモリ feedback_llm_long_markdown_no_json）。配列/オブジェクトの揺れは正規化して受ける。
-- taxonomy は committed 成果物（`spec/data/ontology/`）。`.anatomia/` はローカル状態
-  （反復カウンタ）のみ。
+- taxonomy は committed 成果物（`spec/data/`）、DomainDef の正本は `spec/domains/`。
+  `.anatomia/` はローカル状態（反復カウンタ）のみ。
 
 ## 関連
 

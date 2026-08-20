@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, rm, readFile, writeFile, mkdir, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { registerTaxonomy, renderTaxonomyMd } from "./register.js";
+import { registerTaxonomy, renderTaxonomyMd, ONTOLOGY_DIR_REL } from "./register.js";
 import type { Taxonomy } from "./types.js";
 
 const TAX: Taxonomy = {
@@ -26,7 +26,7 @@ afterEach(async () => {
 describe("retune register", () => {
   it("writes domain defs, taxonomy json, and a markdown doc", async () => {
     const { written, ontologyDir } = await registerTaxonomy(repo, TAX);
-    expect(written).toContain("spec/data/ontology/graph.domain.json");
+    expect(written).toContain("spec/domains/graph.domain.json");
     expect(written).toContain("spec/data/demo.taxonomy.json");
     expect(written).toContain("spec/feature/domain-taxonomy.demo.md");
 
@@ -44,7 +44,7 @@ describe("retune register", () => {
   });
 
   it("removes stale domain defs from a previous pass", async () => {
-    const ontologyDir = join(repo, "spec", "data", "ontology");
+    const ontologyDir = join(repo, ONTOLOGY_DIR_REL);
     await mkdir(ontologyDir, { recursive: true });
     await writeFile(join(ontologyDir, "old-domain.domain.json"), "{}", "utf8");
     await registerTaxonomy(repo, TAX);

@@ -109,7 +109,7 @@ export interface ReadableSpecDraft {
 export interface DomainMachineConfiguration {
   canonicalSource: "human-authored-domain-definitions";
   anatomia: {
-    ontologyDir: "spec/data/ontology";
+    ontologyDir: "spec/domains";
     domainDefs: Array<{
       name: string;
       description: string;
@@ -220,7 +220,7 @@ export function buildDomainOrganization(input: DomainOrganizationInput): DomainO
     handoff: {
       anatomia: [
         "Keep this taxonomy in spec/data/<project>.taxonomy.json.",
-        "Regenerate spec/data/ontology domain definitions from the taxonomy.",
+        "Regenerate spec/domains domain definitions from the taxonomy.",
         "Use path/name hints as implementation evidence, not as the source of domain names.",
       ],
       praeforma: [
@@ -642,7 +642,7 @@ export function buildMachineConfiguration(domains: DomainOrganizationPlan[]): Do
   return {
     canonicalSource: "human-authored-domain-definitions",
     anatomia: {
-      ontologyDir: "spec/data/ontology",
+      ontologyDir: "spec/domains",
       domainDefs: domains.map((domain) => ({
         name: domain.slug,
         description: domain.description,

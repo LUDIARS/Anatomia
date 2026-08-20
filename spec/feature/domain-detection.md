@@ -46,7 +46,7 @@ severity=error で Revisor のマージゲートを塞ぐ。よって既定は *
 `builtins.json` > none**。
 
 ```json
-// spec/data/ontology/builtins.json
+// spec/domains/builtins.json
 { "enabled": ["transition-guard-example"] }
 ```
 
@@ -62,10 +62,18 @@ builtin 名が将来 Anatomia 側から消えても、**未知の名前は無視
 無害化オーバーライドは、通常の plugin def として読まれ続けるので撤去不要。
 
 `analyze()` の ontology 解決順は **明示 pluginDir > `ANATOMIA_PLUGIN_DIR` >
-リポジトリのコミット済み `spec/data/ontology/`**。最後のフォールバックは retune の
-register 規約（→ domain-retune.md）が書き出す成果物であり、`.anatomia/` のような
-ローカル専用 state を持たない ephemeral checkout（Revisor の PR レビュー worktree 等）
-でもプロジェクトの semantic domain が見えるようにするためのもの。
+リポジトリのコミット済み `spec/domains/`** で、`spec/domains/` が無いリポでは
+**`spec/data/ontology/` → `.anatomia/domains/` の順に旧置き場へフォールバック**する。
+
+`spec/domains/` がドメイン定義の**正本**（人が編集し、writer もここへ書く）。
+`spec/data/ontology/` は retune が書き出す**非更新の派生成果物**なので互換入力に留め、
+`.anatomia/domains/` はローカル state 由来の旧置き場としてリポ移行が済むまでの入力に留める。
+移行済みリポでは旧 2 か所を削除し、正本を 1 つに保つ（両方あると日常解析と PR ゲートが
+別々の定義を読む事故が起きうる）。
+
+コミット済み dir を読むのは、`.anatomia/` のようなローカル専用 state を持たない
+ephemeral checkout（Revisor の PR レビュー worktree 等）でもプロジェクトの
+semantic domain が見えるようにするため。
 
 このコミット済み dir は**解析対象リポの内容**＝未レビューの author 由来入力なので、
 `dataOnly` で **`.json` のみ**をロードする（`.mjs`/`.js` DomainDef は `import()` =

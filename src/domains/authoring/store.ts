@@ -2,7 +2,7 @@
  * src/domains/authoring/store.ts — Persist editable domain defs as JSON.
  *
  * Editable defs live in the project's ontology dir (default
- * `<repoRoot>/.anatomia/domains/`), one JSON file per domain. Because that dir
+ * `<repoRoot>/spec/domains/`), one JSON file per domain. Because that dir
  * IS the `pluginDir` the analyze pipeline already loads (Project.ontologyDir),
  * a saved def is detected with no further wiring — the authoring layer feeds the
  * existing detection layer.
@@ -21,14 +21,24 @@
 import { createHash } from "node:crypto";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join, extname } from "node:path";
+import {
+  BUILTIN_SELECTION_FILE,
+  COMMITTED_ONTOLOGY_DIR_REL,
+} from "../ontology.js";
 import type { ConfiguredPreset, DomainDef } from "../ontology.js";
 import { assertDomainDefinitionName } from "../assignment.js";
 import { invalidRegexParams } from "../regex-source.js";
 import type { DomainDraft, EditableDomainDef } from "./types.js";
 
-/** Default per-repo domains dir (also a valid ontology pluginDir). */
+/**
+ * Where a repo's DomainDefs are WRITTEN: the committed source of truth under
+ * the spec root (also a valid ontology pluginDir). Readers that must tolerate
+ * a not-yet-migrated repo call `resolveCommittedOntologyDir` instead, which
+ * falls back to the legacy locations; writes always land on the new path so a
+ * migration never re-populates the old one.
+ */
 export function domainsDir(repoRoot: string): string {
-  return join(repoRoot, ".anatomia", "domains");
+  return join(repoRoot, COMMITTED_ONTOLOGY_DIR_REL);
 }
 
 /**
@@ -89,17 +99,23 @@ function isEditableDef(x: unknown): x is EditableDomainDef {
   );
 }
 
-/** Load every editable domain def from a dir (missing dir → []). */
+/** List regular editable-domain JSON files (missing dir → []; metadata excluded). */
 export async function editableDomainDocumentPaths(dir: string): Promise<string[]> {
-  let entries: string[];
+  let entries: import("node:fs").Dirent[];
   try {
-    entries = await readdir(dir);
+    entries = await readdir(dir, { withFileTypes: true });
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
     throw error;
   }
   return entries
-    .filter((entry) => extname(entry).toLowerCase() === ".json")
+    .filter(
+      (entry) =>
+        entry.isFile()
+        && entry.name.toLowerCase() !== BUILTIN_SELECTION_FILE
+        && extname(entry.name).toLowerCase() === ".json",
+    )
+    .map((entry) => entry.name)
     .sort()
     .map((entry) => join(dir, entry));
 }
@@ -110,33 +126,53 @@ interface EditableDomainDocument {
   definitions: EditableDomainDef[];
 }
 
-async function loadEditableDomainDocuments(dir: string): Promise<EditableDomainDocument[]> {
+async function loadEditableDomainDocument(path: string): Promise<EditableDomainDocument> {
+  const raw = await readFile(path, "utf8");
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error(`invalid JSON in ${path}`);
+  }
+  const list = Array.isArray(parsed) ? parsed : [parsed];
+  const definitions: EditableDomainDef[] = [];
+  for (const d of list) {
+    if (!isEditableDef(d)) throw new Error(`invalid domain def in ${path}`);
+    assertDomainDefinitionName(d.name);
+    // Default provenance for hand-written files without a `source`.
+    if (!("source" in (d as object))) (d as EditableDomainDef).source = "manual";
+    definitions.push(d as EditableDomainDef);
+  }
+  return { path, wasArray: Array.isArray(parsed), definitions };
+}
+
+async function loadEditableDomainDocuments(
+  dir: string,
+  skipInvalid = false,
+): Promise<EditableDomainDocument[]> {
   const documents: EditableDomainDocument[] = [];
   for (const path of await editableDomainDocumentPaths(dir)) {
-    const raw = await readFile(path, "utf8");
-    let parsed: unknown;
     try {
-      parsed = JSON.parse(raw);
-    } catch {
-      throw new Error(`invalid JSON in ${path}`);
+      documents.push(await loadEditableDomainDocument(path));
+    } catch (error) {
+      if (!skipInvalid) throw error;
     }
-    const list = Array.isArray(parsed) ? parsed : [parsed];
-    const definitions: EditableDomainDef[] = [];
-    for (const d of list) {
-      if (!isEditableDef(d)) throw new Error(`invalid domain def in ${path}`);
-      assertDomainDefinitionName(d.name);
-      // Default provenance for hand-written files without a `source`.
-      if (!("source" in (d as object))) (d as EditableDomainDef).source = "manual";
-      definitions.push(d as EditableDomainDef);
-    }
-    documents.push({ path, wasArray: Array.isArray(parsed), definitions });
   }
   return documents;
 }
 
+export interface LoadEditableDomainsOptions {
+  /** Drop invalid individual JSON documents in auto-discovered repository input. */
+  skipInvalid?: boolean;
+}
+
 /** Load every editable domain def from a dir (missing dir → []). */
-export async function loadEditableDomains(dir: string): Promise<EditableDomainDef[]> {
-  return (await loadEditableDomainDocuments(dir)).flatMap((document) => document.definitions);
+export async function loadEditableDomains(
+  dir: string,
+  options: LoadEditableDomainsOptions = {},
+): Promise<EditableDomainDef[]> {
+  return (await loadEditableDomainDocuments(dir, options.skipInvalid === true))
+    .flatMap((document) => document.definitions);
 }
 
 /**

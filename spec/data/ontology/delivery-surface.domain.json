@@ -5,6 +5,9 @@
   "templateRules": [],
   "membership": [
     {
+      "pathPattern": "(^|/)src/adapters/web/public/[^/]+$"
+    },
+    {
       "pathPattern": "(^|/)src/adapters/__tests__/[^/]+$"
     },
     {

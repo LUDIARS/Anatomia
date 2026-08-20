@@ -265,7 +265,7 @@ describe("domain discovery flow routes", () => {
       dir: outsideDir,
     });
     expect(applied.status).toBe(200);
-    expect(project.ontologyDir).toBe(join(root, ".anatomia", "domains"));
+    expect(project.ontologyDir).toBe(join(root, "spec", "domains"));
     await expect(access(outsideDir)).rejects.toMatchObject({ code: "ENOENT" });
     expect(save).toHaveBeenCalledTimes(1);
     expect(invalidate).toHaveBeenCalledWith("demo");

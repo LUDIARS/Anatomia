@@ -34,7 +34,7 @@ export interface DomainPlan {
   modules: ModulePlan[];
 }
 
-/** The full taxonomy for one project (persisted as JSON under spec/data/ontology). */
+/** The full taxonomy for one project (persisted as `spec/data/<project>.taxonomy.json`). */
 export interface Taxonomy {
   version: 1;
   project: string;

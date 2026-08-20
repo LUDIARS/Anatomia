@@ -4,7 +4,7 @@
  * @spec ドメインビュー自己調整（domain re-tune）
  *
  * Writes three committed artifacts under the repo:
- *   - spec/data/ontology/<domain>.domain.json  — membership DomainDefs, loaded by
+ *   - spec/domains/<domain>.domain.json  — membership DomainDefs, loaded by
  *     loadOntology via the project's ontologyDir → drives the Domain View.
  *   - spec/data/<project>.taxonomy.json         — the canonical taxonomy.
  *   - spec/feature/domain-taxonomy.<project>.md — human-readable registration.
@@ -73,6 +73,9 @@ export async function registerTaxonomy(repoPath: string, taxonomy: Taxonomy): Pr
   const defs = taxonomyToDomainDefs(taxonomy);
   const ontologyDir = join(repoPath, ONTOLOGY_DIR_REL);
   await mkdir(ontologyDir, { recursive: true });
+  // `spec/data` no longer sits on the ontology dir's path, so the taxonomy
+  // write below needs it created explicitly.
+  await mkdir(join(repoPath, "spec", "data"), { recursive: true });
   await mkdir(join(repoPath, "spec", "feature"), { recursive: true });
 
   const wanted = new Set(defs.map((d) => `${d.name}.domain.json`));

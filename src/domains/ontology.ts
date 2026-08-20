@@ -15,8 +15,9 @@
  * @spec ドメイン検出（G3）
  */
 
+import { lstatSync, realpathSync } from "node:fs";
 import { lstat, readFile, readdir } from "node:fs/promises";
-import { join, resolve, extname } from "node:path";
+import { extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { PresetId } from "./presets.js";
 import type { TemplateRule } from "./template.js";
@@ -59,13 +60,58 @@ export interface DomainOntology {
 }
 
 /**
- * Repo-relative dir holding a project's COMMITTED DomainDefs — the artifact the
- * retune `register` step writes (retune/register.ts re-exports this as
- * ONTOLOGY_DIR_REL). `analyze()` falls back to it when no operator plugin dir
- * is configured, so the loader owns the constant and the writer/reader sides
- * cannot drift to different paths.
+ * Repo-relative dir holding a project's COMMITTED DomainDefs — the single
+ * source of truth for domain membership, sitting directly under the repo's
+ * spec root so the definitions live beside the specs they attribute code to.
+ * `analyze()` falls back to it when no operator plugin dir is configured, and
+ * retune/register.ts re-exports it as ONTOLOGY_DIR_REL, so the loader owns the
+ * constant and the writer/reader sides cannot drift to different paths.
  */
-export const COMMITTED_ONTOLOGY_DIR_REL = "spec/data/ontology";
+export const COMMITTED_ONTOLOGY_DIR_REL = "spec/domains";
+
+/**
+ * Pre-`spec/domains` locations still read (in order) when the source-of-truth
+ * dir is absent, so repos migrate one PR at a time instead of all losing their
+ * domains at once:
+ *   - `spec/data/ontology` — the retune ontology artifact. It is a DERIVED,
+ *     deliberately non-updating snapshot, so it is a compatibility input only,
+ *     never the source of truth.
+ *   - `.anatomia/domains` — the old repo-local editable dir. Local state that a
+ *     Revisor review worktree may or may not carry, which is exactly why the
+ *     source of truth had to move under `spec/`.
+ */
+export const LEGACY_ONTOLOGY_DIR_RELS: readonly string[] = [
+  "spec/data/ontology",
+  ".anatomia/domains",
+];
+
+/**
+ * The committed DomainDef dir to load for `repoPath`, or null when the repo
+ * commits none. Resolution is source-of-truth first, then each legacy location
+ * in order — one place owns the migration order so `analyze()` and the PR-review
+ * adapter can never disagree about which dir a repo's domains come from.
+ */
+export function resolveCommittedOntologyDir(repoPath: string): string | null {
+  const realRepoPath = realpathSync(repoPath);
+  for (const rel of [COMMITTED_ONTOLOGY_DIR_REL, ...LEGACY_ONTOLOGY_DIR_RELS]) {
+    const dir = join(repoPath, rel);
+    try {
+      // Auto-discovered repository input must be a real directory. In
+      // particular, do not follow a symlink/junction outside the checkout or
+      // let a same-named regular file mask a valid legacy fallback.
+      if (!lstatSync(dir).isDirectory()) continue;
+      const relativeRealPath = relative(realRepoPath, realpathSync(dir));
+      const isInsideRepo = relativeRealPath !== ""
+        && relativeRealPath !== ".."
+        && !relativeRealPath.startsWith(`..${sep}`)
+        && !isAbsolute(relativeRealPath);
+      if (isInsideRepo) return dir;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
+  return null;
+}
 
 // ── Builtin domains ───────────────────────────────────────────────────────
 
@@ -149,7 +195,7 @@ export const DEFAULT_BUILTIN_SELECTION: BuiltinSelection = "none";
  *
  * It sits next to the DomainDefs because the selection IS part of the ontology
  * the repo commits — a Revisor review worktree holds no local state, so the
- * committed `spec/data/ontology` is the only place a repo can state its choice
+ * committed `spec/domains` is the only place a repo can state its choice
  * and have the PR gate honour it.
  */
 export const BUILTIN_SELECTION_FILE = "builtins.json";
@@ -317,9 +363,10 @@ export interface LoadOntologyOptions {
    */
   dataOnly?: boolean;
   /**
-   * Drop individual files that fail to parse/validate instead of failing the
-   * whole load. Set it for an auto-discovered dir, where one stray `.json`
-   * must not cost the caller every domain — see loadFromDir.
+   * Drop individual definitions (including malformed `builtins.json`) that
+   * fail to parse/validate instead of failing the whole load. Set it for an
+   * auto-discovered dir, where one stray `.json` must not cost the caller every
+   * domain — see loadFromDir.
    */
   skipInvalid?: boolean;
   /**
@@ -332,18 +379,24 @@ export interface LoadOntologyOptions {
 
 /**
  * Resolve the builtin selection for a load: explicit option > env override >
- * the ontology dir's committed declaration > the default (none).
+ * the ontology dir's committed declaration > the default (none). A malformed
+ * declaration is ignored only for tolerant auto-discovered repository input.
  */
 async function resolveSelection(
   dir: string | null,
   option: BuiltinSelection | undefined,
+  skipInvalid = false,
 ): Promise<BuiltinSelection> {
   if (option !== undefined) return option;
   const fromEnv = parseBuiltinSelection(process.env[BUILTIN_SELECTION_ENV]);
   if (fromEnv !== null) return fromEnv;
   if (dir) {
-    const fromFile = await readBuiltinSelectionFile(dir);
-    if (fromFile !== null) return fromFile;
+    try {
+      const fromFile = await readBuiltinSelectionFile(dir);
+      if (fromFile !== null) return fromFile;
+    } catch (error) {
+      if (!skipInvalid) throw error;
+    }
   }
   return DEFAULT_BUILTIN_SELECTION;
 }
@@ -367,7 +420,12 @@ export async function loadOntology(
   const domains = new Map<string, DomainDef>();
   const dir = pluginDir ? resolve(pluginDir) : resolvePluginDir();
 
-  for (const d of resolveBuiltinSelection(await resolveSelection(dir, options.builtins))) {
+  const selection = await resolveSelection(
+    dir,
+    options.builtins,
+    options.skipInvalid === true,
+  );
+  for (const d of resolveBuiltinSelection(selection)) {
     assertDomainDefinitionName(d.name);
     domains.set(d.name, d);
   }

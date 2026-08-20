@@ -38,7 +38,6 @@
  * lifecycle via ProjectManager; HTML building via export.ts.
  */
 
-import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { basename, resolve as resolvePath } from "node:path";
 import {
@@ -101,6 +100,7 @@ import {
   type DomainDraft,
 } from "../domains/authoring/index.js";
 import { diagnoseProgramDomains, type ProgramDomainDiagnosis } from "../domains/program/index.js";
+import { resolveCommittedOntologyDir } from "../domains/ontology.js";
 import { generateCppHeader, generateCppPatches, type DomainEntryPoint } from "../dynamic/inject-cpp.js";
 import { generateCSharpStub, generateCSharpPatches } from "../dynamic/inject-csharp.js";
 import { sceneModelFromTraceFile } from "../dynamic/record/ingest.js";
@@ -200,7 +200,7 @@ export interface CliArgs {
   force?: boolean;
   /** For domains draft: use the deterministic skeleton seed (no LLM). */
   noLlm?: boolean;
-  /** For domains: explicit domains dir (default <repoRoot>/.anatomia/domains). */
+  /** For domains: explicit domains dir (default <repoRoot>/spec/domains). */
   dir?: string;
   /** For domains program: list only the unclassified modules. */
   unclassifiedOnly?: boolean;
@@ -855,15 +855,12 @@ async function resolveContext(args: CliArgs): Promise<AnalysisContext> {
         "pr-review is ephemeral and cannot use --project; pass --repo <worktree> instead.",
       );
     }
-    // Prefer the repo-local editable domains dir, but only when it exists:
-    // ephemeral checkouts (Revisor review worktrees) have no `.anatomia/`, and
-    // passing its path unconditionally overrides analyze()'s fallback to the
-    // committed `spec/data/ontology`, leaving every PR with no target domain.
-    const editableDir = domainsDir(args.repoPath);
-    return analyze(
-      args.repoPath,
-      existsSync(editableDir) ? { pluginDir: editableDir } : {},
-    );
+    // No pluginDir override: analyze() resolves the repo's committed domain
+    // dir itself (`spec/domains`, then the legacy locations). Passing a dir
+    // here is what used to make the PR gate read a DIFFERENT ontology than
+    // everyday analysis in repos that carried both, so the adapter no longer
+    // picks one.
+    return analyze(args.repoPath, {});
   }
   if (args.project) {
     const mgr = await ProjectManager.load();
@@ -882,17 +879,26 @@ async function runDomainReview(
 ): Promise<{ exitCode: number; output: string }> {
   let ctx: AnalysisContext;
   let defsDir: string;
+  let autoDiscovered = false;
   if (args.project) {
     const mgr = await ProjectManager.load();
     const projectId = mgr.resolveId(args.project);
     ctx = await mgr.getContext(projectId);
     const project = mgr.get(projectId)!;
-    defsDir = project.ontologyDir ?? domainsDir(project.rootPath);
+    const operatorDomainsDir = project.ontologyDir ?? process.env["ANATOMIA_PLUGIN_DIR"];
+    defsDir = operatorDomainsDir
+      ?? resolveCommittedOntologyDir(project.rootPath)
+      ?? domainsDir(project.rootPath);
+    autoDiscovered = operatorDomainsDir === undefined;
   } else {
     ctx = await analyze(args.repoPath);
-    defsDir = domainsDir(args.repoPath);
+    const operatorDomainsDir = process.env["ANATOMIA_PLUGIN_DIR"];
+    defsDir = operatorDomainsDir
+      ?? resolveCommittedOntologyDir(args.repoPath)
+      ?? domainsDir(args.repoPath);
+    autoDiscovered = operatorDomainsDir === undefined;
   }
-  const domainDefs = await loadEditableDomains(defsDir);
+  const domainDefs = await loadEditableDomains(defsDir, { skipInvalid: autoDiscovered });
   const report = await buildDomainReview(ctx, { domainDefs });
   if (args.json) return { exitCode: 0, output: JSON.stringify(report, null, 2) };
   return { exitCode: 0, output: formatDomainReview(report) };
@@ -1298,15 +1304,23 @@ async function runDomains(args: CliArgs): Promise<{ exitCode: number; output: st
   let repoRoot = args.repoPath;
   let mgr: ProjectManager | undefined;
   let projectId: string | undefined;
+  let projectOntologyDir: string | undefined;
   if (args.project) {
     mgr = await ProjectManager.load();
     projectId = mgr.resolveId(args.project);
-    repoRoot = mgr.get(projectId)!.rootPath;
+    const project = mgr.get(projectId)!;
+    repoRoot = project.rootPath;
+    projectOntologyDir = project.ontologyDir;
   }
-  const dir = args.dir ?? domainsDir(repoRoot);
+  const operatorDomainsDir = projectOntologyDir ?? process.env["ANATOMIA_PLUGIN_DIR"];
+  const autoDiscovered = args.dir === undefined && operatorDomainsDir === undefined;
+  const dir = args.dir
+    ?? operatorDomainsDir
+    ?? resolveCommittedOntologyDir(repoRoot)
+    ?? domainsDir(repoRoot);
 
   if (args.domainsAction === "list") {
-    const defs = await loadEditableDomains(dir);
+    const defs = await loadEditableDomains(dir, { skipInvalid: autoDiscovered });
     if (args.json) return { exitCode: 0, output: JSON.stringify({ dir, domains: defs }, null, 2) };
     if (!defs.length) return { exitCode: 0, output: `(no editable domains in ${dir})` };
     const lines = defs.map(
