@@ -74,6 +74,10 @@ tree-sitter AST を含み直列化できないため、**結果はプロセス�
 2. 解析後に DAG から `merkleHash` を導出し、上記スナップショットを永続化。
    コールド起動時は現在 fingerprint と persisted fingerprint を比較し、解析の要否を判断する。
 
+キャッシュ永続化は best-effort とする。home が読み取り専用などの理由で書き込めない場合も解析結果は
+返し、同じ OS エラーコードの警告は cache instance ごとに 1 回だけ出す。警告にはローカル path や
+OS の raw error message を含めない。
+
 `AnalysisCache.hits / misses` は観測用カウンタ。CLI の `project analyze` / MCP
 `anatomia.projects.analyze` はこの増分により `(cache hit)` を報告する。
 

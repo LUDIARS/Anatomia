@@ -30,7 +30,7 @@
  */
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { buildRepoNode } from "../dag/merkle.js";
 import { cacheRoot } from "./store.js";
 import type { AnalysisContext } from "../core.js";
@@ -156,6 +156,7 @@ export async function summarize(ctx: AnalysisContext): Promise<SummaryCounts> {
  */
 export class AnalysisCache {
   private readonly mem = new Map<string, CacheEntry>();
+  private readonly warnedPersistCodes = new Set<string>();
   private readonly home?: string;
   private readonly transcript: CacheTranscript;
   private readonly session: string;
@@ -244,12 +245,9 @@ export class AnalysisCache {
   }
 
   private async writeSnapshot(projectId: string, snap: CacheSnapshot): Promise<void> {
-    const dir = this.dirFor(projectId);
-    await mkdir(dir, { recursive: true });
-    await writeFile(
-      join(dir, "snapshot.json"),
+    await this.persistCacheFile(
+      join(this.dirFor(projectId), "snapshot.json"),
       JSON.stringify(snap, null, 2) + "\n",
-      "utf8",
     );
   }
 
@@ -308,8 +306,25 @@ export class AnalysisCache {
       builtAt: new Date().toISOString(),
       data,
     };
-    const dir = this.dirFor(projectId);
-    await mkdir(dir, { recursive: true });
-    await writeFile(this.artifactPath(projectId, name), JSON.stringify(env), "utf8");
+    await this.persistCacheFile(this.artifactPath(projectId, name), JSON.stringify(env));
+  }
+
+  /**
+   * Cache persistence is best-effort: a read-only home must not abort analysis.
+   * Diagnostics intentionally omit paths and raw OS messages because either can
+   * expose local configuration when stderr is collected centrally.
+   */
+  private async persistCacheFile(path: string, contents: string): Promise<void> {
+    try {
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, contents, "utf8");
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException)?.code ?? "UNKNOWN";
+      if (this.warnedPersistCodes.has(code)) return;
+      this.warnedPersistCodes.add(code);
+      console.warn(
+        `[anatomia/cache] cache persistence failed; this analysis result will not be reused (${code})`,
+      );
+    }
   }
 }
