@@ -2,7 +2,7 @@
  * T18 — Tests for the domain-ontology plugin loader (ontology.ts).
  */
 
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { mkdir, mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,7 +12,9 @@ import {
   BUILTIN_SELECTION_FILE,
   DEFAULT_BUILTIN_SELECTION,
   resolveBuiltinSelection,
+  warnOntologySkip,
 } from "./ontology.js";
+import type { OntologySkip } from "./ontology.js";
 
 describe("T18 BUILTIN_DOMAINS", () => {
   it("ships at least two builtin policies", () => {
@@ -188,6 +190,76 @@ describe("T18 loadOntology", () => {
 
     // Without skipInvalid an operator-chosen dir still fails loudly.
     await expect(loadOntology(tmp, { dataOnly: true })).rejects.toThrow();
+  });
+
+  it("reports every skipped file and its reason to onSkip", async () => {
+    tmp = await mkdtemp(join(tmpdir(), "anatomia-onto-"));
+    const good = {
+      name: "surviving-mech",
+      description: "a valid def beside the junk.",
+      presetRules: [],
+      templateRules: [],
+    };
+    await writeFile(join(tmp, "good.json"), JSON.stringify(good), "utf8");
+    await writeFile(join(tmp, "notes.json"), JSON.stringify({ note: "not a def" }), "utf8");
+    await writeFile(join(tmp, "broken.json"), "{ this is not json", "utf8");
+    await writeFile(join(tmp, BUILTIN_SELECTION_FILE), "{ also not json", "utf8");
+    // A directory named like a def exercises the non-regular-file skip path.
+    await mkdir(join(tmp, "nested.json"));
+
+    const skips: OntologySkip[] = [];
+    const onto = await loadOntology(tmp, {
+      dataOnly: true,
+      skipInvalid: true,
+      onSkip: (skip) => skips.push(skip),
+    });
+
+    expect(onto.domains.has("surviving-mech")).toBe(true);
+    // Every dropped file is named — a broken declaration must be tellable from
+    // a missing one.
+    expect(new Set(skips.map((skip) => skip.file))).toEqual(new Set([
+      join(tmp, "notes.json"),
+      join(tmp, "broken.json"),
+      join(tmp, "nested.json"),
+      join(tmp, BUILTIN_SELECTION_FILE),
+    ]));
+    expect(skips.every((skip) => skip.reason.length > 0)).toBe(true);
+    const byFile = new Map(skips.map((skip) => [skip.file, skip.reason]));
+    expect(byFile.get(join(tmp, "notes.json"))).toMatch(/invalid DomainDef/);
+    expect(byFile.get(join(tmp, "nested.json"))).toMatch(/regular file/);
+    expect(byFile.get(join(tmp, BUILTIN_SELECTION_FILE))).toMatch(/invalid JSON/);
+  });
+
+  it("warns on stderr when no onSkip listener is given", async () => {
+    tmp = await mkdtemp(join(tmpdir(), "anatomia-onto-"));
+    await writeFile(
+      join(tmp, "broken.json"),
+      '{"name":"private-input-fragment"',
+      "utf8",
+    );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await loadOntology(tmp, { dataOnly: true, skipInvalid: true });
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0]?.[0]).toContain(
+        `[anatomia] ontology definition skipped: ${join(tmp, "broken.json")}: `,
+      );
+      expect(warn.mock.calls[0]?.[0]).not.toContain("private-input-fragment");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("escapes control characters in default skip warnings", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      warnOntologySkip({ file: "forged\npath.json", reason: "bad\rreason" });
+      expect(warn).toHaveBeenCalledWith(
+        "[anatomia] ontology definition skipped: forged\\u000apath.json: bad\\u000dreason",
+      );
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("rejects unassigned because it is a relation state, not a domain", async () => {

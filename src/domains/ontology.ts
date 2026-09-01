@@ -233,7 +233,15 @@ async function readBuiltinSelectionFile(dir: string): Promise<BuiltinSelection |
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw new Error(`unable to read ${BUILTIN_SELECTION_FILE}`, { cause: err });
   }
-  const parsed: unknown = JSON.parse(raw);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    // V8 may quote part of the input in SyntaxError.message. The reason is
+    // logged for auto-discovered files, so do not copy repository contents to
+    // diagnostic output.
+    throw new Error(`invalid JSON in ${BUILTIN_SELECTION_FILE}`);
+  }
   const enabled = (parsed as { enabled?: unknown } | null)?.enabled;
   if (enabled === "all" || enabled === "none") return enabled;
   if (Array.isArray(enabled) && enabled.every((n) => typeof n === "string")) {
@@ -281,6 +289,50 @@ function requireDomainDef(x: unknown, source: string): DomainDef {
   return x;
 }
 
+/** One ontology file `skipInvalid` dropped, and why it was dropped. */
+export interface OntologySkip {
+  /** Absolute path of the definition or builtin-selection file that was not loaded. */
+  file: string;
+  /** Human-readable cause (parse error, validation error, not a regular file…). */
+  reason: string;
+}
+
+/** Callback notified for every ontology file `skipInvalid` drops. */
+export type OntologySkipListener = (skip: OntologySkip) => void;
+
+/** Render an unknown throw value as the `reason` of an {@link OntologySkip}. */
+function skipReason(err: unknown): string {
+  if (err instanceof Error) {
+    const cause = err.cause;
+    if (cause instanceof Error && cause.message !== "") {
+      return `${err.message}: ${cause.message}`;
+    }
+    if (err.message !== "") return err.message;
+  }
+  return String(err);
+}
+
+/** Escape control characters so repository-controlled paths cannot forge log lines. */
+function formatOntologySkipField(value: string): string {
+  return value.replace(
+    /[\u0000-\u001f\u007f]/g,
+    (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`,
+  );
+}
+
+/**
+ * Default {@link OntologySkipListener}: warn on stderr.
+ *
+ * A dropped definition and a definition nobody wrote look identical downstream
+ * ("target domain is still missing"), so `skipInvalid` must never be silent —
+ * RULE_CODE §7 / §7.1 (no silent fallback, no failure reported as success).
+ */
+export function warnOntologySkip(skip: OntologySkip): void {
+  const file = formatOntologySkipField(skip.file);
+  const reason = formatOntologySkipField(skip.reason);
+  console.warn(`[anatomia] ontology definition skipped: ${file}: ${reason}`);
+}
+
 /**
  * Load all DomainDefs from a directory (.json and .mjs files).
  *
@@ -295,12 +347,15 @@ function requireDomainDef(x: unknown, source: string): DomainDef {
  * a configuration error worth surfacing), but an AUTO-DISCOVERED dir is not
  * curated for this purpose: a single stray `.json` next to the DomainDefs must
  * not silently collapse detection to zero domains — the exact "no target
- * domain" failure the committed-ontology fallback exists to prevent.
+ * domain" failure the committed-ontology fallback exists to prevent. Every file
+ * it drops is reported to `onSkip` (default: {@link warnOntologySkip}) so the
+ * loss is visible instead of being mistaken for a missing declaration.
  */
 async function loadFromDir(
   dir: string,
   dataOnly = false,
   skipInvalid = false,
+  onSkip: OntologySkipListener = warnOntologySkip,
 ): Promise<DomainDef[]> {
   let entries: import("node:fs").Dirent[];
   try {
@@ -321,18 +376,31 @@ async function loadFromDir(
     try {
       stat = await lstat(full);
     } catch (err) {
-      if (skipInvalid) continue;
+      if (skipInvalid) {
+        onSkip({ file: full, reason: skipReason(err) });
+        continue;
+      }
       throw new Error("unable to inspect ontology definition", { cause: err });
     }
     if (!stat.isFile()) {
-      if (skipInvalid) continue;
+      if (skipInvalid) {
+        onSkip({ file: full, reason: "ontology definitions must be regular files" });
+        continue;
+      }
       throw new Error("ontology definitions must be regular files");
     }
     const fileDefs: DomainDef[] = [];
     try {
       if (ext === ".json") {
         const raw = await readFile(full, "utf8");
-        const parsed = JSON.parse(raw);
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(raw);
+        } catch {
+          // Keep the warning useful without echoing a potentially sensitive
+          // fragment of the invalid repository file from SyntaxError.message.
+          throw new Error("invalid ontology definition JSON");
+        }
         const list = Array.isArray(parsed) ? parsed : [parsed];
         for (const d of list) {
           fileDefs.push(requireDomainDef(d, full));
@@ -347,7 +415,9 @@ async function loadFromDir(
       }
     } catch (err) {
       if (!skipInvalid) throw err;
-      continue; // drop this file only; the rest of the dir still loads
+      // Drop this file only; the rest of the dir still loads — but say so.
+      onSkip({ file: full, reason: skipReason(err) });
+      continue;
     }
     defs.push(...fileDefs);
   }
@@ -370,6 +440,14 @@ export interface LoadOntologyOptions {
    */
   skipInvalid?: boolean;
   /**
+   * Notified once per ontology file `skipInvalid` drops, including a malformed
+   * builtin-selection file, with the file and the reason.
+   * Defaults to {@link warnOntologySkip} — a dropped definition is never lost
+   * silently, so callers can tell "the declaration is broken" from "nobody
+   * declared it".
+   */
+  onSkip?: OntologySkipListener;
+  /**
    * Which builtin policies to apply. Highest-precedence source; when omitted
    * the selection falls back to $ANATOMIA_BUILTIN_DOMAINS, then to the ontology
    * dir's `builtins.json`, then to {@link DEFAULT_BUILTIN_SELECTION}.
@@ -386,6 +464,7 @@ async function resolveSelection(
   dir: string | null,
   option: BuiltinSelection | undefined,
   skipInvalid = false,
+  onSkip: OntologySkipListener = warnOntologySkip,
 ): Promise<BuiltinSelection> {
   if (option !== undefined) return option;
   const fromEnv = parseBuiltinSelection(process.env[BUILTIN_SELECTION_ENV]);
@@ -396,6 +475,7 @@ async function resolveSelection(
       if (fromFile !== null) return fromFile;
     } catch (error) {
       if (!skipInvalid) throw error;
+      onSkip({ file: join(dir, BUILTIN_SELECTION_FILE), reason: skipReason(error) });
     }
   }
   return DEFAULT_BUILTIN_SELECTION;
@@ -410,7 +490,8 @@ async function resolveSelection(
  * @param pluginDir explicit dir; if omitted, ANATOMIA_PLUGIN_DIR is used.
  *                  Plugin defs override builtins of the same name.
  * @param options   `dataOnly` restricts the dir to declarative .json defs;
- *                  `skipInvalid` drops unloadable files instead of throwing;
+ *                  `skipInvalid` drops unloadable files instead of throwing,
+ *                  reporting each one to `onSkip` (default: a stderr warning);
  *                  `builtins` overrides the builtin selection.
  */
 export async function loadOntology(
@@ -419,11 +500,13 @@ export async function loadOntology(
 ): Promise<DomainOntology> {
   const domains = new Map<string, DomainDef>();
   const dir = pluginDir ? resolve(pluginDir) : resolvePluginDir();
+  const onSkip = options.onSkip ?? warnOntologySkip;
 
   const selection = await resolveSelection(
     dir,
     options.builtins,
     options.skipInvalid === true,
+    onSkip,
   );
   for (const d of resolveBuiltinSelection(selection)) {
     assertDomainDefinitionName(d.name);
@@ -435,6 +518,7 @@ export async function loadOntology(
       dir,
       options.dataOnly === true,
       options.skipInvalid === true,
+      onSkip,
     );
     for (const d of pluginDefs) domains.set(d.name, d); // override by name
   }
