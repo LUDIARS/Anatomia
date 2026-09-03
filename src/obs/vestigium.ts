@@ -61,8 +61,33 @@ export function initVestigium(options: InitVestigiumOptions = {}): void {
     });
   } catch (e) {
     // install 失敗 (権限/パス等) は Vg ログを諦めるが本体は止めない。
-    console.error(`[anatomia/vestigium] install failed; Vg ログ無効: ${(e as Error).message}`);
+    console.error(vestigiumDisabledNotice(e));
   }
+}
+
+/**
+ * install 失敗を 1 行の「観測ログだけ諦めた」通知に畳む。
+ * @spec interface: CLI（bin/anatomia.mjs）
+ *
+ * MODULE_NOT_FOUND の `Error.message` は "Require stack:" と解決経路を複数行で抱えるため、
+ * そのまま出すと stderr がスタックトレースに見える。 Anatomia CLI を子プロセスで叩く委託
+ * エージェントはそれを見て「CLI が使用不能」と誤判定し、 exit code 0 と stdout の landings
+ * JSON を無視して着手前に失敗終了していた (Memoria #1754 / #1770)。
+ *
+ * 出力は「解析は続いている」と読める 1 行に保つ。
+ */
+export function vestigiumDisabledNotice(e: unknown): string {
+  let raw: string;
+  try {
+    raw = String(e instanceof Error ? e.message : e);
+  } catch {
+    // Failure reporting must not turn an optional logger failure into a CLI failure.
+    raw = "unknown error";
+  }
+
+  const [firstLine = ""] = raw.split(/[\r\n\u2028\u2029]/u, 1);
+  const summary = firstLine.replace(/[\p{Cc}\p{Cf}]/gu, " ").trim();
+  return `[anatomia/vestigium] Vg ログ無効 (解析は継続): ${summary || "unknown error"}`;
 }
 
 export type VgLevel = "trace" | "debug" | "info" | "warn" | "error" | "fatal";
