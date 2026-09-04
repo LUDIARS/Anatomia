@@ -29,7 +29,7 @@ import type { CodeGraph } from "./build.js";
 import type { AnchorId, CodeNode, FileNode, SourceRange } from "../types.js";
 
 /** BUMP when CodeGraph's shape or buildGraph's semantics change. */
-export const GRAPH_CACHE_VERSION = "2"; // 2: CodeGraph.unresolved (dropped-call records)
+export const GRAPH_CACHE_VERSION = "3"; // 3: TypeScript member-call extraction semantics
 
 /**
  * Code identity for graph/detection reuse: each file's path + raw source hash

@@ -25,7 +25,7 @@ import { resolveTranscript } from "../cache/transcript.js";
 import type { ContextBundle } from "../types.js";
 
 /** BUMP when ContextBundle's shape or assembly semantics change. */
-export const BUNDLE_CACHE_VERSION = "3";
+export const BUNDLE_CACHE_VERSION = "4";
 
 /** Content-addressed store for assembled context bundles. */
 export type BundleCache = CacheStore<ContextBundle>;

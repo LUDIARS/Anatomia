@@ -25,7 +25,8 @@ import type { FileAnalysisCache } from "../core.js";
  * graph/detection path depends on). Folded into the entry key, so a bump
  * simply orphans old entries rather than mis-reading them.
  */
-const FORMAT_VERSION = 1;
+// 2: invalidate edgeInfo extracted before TypeScript member calls were recorded.
+const FORMAT_VERSION = 2;
 const MAX_COMPRESSED_ENTRY_BYTES = 64 * 1024 * 1024;
 const MAX_DECOMPRESSED_ENTRY_BYTES = 256 * 1024 * 1024;
 

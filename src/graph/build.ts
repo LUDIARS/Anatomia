@@ -162,6 +162,8 @@ function terminalName(node: AstNode): string | null {
   const t = node.type;
   if (t === "identifier") return node.text;
   if (t === "field_identifier") return node.text;
+  // TypeScript / JavaScript の `obj.method` の `method` 側。
+  if (t === "property_identifier") return node.text;
   if (t === "type_identifier") return node.text;
 
   // qualified_identifier / scoped_identifier: use `name` field or last child.
@@ -183,6 +185,15 @@ function terminalName(node: AstNode): string | null {
   if (t === "member_access_expression") {
     const name = node.childForFieldName("name");
     if (name) return terminalName(name);
+  }
+
+  // TypeScript / JavaScript member_expression: `obj.method`
+  // これが無いと `terminalName` が null を返し、 呼び出し自体が **記録も残さず**消える
+  // (unresolved にも載らないので、 落ちたことすら追えない)。 結果、 TS リポでは
+  // メソッド呼び出しが 1 本も辺にならず、 メソッドは軒並み orphan になる。
+  if (t === "member_expression") {
+    const property = node.childForFieldName("property");
+    if (property) return terminalName(property);
   }
 
   // Generic fallback: try `name` field.
@@ -238,7 +249,10 @@ export function extractFunctionEdgeInfo(fn: FunctionNode): FunctionEdgeInfo | nu
   for (const call of callNodes) {
     const site = extractCallSite(call);
     if (!site) continue;
-    const key = `${site.name}\0${site.receiver?.join(".") ?? ""}`;
+    // Keep unqualified calls (`null`) distinct from member calls whose receiver
+    // exists but cannot be reduced to an identifier chain (`[]`). Otherwise a
+    // preceding `factory().run()` can suppress a later free `run()` call.
+    const key = `${site.name}\0${JSON.stringify(site.receiver)}`;
     if (seenCall.has(key)) continue; // deduplicate at source
     seenCall.add(key);
     calls.push(site);
@@ -295,8 +309,10 @@ export function extractFunctionEdgeInfo(fn: FunctionNode): FunctionEdgeInfo | nu
 /**
  * Extract `{ name, receiver }` from a call/invocation node. `receiver` is the
  * dotted identifier chain the method is invoked on (`w.spawner` → ["w","spawner"],
- * `this` → ["this"]); null for an unqualified call or a non-identifier base
- * (call result, subscript, …) which we do not type — see Limits.
+ * `this` → ["this"]); null for an unqualified call. For TypeScript/JavaScript,
+ * an empty chain marks a member call whose receiver exists but cannot be typed
+ * (call result, literal, subscript, …), keeping it out of unqualified-call
+ * fallback resolution.
  */
 function extractCallSite(callNode: AstNode): CallSite | null {
   const fnField =
@@ -312,6 +328,14 @@ function extractCallSite(callNode: AstNode): CallSite | null {
   } else if (fnField.type === "member_access_expression") {
     // C# `obj.Method`
     receiver = receiverChain(fnField.childForFieldName("expression"));
+  } else if (fnField.type === "member_expression") {
+    // TypeScript / JavaScript `obj.method`
+    receiver = receiverChain(fnField.childForFieldName("object"));
+    // **受け手はあるが識別子の連鎖ではない** (`"str".replace()`、 `f().then()`、
+    // 配列リテラル等)。 空配列を返して「受け手あり・型不明」として扱わせる。
+    // null のままだと自由関数と同じ緩い解決に落ち、 同名のリポ内関数へ
+    // phantom 辺が張られる (実測: `replace` が db/schema.ts の同名関数と繋がった)。
+    if (receiver === null) receiver = [];
   }
   return { name, receiver };
 }
@@ -325,6 +349,15 @@ function receiverChain(node: AstNode | null): string[] | null {
   if (!node) return null;
   if (node.type === "identifier") return [node.text];
   if (node.type === "this" || node.type === "this_expression") return ["this"];
+  if (node.type === "member_expression") {
+    // TS/JS `deps.widget` → ["deps", "widget"]
+    const base = receiverChain(node.childForFieldName("object"));
+    const property = node.childForFieldName("property");
+    if (base && property && property.type === "property_identifier") {
+      return [...base, property.text];
+    }
+    return null;
+  }
   if (node.type === "field_expression") {
     const base = receiverChain(node.childForFieldName("argument"));
     const field = node.childForFieldName("field");

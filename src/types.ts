@@ -113,7 +113,7 @@ export interface ParamInfo {
  *   `this->tick()`     → { name: "tick",  receiver: ["this"] }
  *   `w.spawner.alive()`→ { name: "alive", receiver: ["w","spawner"] }
  *   `helper()`         → { name: "helper", receiver: null }  (unqualified)
- *   `f().run()`        → { name: "run",   receiver: null }  (call result, not typed)
+ *   `"x".trim()` (TS) → { name: "trim",  receiver: [] }    (member receiver exists but is not typed)
  */
 export interface CallSite {
   name: string;
