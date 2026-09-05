@@ -34,10 +34,26 @@ describe("relevance ranking", () => {
     expect(ranked.map((c) => c.id)).toEqual(["a", "b", "c"]);
   });
 
-  it("tokenizes CJK text into usable tokens", () => {
+  it("tokenizes CJK text into whole runs plus bigrams", () => {
     const tokens = tokenizeRelevanceText("仕様書 解析 ドメイン");
     expect(tokens).toContain("仕様書");
-    expect(tokens).toContain("解");
+    // Bigrams, not single characters: 「解」 alone matches almost any Japanese
+    // text and used to make every domain look related to every task.
+    expect(tokens).toContain("仕様");
+    expect(tokens).toContain("様書");
+    expect(tokens).not.toContain("解");
+    // A two-character run is already its own bigram; it is not emitted twice.
+    expect(tokens.filter((t) => t === "解析")).toHaveLength(1);
+  });
+
+  it("lets a Japanese task overlap a Japanese description", () => {
+    const task = new Set(tokenizeRelevanceText("切り絵のデモを実装する"));
+    const description = new Set(
+      tokenizeRelevanceText("写真を多層の切り絵に変換する画像処理"),
+    );
+    const shared = [...task].filter((token) => description.has(token));
+    expect(shared).toContain("切り");
+    expect(shared).toContain("り絵");
   });
 
   it("ranks exemplars by name/signature and falls back to source order on zero hits", () => {

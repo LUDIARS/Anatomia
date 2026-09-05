@@ -53,16 +53,39 @@ export function rankExemplars(
   return candidates.slice(0, limit);
 }
 
+/**
+ * Tokenize for relevance scoring.
+ *
+ * Latin text splits on camelCase + non-word characters. Japanese has no spaces,
+ * so a run of kana/kanji arrives as ONE token ("切り絵のデモを実装する") that
+ * matches nothing; it is additionally split into character BIGRAMS ("切り",
+ * "り絵", "絵の", ...). Bigrams are the smallest unit that still carries
+ * meaning: per-character tokens made every task overlap every domain (single
+ * kana like を / する occur in almost any Japanese text), which inflated the
+ * score of unrelated domains instead of ranking the related one first.
+ */
 export function tokenizeRelevanceText(text: string): string[] {
   const normalized = text.replace(/([a-z0-9])([A-Z])/g, "$1 $2").toLowerCase();
-  const words = normalized.match(/[a-z0-9_]+|[\u3040-\u30ff\u3400-\u9fff]+/g) ?? [];
+  const words = normalized.match(JAPANESE_OR_WORD_RUN) ?? [];
   const out: string[] = [];
   for (const word of words) {
     out.push(word);
-    if (/^[\u3040-\u30ff\u3400-\u9fff]+$/.test(word)) {
-      for (let i = 0; i < word.length; i++) out.push(word[i]!);
-    }
+    if (JAPANESE_RUN.test(word)) out.push(...bigrams(word));
   }
+  return out;
+}
+
+const JAPANESE_OR_WORD_RUN = /[a-z0-9_]+|[\u3040-\u30ff\u3400-\u9fff]+/g;
+const JAPANESE_RUN = /^[\u3040-\u30ff\u3400-\u9fff]+$/;
+
+/**
+ * Character bigrams of a Japanese run. Runs of one or two characters yield none
+ * — the whole-word push above already emits exactly those tokens.
+ */
+function bigrams(word: string): string[] {
+  if (word.length <= 2) return [];
+  const out: string[] = [];
+  for (let i = 0; i + 1 < word.length; i++) out.push(word.slice(i, i + 2));
   return out;
 }
 

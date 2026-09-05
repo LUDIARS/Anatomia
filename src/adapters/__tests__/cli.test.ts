@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { parseArgs, runCli, diffTargetPaths } from "../cli.js";
 import type { CliArgs } from "../cli.js";
+import { PLAN_VERSION, planFilePath, savePlan, type Plan } from "../../supply/plan/index.js";
 
 // ---------------------------------------------------------------------------
 // parseArgs
@@ -122,14 +123,18 @@ describe("diffTargetPaths", () => {
     expect(diffTargetPaths(diff)).toEqual(["src/scene/s.cpp", "src/gpu/g.cpp"]);
   });
 
-  it("skips /dev/null (deletions) and handles new-file diffs", () => {
+  it("handles new files and uses the pre-image path for deletions", () => {
     const diff = [
       "--- /dev/null",
       "+++ b/src/scene/new.cpp",
       "@@ -0,0 +1,2 @@",
       "+void g() {}",
+      "--- a/src/scene/removed.cpp",
+      "+++ /dev/null",
+      "@@ -1,1 +0,0 @@",
+      "-void old() {}",
     ].join("\n");
-    expect(diffTargetPaths(diff)).toEqual(["src/scene/new.cpp"]);
+    expect(diffTargetPaths(diff)).toEqual(["src/scene/new.cpp", "src/scene/removed.cpp"]);
   });
 });
 
@@ -214,6 +219,60 @@ describe("runCli verify", () => {
 
     expect(specGate.pass).toBe(false);
     expect(specGate.suggestion).toContain("addedFromDiff");
+  });
+
+  it("uses the current repo's slice of a persisted cross-repo plan", async () => {
+    const diffPath = join(tmpDir, "cross-plan.diff");
+    await writeFile(
+      diffPath,
+      [
+        "diff --git a/main.cpp b/main.cpp",
+        "--- a/main.cpp",
+        "+++ b/main.cpp",
+        "@@ -1 +1 @@",
+        "-void hello() { }",
+        "+void hello() { world(); }",
+      ].join("\n"),
+      "utf8",
+    );
+    const item = (repo: string, plannedPaths: string[]) => ({
+      repo,
+      domain: "example",
+      status: "existing" as const,
+      responsibility: "example",
+      plannedPaths,
+      ownedPathPatterns: [],
+      neededTypes: [],
+      layer: "src",
+      dataDefs: [],
+      duplicates: [],
+      exemplar: null,
+    });
+    const crossPlan: Plan = {
+      version: PLAN_VERSION,
+      task: "cross repo",
+      taskHash: "abcdefabcdefabcd",
+      generatedAt: "2026-09-05T00:00:00.000Z",
+      repos: ["repo-a", "repo-b"],
+      source: "deterministic",
+      items: [item("repo-a", ["other.cpp"]), item("repo-b", ["main.cpp"])],
+      unresolved: [],
+      questions: [],
+      notes: [],
+    };
+    await savePlan(crossPlan, [{ id: "repo-a", repoPath: tmpDir }]);
+
+    const { output } = await runCli({
+      subcommand: "verify",
+      repoPath: tmpDir,
+      diff: diffPath,
+      planPath: planFilePath(tmpDir, crossPlan.taskHash),
+      json: true,
+    });
+    const parsed = JSON.parse(output);
+    const gate = parsed.gates.find((g: { gate: string }) => g.gate === "plan_conformance");
+    expect(gate.pass).toBe(false);
+    expect(gate.suggestion).toContain("main.cpp");
   });
 });
 

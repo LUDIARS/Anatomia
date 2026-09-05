@@ -37,6 +37,14 @@ export interface DetectionResult {
   domain: string;
   /** Missing is treated as semantic for legacy callers and cached fixtures. */
   role?: DomainRole;
+  /**
+   * The definition's human-written description, carried through so consumers
+   * that rank domains against a natural-language task (supply/detectors.ts,
+   * supply/plan) can read what the domain IS. Without it a Japanese task could
+   * only be matched against ASCII identifiers and never overlapped. Optional:
+   * cached fixtures written before this field exist and simply score without it.
+   */
+  description?: string;
   /** Functions that implement (are touched by) the domain. */
   implementors: AnchorId[];
   /** All violations found for the domain. */
@@ -172,6 +180,7 @@ export async function detectDomain(
   return {
     domain: def.name,
     role: def.role ?? "semantic",
+    description: def.description,
     implementors: [...implementorSet],
     violations,
     conforms,

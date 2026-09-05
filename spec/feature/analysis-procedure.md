@@ -72,6 +72,33 @@ echo $?    # 0=PASS / 1=block ゲート失敗
 
 `--json` で生 JSON、無指定なら人間向けサマリ（`PASS/FAIL` + ゲート別 + suggestion）。
 
+### 着手前に計画へ分解する（plan）
+
+`where` は着地点 1 点しか返さない。task を**ドメイン単位の作業計画**（責務 / 予定パス /
+データ定義 / 重複候補 / 手本）へ分解するのは `plan`：
+
+```sh
+node bin/anatomia.mjs plan --project pictor --project figmentum \
+  --task "切り絵のデモを実装する"
+```
+
+- `--project` は繰り返し可（リポを跨る task をひとつの計画にする）。未登録なら `--repo <path>`。
+- `--no-llm` で決定的検出のみ、`--json` で生 JSON、`--format okf` で委託プロンプト用の
+  OKF 文書。終了コードは常に 0（gate ではない）。
+- 結果は各リポの `.anatomia/plan/<task-hash>.json` にも保存される。
+
+### 実装後に計画と突合する（verify --plan）
+
+```sh
+git diff | node bin/anatomia.mjs verify --repo <path> --plan            # 直近の plan
+git diff | node bin/anatomia.mjs verify --repo <path> --plan <plan.json>
+```
+
+`plan_conformance` ゲート（**advisory**、exit code を変えない）が、変更ファイルが plan の
+`plannedPaths` か対象ドメインの membership に入っているかを見る。外れたファイルと、
+宣言が欠けている新規ドメインを suggestion に出す。詳細は
+[domain-plan.md](./domain-plan.md)。
+
 ## 3. 実 LLM / embedder を効かせる（任意）
 
 未設定なら duplication ゲートは hash-embedder + mock カードで動作（hermetic・API 不要）。
@@ -104,7 +131,7 @@ node scripts/self-analyze.mjs   # 自分の src/ を解析（→ docs/self-analy
 ## 最短ループ
 
 ```
-npm run build → project add → project analyze → git diff | verify
+npm run build → project add → project analyze → plan → git diff | verify --plan
 ```
 
 これが Anatomia の「解析して使う」中核ループ。

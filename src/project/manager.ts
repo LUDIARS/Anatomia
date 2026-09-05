@@ -34,6 +34,11 @@ import {
   hasMarkdownSources,
   type SpecConfigStatus,
 } from "./spec-detect.js";
+import {
+  effectiveConfigDirs,
+  effectiveOntologyDir,
+  effectiveSpecDirs,
+} from "./config-paths.js";
 
 export interface ProjectManagerOptions {
   /** Anatomia home dir (projects.json + cache/). Default: ANATOMIA_HOME or <cwd>/.anatomia. */
@@ -296,10 +301,13 @@ export class ProjectManager {
     const project = this.registry.get(projectId)!;
 
     let status: SpecConfigStatus;
-    if (project.specDirs && project.specDirs.length > 0) {
+    // Configured dirs that no longer exist are dropped (config-paths.ts): a
+    // stale registry entry must not decide that this project has no specs.
+    const configuredSpecDirs = effectiveSpecDirs(project);
+    if (configuredSpecDirs && configuredSpecDirs.length > 0) {
       status = {
         source: project.specDirsAuto ? "auto" : "configured",
-        dirs: [...project.specDirs],
+        dirs: [...configuredSpecDirs],
       };
     } else if (await hasMarkdownSources(project.rootPath)) {
       status = { source: "root" };
@@ -339,8 +347,10 @@ export class ProjectManager {
 
     const opts: AnalyzeOptions = {
       ...this.analyzeOptions,
-      pluginDir: project.ontologyDir ?? this.analyzeOptions.pluginDir,
-      specDirs: project.specDirs ?? this.analyzeOptions.specDirs,
+      // A vanished ontologyDir resolves to undefined so analyze() falls back to
+      // the repo's committed spec/domains instead of throwing on the dead path.
+      pluginDir: effectiveOntologyDir(project) ?? this.analyzeOptions.pluginDir,
+      specDirs: effectiveSpecDirs(project) ?? this.analyzeOptions.specDirs,
       knowledgeWriteRoot: resolvedKnowledgeRoot(project) ?? this.analyzeOptions.knowledgeWriteRoot,
       // Fingerprint changed → some file changed. Hand analyze() the prior
       // FileNodes so it only re-parses the ones whose content actually moved;
@@ -540,21 +550,14 @@ export class ProjectManager {
 }
 
 /**
- * The project's config dirs (ontologyDir + specDirs) that feed the fingerprint,
- * so editing an ontology def or an out-of-root spec busts the analysis cache.
+ * The project's config dirs (ontologyDir + specDirs, minus the ones that no
+ * longer exist) that feed the fingerprint, so editing an ontology def or an
+ * out-of-root spec busts the analysis cache.
  */
-function configDirsOf(project: Project): string[] {
-  const dirs: string[] = [];
-  if (project.ontologyDir) dirs.push(project.ontologyDir);
-  if (project.specDirs) dirs.push(...project.specDirs);
-  if (project.knowledgeWriteRoot) dirs.push(project.knowledgeWriteRoot);
-  return dirs;
-}
-
 function fingerprintOptionsOf(project: Project): { configDirs: string[]; excludeDirs: string[] } {
   const knowledgeRoot = resolvedKnowledgeRoot(project);
   return {
-    configDirs: configDirsOf(project),
+    configDirs: effectiveConfigDirs(project),
     excludeDirs: knowledgeRoot
       ? [join(knowledgeRoot, "data", "generated", "anatomia")]
       : [],

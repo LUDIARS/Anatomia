@@ -552,7 +552,13 @@ export interface GateResult {
     | "duplication"
     | "spec_linkage"
     | "coupling_delta"
-    | "convention_drift";
+    | "convention_drift"
+    /**
+     * Advisory: the diff's files against the domain plan the task was split
+     * into (`anatomia plan` → `verify --plan`). Reported alongside the five
+     * code gates, but never part of `verdict.pass`.
+     */
+    | "plan_conformance";
   pass: boolean;
   anchors: AnchorId[];
   /** Human-readable suggestion for fixing the failure. */

@@ -47,6 +47,14 @@ changedOrphans も同じ `isTestFilePath` を共有し、境界が二重定義�
   `opts.cardCache`（content-keyed）で繰り返し verify でも LLM をスキップ。
 - なし: zero-vector mock embed + カード無し → duplication は pass（hermetic 既定。テスト/CLI 単発）。
 
+## 付随ゲート: plan_conformance（advisory）
+
+`verify --plan` を渡したときだけ、5 ゲートに加えて `plan_conformance` が **diff 全体に対して
+1 回**走る（5 ゲートはファイル単位で走るが、conformance は全 plan item を見て初めて
+「計画外」と言えるため）。advisory なので `verdict.pass` には寄与せず、
+`suggestion` に `[warn plan_conformance]` として出る。詳細は
+[feature/domain-plan.md](./domain-plan.md)。
+
 ## 入力経路
 
 - CLI `verify`（stdin から diff、→ interface/cli.md）

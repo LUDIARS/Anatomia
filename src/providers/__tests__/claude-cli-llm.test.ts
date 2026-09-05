@@ -17,4 +17,19 @@ describe("createClaudeCliLlm", () => {
       /claude CLI failed to spawn/,
     );
   });
+
+  it("rejects when the call overruns its budget instead of hanging", async () => {
+    // The child sleeps past the budget: a caller with a deadline (the supply
+    // hook) must get a failure it can fall back from, not a pending promise.
+    // `node` is used as a stand-in process so no real `claude` is invoked.
+    const llm = createClaudeCliLlm({
+      bin: process.execPath,
+      // `--` makes the Claude-only flags ordinary script arguments, so this
+      // child actually stays alive until the adapter kills it.
+      binArgs: ["-e", "setTimeout(() => {}, 10_000)", "--"],
+      timeoutMs: 50,
+      systemPrompt: "ignored",
+    });
+    await expect(llm("anything")).rejects.toThrow(/exceeded its 50ms budget/);
+  }, 10_000);
 });

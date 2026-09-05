@@ -20,6 +20,12 @@
       "pathPattern": "(^|/)src/supply/gates/[^/]+$"
     },
     {
+      "pathPattern": "(^|/)src/supply/plan/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/supply/plan/__tests__/[^/]+$"
+    },
+    {
       "pathPattern": "(^|/)src/review/[^/]+$"
     },
     {

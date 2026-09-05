@@ -83,6 +83,9 @@ import { KnowledgeApplicationService, knowledgePortFromManager } from "../knowle
 import { ProjectManager } from "../project/manager.js";
 import { exportGraphHtml } from "./web/export.js";
 import { runEntryPoints } from "./entrypoints-cli.js";
+import { runPlan } from "./plan-cli.js";
+import { PLAN_DIR_REL, latestPlanFile, loadPlan } from "../supply/plan/index.js";
+import type { Plan } from "../supply/plan/index.js";
 import { startServer } from "./web/server.js";
 import { readEvents } from "../cache/transcript.js";
 import { aggregate, formatReport } from "../cache/stats.js";
@@ -101,6 +104,7 @@ import {
 } from "../domains/authoring/index.js";
 import { diagnoseProgramDomains, type ProgramDomainDiagnosis } from "../domains/program/index.js";
 import { resolveCommittedOntologyDir } from "../domains/ontology.js";
+import { effectiveOntologyDir } from "../project/config-paths.js";
 import { generateCppHeader, generateCppPatches, type DomainEntryPoint } from "../dynamic/inject-cpp.js";
 import { generateCSharpStub, generateCSharpPatches } from "../dynamic/inject-csharp.js";
 import { sceneModelFromTraceFile } from "../dynamic/record/ingest.js";
@@ -151,7 +155,8 @@ export interface CliArgs {
     | "scenes"
     | "entrypoints"
     | "knowledge"
-    | "links";
+    | "links"
+    | "plan";
   repoPath: string;
   /** For cache-stats: path to the JSONL transcript (defaults to ANATOMIA_CACHE_LOG). */
   logPath?: string;
@@ -246,6 +251,15 @@ export interface CliArgs {
   specSetDirs?: string[];
   /** For project spec: clear the config (back to auto-detect default). */
   specClear?: boolean;
+  /** For plan: every `--project` given, in order (a plan may span repos). */
+  projects?: string[];
+  /** For plan: output shape. "okf" renders the delegation-ready OKF document. */
+  planFormat?: "markdown" | "okf";
+  /**
+   * For verify: the plan JSON to check the diff against. An empty string means
+   * `--plan` was passed with no path — use the repo's most recent plan.
+   */
+  planPath?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -278,10 +292,11 @@ export function parseArgs(argv: string[]): CliArgs {
     subcommand !== "scenes" &&
     subcommand !== "entrypoints" &&
     subcommand !== "knowledge" &&
-    subcommand !== "links"
+    subcommand !== "links" &&
+    subcommand !== "plan"
   ) {
     throw new Error(
-      `Unknown subcommand "${subcommand ?? ""}". Expected: verify | context | where | find | callers | callees | review | spec-review | domain-review | pr-review | project | export-graph | web | cache-stats | integral | domains | trace | screens | scenes | entrypoints | knowledge | links`,
+      `Unknown subcommand "${subcommand ?? ""}". Expected: verify | context | where | find | callers | callees | review | spec-review | domain-review | pr-review | project | export-graph | web | cache-stats | integral | domains | trace | screens | scenes | entrypoints | knowledge | links | plan`,
     );
   }
 
@@ -308,6 +323,10 @@ export function parseArgs(argv: string[]): CliArgs {
 
   if (subcommand === "knowledge") {
     return parseKnowledgeArgs(args);
+  }
+
+  if (subcommand === "plan") {
+    return parsePlanArgs(args);
   }
 
   // The `web` subcommand has its own flag set.
@@ -339,6 +358,7 @@ export function parseArgs(argv: string[]): CliArgs {
   let unrooted = false;
   let frontier = false;
   let exportMode: "graph" | "entrypoints" | undefined;
+  let planPath: string | undefined;
 
   for (let i = 0; i < args.length; i++) {
     const flag = args[i];
@@ -385,6 +405,10 @@ export function parseArgs(argv: string[]): CliArgs {
       baselinePath = args[++i];
     } else if (flag === "--write-baseline") {
       writeBaseline = args[++i];
+    } else if (flag === "--plan") {
+      // Optional value: `--plan` alone means "the repo's most recent plan".
+      const next = args[i + 1];
+      planPath = next !== undefined && !next.startsWith("-") ? args[++i] : "";
     } else if (flag === "--base") {
       base = args[++i];
     } else if (flag === "--enforce-dual-layer-domain-gate") {
@@ -407,24 +431,87 @@ export function parseArgs(argv: string[]): CliArgs {
     }
   }
 
-  return { subcommand, repoPath, diff, file, task, symbol, mode, limit, json, project, output, baselinePath, writeBaseline, base, enforceDualLayerDomainGate, sceneMaxDepth, entryRef, unrooted, frontier, exportMode };
+  return { subcommand, repoPath, diff, file, task, symbol, mode, limit, json, project, output, baselinePath, writeBaseline, base, enforceDualLayerDomainGate, sceneMaxDepth, entryRef, unrooted, frontier, exportMode, planPath };
 }
 
 /**
- * Pull the changed file path(s) out of a unified diff's `+++ b/<path>` headers.
- * Returns the de-duplicated list in order of appearance. `/dev/null` (deletions)
- * is skipped. Used to attribute a diff to a layer so `by:path` rules apply.
+ * `plan --task "<日本語可>" [--project <id> ...] [--repo <path>] [--json]
+ *  [--no-llm] [--format okf]`
+ *
+ * `--project` is REPEATABLE: a task like "切り絵のデモを実装する" spans Pictor
+ * (demo/shader/Visus) and Figmentum (image transform), and planning them
+ * separately would lose exactly the cross-repo split the plan exists to show.
+ */
+function parsePlanArgs(args: string[]): CliArgs {
+  let repoPath = process.cwd();
+  let task: string | undefined;
+  let json = false;
+  let noLlm = false;
+  let planFormat: "markdown" | "okf" = "markdown";
+  const projects: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const flag = args[i];
+    if (flag === "--task" || flag === "-t") {
+      task = args[++i];
+    } else if (flag === "--project" || flag === "-p") {
+      const value = args[++i];
+      if (!value || value.startsWith("-")) throw new Error("plan --project requires an id");
+      projects.push(value);
+    } else if (flag === "--repo" || flag === "-r") {
+      repoPath = args[++i] ?? repoPath;
+    } else if (flag === "--json" || flag === "-j") {
+      json = true;
+    } else if (flag === "--no-llm") {
+      noLlm = true;
+    } else if (flag === "--format") {
+      const value = args[++i];
+      if (value !== "markdown" && value !== "okf") {
+        throw new Error(`Invalid --format "${value ?? ""}". Expected: markdown | okf`);
+      }
+      planFormat = value;
+    } else {
+      throw new Error(`Unknown plan option "${flag}"`);
+    }
+  }
+  if (!task || task.trim() === "") throw new Error("plan requires --task \"<task>\"");
+  return {
+    subcommand: "plan",
+    repoPath,
+    task,
+    json,
+    noLlm,
+    planFormat,
+    ...(projects.length > 0 ? { projects, project: projects[0] } : {}),
+  };
+}
+
+/**
+ * Pull changed paths from unified-diff header pairs. The post-image path wins;
+ * deletions use the pre-image path. Returns a de-duplicated list in order.
  */
 export function diffTargetPaths(diff: string): string[] {
   const out: string[] = [];
+  let oldPath: string | null = null;
+  let awaitingNewPath = false;
   for (const line of diff.split(/\r?\n/)) {
-    if (!line.startsWith("+++ ")) continue;
-    let p = line.slice(4).trim();
-    if (p === "/dev/null") continue;
-    p = p.replace(/^b\//, "").replace(/\t.*$/, "");
-    if (p && !out.includes(p)) out.push(p);
+    if (line.startsWith("--- ")) {
+      oldPath = normalizeDiffHeaderPath(line.slice(4));
+      awaitingNewPath = true;
+      continue;
+    }
+    if (!awaitingNewPath || !line.startsWith("+++ ")) continue;
+    const path = normalizeDiffHeaderPath(line.slice(4)) ?? oldPath;
+    if (path && !out.includes(path)) out.push(path);
+    awaitingNewPath = false;
+    oldPath = null;
   }
   return out;
+}
+
+function normalizeDiffHeaderPath(raw: string): string | null {
+  const path = raw.trim().replace(/\t.*$/, "");
+  if (path === "/dev/null" || path === "") return null;
+  return path.replace(/^[ab]\//, "");
 }
 
 function parseWebArgs(args: string[]): CliArgs {
@@ -705,6 +792,10 @@ export async function runCli(
     return runKnowledge(args);
   }
 
+  if (args.subcommand === "plan") {
+    return runPlan(args);
+  }
+
   if (args.subcommand === "spec-review") {
     const report = await reviewSpec(args.repoPath);
     if (args.json) return { exitCode: 0, output: JSON.stringify(report, null, 2) };
@@ -769,7 +860,11 @@ export async function runCli(
       diffSource = await readFile(diffArg, "utf8");
     }
 
-    const verdict = await buildVerdict(ctx, diffSource, args.file);
+    const plan = await resolveVerifyPlan(args, ctx.repoPath);
+    const verdict = await buildVerdict(ctx, diffSource, args.file, {
+      ...(plan ? { plan } : {}),
+      ...(plan ? { planRepo: resolveVerifyPlanRepo(args, plan) } : {}),
+    });
     const exitCode = verdict.pass ? 0 : 1;
 
     if (args.json) {
@@ -841,6 +936,38 @@ export async function runCli(
 }
 
 /**
+ * The plan `verify --plan` checks the diff against.
+ *
+ * `--plan <path>` reads that file; a bare `--plan` takes the repo's most recent
+ * plan, which is what a PR opened right after `anatomia plan` wants. A missing
+ * or unreadable file THROWS rather than quietly verifying without the gate the
+ * user explicitly asked for (RULE_CODE §7).
+ */
+async function resolveVerifyPlan(args: CliArgs, repoPath: string): Promise<Plan | undefined> {
+  if (args.planPath === undefined) return undefined;
+  let file: string | null = args.planPath;
+  if (file === "") {
+    file = await latestPlanFile(repoPath);
+    if (file === null) {
+      throw new Error(
+        `--plan was given but ${repoPath} has no plan under ${PLAN_DIR_REL}; run \`anatomia plan --task ...\` first.`,
+      );
+    }
+  }
+  return loadPlan(file);
+}
+
+/** Resolve which slice of a cross-repo plan applies to this checkout. */
+function resolveVerifyPlanRepo(args: CliArgs, plan: Plan): string {
+  if (plan.storedForRepo) return plan.storedForRepo;
+  if (args.project && plan.repos.includes(args.project)) return args.project;
+  if (plan.repos.length === 1) return plan.repos[0]!;
+  throw new Error(
+    "cross-repo plan has no repository identity; use the copy saved in the target repo or pass --project",
+  );
+}
+
+/**
  * Resolve the AnalysisContext for verify/context/where. With --project, analyze
  * the registered project (cache-aware) via the persisted ProjectManager;
  * otherwise analyze the --repo / cwd path directly (legacy behaviour).
@@ -885,7 +1012,7 @@ async function runDomainReview(
     const projectId = mgr.resolveId(args.project);
     ctx = await mgr.getContext(projectId);
     const project = mgr.get(projectId)!;
-    const operatorDomainsDir = project.ontologyDir ?? process.env["ANATOMIA_PLUGIN_DIR"];
+    const operatorDomainsDir = effectiveOntologyDir(project) ?? process.env["ANATOMIA_PLUGIN_DIR"];
     defsDir = operatorDomainsDir
       ?? resolveCommittedOntologyDir(project.rootPath)
       ?? domainsDir(project.rootPath);
@@ -1310,7 +1437,7 @@ async function runDomains(args: CliArgs): Promise<{ exitCode: number; output: st
     projectId = mgr.resolveId(args.project);
     const project = mgr.get(projectId)!;
     repoRoot = project.rootPath;
-    projectOntologyDir = project.ontologyDir;
+    projectOntologyDir = effectiveOntologyDir(project);
   }
   const operatorDomainsDir = projectOntologyDir ?? process.env["ANATOMIA_PLUGIN_DIR"];
   const autoDiscovered = args.dir === undefined && operatorDomainsDir === undefined;

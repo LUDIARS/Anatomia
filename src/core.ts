@@ -68,6 +68,8 @@ import type { AnchorId, ContextBundle, FileNode, FunctionNode, GateResult, Link,
 import type { Landing, LandingTask } from "./supply/landing.js";
 import type { DetectionResult } from "./domains/detect.js";
 import type { DiffInput } from "./supply/gates/types.js";
+import { planConformanceGate } from "./supply/gates/plan_conformance.js";
+import type { Plan } from "./supply/plan/types.js";
 import type { Lang } from "./types.js";
 import { vgCrash, vgWrite } from "./obs/vestigium.js";
 import { buildProjectProfile } from "./project/profile.js";
@@ -326,36 +328,47 @@ function langForDiff(diff: string, targetPath?: string): Lang {
 }
 
 /**
- * Extract the post-image file path from a unified diff's `+++ b/<path>` header.
- * Returns null when the input is not a unified diff or has no `+++` line.
+ * Extract a unified diff's changed path. The post-image path wins, while a
+ * deletion (`+++ /dev/null`) falls back to its `--- a/<path>` pre-image.
  */
 function diffTargetPath(diff: string): string | null {
+  let oldPath: string | null = null;
+  let awaitingNewPath = false;
   for (const line of diff.split(/\r?\n/)) {
-    if (!line.startsWith("+++ ")) continue;
-    let p = line.slice(4).trim();
-    // Strip a trailing tab-separated timestamp some diff tools append.
-    const tab = p.indexOf("\t");
-    if (tab >= 0) p = p.slice(0, tab);
-    if (p === "/dev/null") return null;
-    // Drop the conventional `b/` (or `a/`) prefix.
-    p = p.replace(/^[ab]\//, "");
-    if (p.length > 0) return p;
+    if (line.startsWith("--- ")) {
+      oldPath = normalizeDiffHeaderPath(line.slice(4));
+      awaitingNewPath = true;
+      continue;
+    }
+    if (!awaitingNewPath || !line.startsWith("+++ ")) continue;
+    return normalizeDiffHeaderPath(line.slice(4)) ?? oldPath;
   }
   return null;
 }
 
 function diffTargetPaths(diff: string): string[] {
   const out: string[] = [];
+  let oldPath: string | null = null;
+  let awaitingNewPath = false;
   for (const line of diff.split(/\r?\n/)) {
-    if (!line.startsWith("+++ ")) continue;
-    let p = line.slice(4).trim();
-    const tab = p.indexOf("\t");
-    if (tab >= 0) p = p.slice(0, tab);
-    if (p === "/dev/null") continue;
-    p = p.replace(/^[ab]\//, "");
-    if (p.length > 0 && !out.includes(p)) out.push(p);
+    if (line.startsWith("--- ")) {
+      oldPath = normalizeDiffHeaderPath(line.slice(4));
+      awaitingNewPath = true;
+      continue;
+    }
+    if (!awaitingNewPath || !line.startsWith("+++ ")) continue;
+    const path = normalizeDiffHeaderPath(line.slice(4)) ?? oldPath;
+    if (path && !out.includes(path)) out.push(path);
+    awaitingNewPath = false;
+    oldPath = null;
   }
   return out;
+}
+
+function normalizeDiffHeaderPath(raw: string): string | null {
+  const path = raw.trim().replace(/\t.*$/, "");
+  if (path === "/dev/null" || path === "") return null;
+  return path.replace(/^[ab]\//, "");
 }
 
 /** Path segments that should be excluded from TypeScript source collection. */
@@ -1150,9 +1163,40 @@ export interface VerifyOptions {
    * store (sharedEmbeddingCache) when providers are present and this is omitted.
    */
   embeddingCache?: CacheStore<CachedVector>;
+  /**
+   * Domain plan to check the diff against (`verify --plan`). Present → the
+   * advisory plan_conformance gate runs once over the diff's changed paths.
+   */
+  plan?: Plan;
+  /** Project id whose plan items apply, when the plan spans several repos. */
+  planRepo?: string;
 }
 
 export async function buildVerdict(
+  ctx: AnalysisContext,
+  diff: string,
+  targetPath?: string,
+  opts?: VerifyOptions,
+): Promise<Verdict> {
+  const verdict = await runGateVerdict(ctx, diff, targetPath, opts);
+  if (!opts?.plan) return verdict;
+  // plan_conformance is a property of the WHOLE diff (a file is off-plan only
+  // after every plan item was considered), so it runs once here rather than
+  // inside the per-file gate set that runGateVerdict splits a diff into.
+  const gate = planConformanceGate(opts.plan, diffTargetPaths(diff), {
+    ...(opts.planRepo ? { repo: opts.planRepo } : {}),
+  });
+  return {
+    ...verdict,
+    gates: [...verdict.gates, gate],
+    // Advisory: the verdict's pass/fail is unchanged, only the suggestion grows.
+    suggestion: gate.suggestion
+      ? [verdict.suggestion, `[warn ${gate.gate}] ${gate.suggestion}`].filter(Boolean).join("\n\n")
+      : verdict.suggestion,
+  };
+}
+
+async function runGateVerdict(
   ctx: AnalysisContext,
   diff: string,
   targetPath?: string,
@@ -1162,7 +1206,7 @@ export async function buildVerdict(
     const sections = splitUnifiedDiffByFile(diff);
     if (sections.length > 1) {
       const verdicts = await Promise.all(
-        sections.map((section) => buildVerdict(ctx, section.diff, section.path, opts)),
+        sections.map((section) => runGateVerdict(ctx, section.diff, section.path, opts)),
       );
       return mergeVerdicts(verdicts);
     }

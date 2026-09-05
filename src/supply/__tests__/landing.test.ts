@@ -38,7 +38,7 @@ describe("T27 resolveLanding", () => {
     expect(result).toHaveLength(1);
     expect(result[0]!.domain).toBe("Effect");
     expect(result[0]!.confidence).toBeGreaterThanOrEqual(0.9);
-    // Deterministic pick: lowest anchor wins (hashA < hashB).
+    // Same layer, same reference count => anchor order is the tie-break.
     expect(result[0]!.anchor).toBe(a("hashA"));
     expect(result[0]!.proposal).toBeUndefined();
   });
@@ -93,6 +93,39 @@ describe("T27 resolveLanding", () => {
     const skill = result.find((r) => r.domain === "Skill")!;
     expect(effect.anchor).toBeNull(); // proposal
     expect(skill.anchor).toBe(a("sk1")); // precedent
+  });
+
+  it("prefers a src precedent over a vendored one, whatever the anchors sort to", async () => {
+    // Regression: `kirie-transform`'s exemplar used to be third_party/stb_image.h
+    // purely because its anchor sorted first.
+    const detector: DomainDetector = async () => ["Effect"];
+    const siblings: SiblingLookup = async () => [
+      { anchor: a("aaa"), name: "stbi_load", layer: "third_party", references: 40 },
+      { anchor: a("zzz"), name: "ApplyEffect", layer: "src", references: 2 },
+    ];
+    const result = await resolveLanding(
+      { description: "add a freeze effect" },
+      detector,
+      layerRules,
+      siblings,
+    );
+    expect(result[0]!.anchor).toBe(a("zzz"));
+    expect(result[0]!.layer).toBe("src");
+  });
+
+  it("within one layer, the most-referenced sibling is the precedent", async () => {
+    const detector: DomainDetector = async () => ["Effect"];
+    const siblings: SiblingLookup = async () => [
+      { anchor: a("aaa"), name: "RareEffect", layer: "src", references: 1 },
+      { anchor: a("bbb"), name: "CommonEffect", layer: "src", references: 17 },
+    ];
+    const result = await resolveLanding(
+      { description: "add a freeze effect" },
+      detector,
+      layerRules,
+      siblings,
+    );
+    expect(result[0]!.anchor).toBe(a("bbb"));
   });
 
   it("uses domainHints when provided (detector skipped)", async () => {

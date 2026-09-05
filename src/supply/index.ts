@@ -6,6 +6,7 @@
  *   T27 landing.ts    — landing-point decision (domain × layer × siblings)
  *   T28 bundle.ts     — deterministic, content-addressed context bundle
  *   T29 verify.ts     — 5 gates -> Verdict (gates/ sub-folder)
+ *       plan/         — task -> domain-sized work plan (`anatomia plan`)
  */
 
 // T26 — metrics + thresholds
@@ -59,3 +60,24 @@ export {
   conventionDriftGate,
 } from "./gates/index.js";
 export type { Gate, DiffInput, DuplicationDeps } from "./gates/index.js";
+export { PLAN_CONFORMANCE_GATE, planConformanceGate } from "./gates/index.js";
+
+// plan — task -> domain plan, and the advisory diff-vs-plan reconciliation
+export {
+  PLAN_DIR_REL,
+  PLAN_VERSION,
+  buildPlan,
+  evaluatePlanConformance,
+  formatPlan,
+  formatPlanOkf,
+  latestPlanFile,
+  loadPlan,
+  savePlan,
+} from "./plan/index.js";
+export type {
+  Plan,
+  PlanItem,
+  PlanConformance,
+  PlanRepo,
+  PlanSource,
+} from "./plan/index.js";

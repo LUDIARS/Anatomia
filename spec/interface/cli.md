@@ -7,8 +7,9 @@
 ## サブコマンド
 
 ```
-anatomia <verify|context|where|find|callers|callees|review|spec-review|domain-review|pr-review|
-          project|export-graph|web|cache-stats|integral|domains|trace|screens|scenes|links> [flags]
+anatomia <verify|context|where|plan|find|callers|callees|review|spec-review|domain-review|
+          pr-review|project|export-graph|web|cache-stats|integral|domains|trace|screens|scenes|
+          links> [flags]
 ```
 
 | サブコマンド | 何をする | 出力 / 終了コード |
@@ -16,6 +17,7 @@ anatomia <verify|context|where|find|callers|callees|review|spec-review|domain-re
 | `verify` | diff を 5 ゲート検証（→ feature/verify-gates.md） | block 失敗で **exit 1**、PASS は 0 |
 | `context --task <t>` | タスク用 ContextBundle を組む | JSON / 0 |
 | `where --task <t>` | 着地点（landing）を解決 | `{ landings }` JSON / 0 |
+| `plan --task <t>` | task をドメイン単位の作業計画へ分解（→ feature/domain-plan.md） | Markdown / JSON / OKF、常に 0 |
 | `find <name>` | シンボル検索（→ feature/symbol-navigation.md） | ヒット一覧 / 0 |
 | `callers <name>` / `callees <name>` | 直接 caller / callee | ヒット一覧 / 0 |
 | `review` | コード構造レビュー（→ feature/code-review.md） | レポート / 0 |
@@ -33,6 +35,27 @@ anatomia <verify|context|where|find|callers|callees|review|spec-review|domain-re
 | `screens` | 静的画面構成の検出（→ feature/screen-composition.md） | 一覧 / 0 |
 | `scenes` | シーン導出 + シーンキャッシュ（→ feature/scene-derivation.md） | 一覧 / 0 |
 | `links <list\|ratify\|candidates>` | コード↔仕様リンクの硬化（→ feature/spec-linkage.md） | 下記 |
+
+### plan のフラグ
+
+| フラグ | 意味 |
+|---|---|
+| `--task <t>` / `-t` | 分解する task（日本語可、必須） |
+| `--project <id>` / `-p` | 対象プロジェクト。**繰り返し可**（リポを跨る計画） |
+| `--repo <path>` / `-r` | 未登録チェックアウトを単発解析する（`--project` 無指定時） |
+| `--no-llm` | LLM 分解を行わず決定的検出のみ |
+| `--format markdown\|okf` | 出力形式（既定 markdown、`okf` は委託プロンプト用 OKF 文書） |
+| `--json` / `-j` | 生 `Plan` JSON |
+
+計画は各 repo の `.anatomia/plan/<task-hash>.json` にも保存される。
+
+### verify --plan
+
+| フラグ | 意味 |
+|---|---|
+| `--plan [<path>]` | 計画と diff を突合する。値なしならそのリポの直近 plan。plan が無ければエラー |
+
+`plan_conformance` は advisory（exit code を変えない）。
 
 ### project analyze の部分実行フラグ
 
@@ -68,12 +91,12 @@ anatomia <verify|context|where|find|callers|callees|review|spec-review|domain-re
 
 ## 共通フラグ
 
-`verify` / `context` / `where` / `export-graph`：
+`verify` / `context` / `where` / `plan` / `export-graph`：
 
 | フラグ | 別名 | 意味 |
 |---|---|---|
 | `--repo <path>` | `-r` | 解析対象 repo（既定 cwd） |
-| `--task <t>` | `-t` | context / where のタスク記述 |
+| `--task <t>` | `-t` | context / where / plan のタスク記述 |
 | `--diff <path>` | `-d` | verify の diff ファイル（既定 `-` = stdin） |
 | `--project <id>` | `-p` | 登録プロジェクトを対象（registered rootPath が --repo を上書き） |
 | `--json` | `-j` | 生 JSON 出力 |

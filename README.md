@@ -81,12 +81,21 @@ session 別の hit 率と節約コールを見る。詳細は [`docs/cache-measu
 node bin/anatomia.mjs project add adventure <path-to-repo>
 node bin/anatomia.mjs project analyze adventure
 
+# 着手前: タスクをドメイン単位の作業計画に分解する
+node bin/anatomia.mjs plan --project adventure --task "freeze effect を追加"
+
 # 生成前: タスクの文脈束を組む
 node bin/anatomia.mjs context --project adventure --task "freeze effect を追加"
 
 # 生成後: diff を 5 ゲートで検証（block 失敗で exit 1）
 git diff | node bin/anatomia.mjs verify --project adventure --json
+
+# 計画と突合する（plan_conformance は advisory）
+git diff | node bin/anatomia.mjs verify --repo <path-to-repo> --plan
 ```
+
+`plan` は `--project` を繰り返して複数リポに跨る計画を作れる。LLM 分解を止めるなら
+`--no-llm`、委託プロンプトへ埋める OKF 文書は `--format okf`。
 
 単発（登録なし）は `--repo <path>`、静的グラフは `export-graph -o graph.html`、
 複数プロジェクト管理 UI は `web --port 4200`。

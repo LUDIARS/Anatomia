@@ -77,6 +77,7 @@ Discord 添付 mode は `ANATOMIA_DISCORD_BOT_TOKEN` が無ければ `501`。複
 |---|---|---|
 | POST | `/api/verify` | `{ diff, project? }` → `Verdict`（5 ゲート） |
 | GET | `/api/context` | `?project=&task=` → `ContextBundle` |
+| POST | `/api/plan` | `{ project, projects?, task, llm?, okf? }` → `{ plan, markdown, okf? }`（→ feature/domain-plan.md）。`llm` の既定は true（LLM 分解、10 秒級）。`false` で決定的分解のみ。manager モード専用（単一 context では 501） |
 
 ## キャッシュ / コスト / トレース
 

@@ -540,6 +540,20 @@ describe("GET /api/projects (manager mode — empty)", () => {
   });
 });
 
+describe("POST /api/plan input validation", () => {
+  it("rejects a JSON primitive body", async () => {
+    const res = await managerApp.fetch(
+      new Request("http://localhost/api/plan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "null",
+      }),
+    );
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({ error: "body must be a JSON object" });
+  });
+});
+
 describe("POST /api/projects (manager mode)", () => {
   it("registers and analyzes a new project", async () => {
     const res = await managerApp.fetch(

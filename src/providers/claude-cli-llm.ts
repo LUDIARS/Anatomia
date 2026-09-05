@@ -34,6 +34,22 @@ export interface ClaudeCliLlmConfig {
   model?: string;
   /** CLI executable. Default `claude` (resolved on PATH). */
   bin?: string;
+  /** Arguments placed before Claude's flags, primarily for executable wrappers. */
+  binArgs?: string[];
+  /**
+   * System prompt appended via `--append-system-prompt`. Defaults to the
+   * card distiller's. Callers that ask the CLI for something OTHER than a
+   * domain card (plan decomposition) must pass their own — the distiller
+   * prompt would otherwise steer the model to answer with a card.
+   */
+  systemPrompt?: string;
+  /**
+   * Wall-clock budget in ms. On expiry the child is killed and the call
+   * REJECTS — a caller with a deadline (an interactive hook) needs the failure,
+   * so it can fall back deliberately, not a call that never returns.
+   * Omitted / 0 → no timeout.
+   */
+  timeoutMs?: number;
   /**
    * Usage sink — called once per CLI call with the token usage from the JSON
    * envelope. Optional; absent => no reporting.
@@ -45,10 +61,13 @@ export interface ClaudeCliLlmConfig {
 export function createClaudeCliLlm(config: ClaudeCliLlmConfig = {}): LLMClient {
   const model = config.model ?? DEFAULT_MODEL;
   const bin = config.bin ?? DEFAULT_BIN;
+  const binArgs = config.binArgs ?? [];
+  const systemPrompt = config.systemPrompt ?? CARD_DISTILLER_SYSTEM_PROMPT;
+  const timeoutMs = config.timeoutMs ?? 0;
 
   return async (prompt: string): Promise<string> => {
     const startedAt = Date.now();
-    const { stdout } = await runClaude(bin, model, prompt);
+    const { stdout } = await runClaude(bin, binArgs, model, prompt, systemPrompt, timeoutMs);
     const env = parseEnvelope(stdout);
     if (config.onUsage) config.onUsage(env.usage);
     void reportConcordiaCostOneShot({
@@ -76,30 +95,50 @@ export function createClaudeCliLlm(config: ClaudeCliLlmConfig = {}): LLMClient {
 /** Spawn `claude -p`, feed the prompt on stdin, collect stdout. Throws on failure. */
 function runClaude(
   bin: string,
+  binArgs: string[],
   model: string,
   prompt: string,
+  systemPrompt: string,
+  timeoutMs: number,
 ): Promise<{ stdout: string }> {
   const args = [
+    ...binArgs,
     "-p",
     "--output-format",
     "json",
     "--model",
     model,
     "--append-system-prompt",
-    CARD_DISTILLER_SYSTEM_PROMPT,
+    systemPrompt,
   ];
   return new Promise((resolve, reject) => {
     const child = spawn(bin, args, { stdio: ["pipe", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
+    let timedOut = false;
+    const timer = timeoutMs > 0
+      ? setTimeout(() => {
+          timedOut = true;
+          child.kill();
+        }, timeoutMs)
+      : undefined;
+    const settle = (): void => {
+      if (timer) clearTimeout(timer);
+    };
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
     child.stdout.on("data", (d: string) => (stdout += d));
     child.stderr.on("data", (d: string) => (stderr += d));
-    child.on("error", (err) =>
-      reject(new Error(`claude CLI failed to spawn (bin="${bin}"): ${err.message}`)),
-    );
+    child.on("error", (err) => {
+      settle();
+      reject(new Error(`claude CLI failed to spawn (bin="${bin}"): ${err.message}`));
+    });
     child.on("close", (code) => {
+      settle();
+      if (timedOut) {
+        reject(new Error(`claude CLI exceeded its ${timeoutMs}ms budget and was killed`));
+        return;
+      }
       if (code !== 0) {
         reject(new Error(`claude CLI exited ${code}: ${stderr.trim() || stdout.trim()}`));
         return;

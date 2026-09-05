@@ -23,6 +23,7 @@
 import { createHash } from "node:crypto";
 import type { Hono } from "hono";
 import type { ProjectManager } from "../../../project/manager.js";
+import { effectiveOntologyDir } from "../../../project/config-paths.js";
 import type { LLMClient } from "../../../domains/card.js";
 import type { SpecClause } from "../../../types.js";
 import {
@@ -126,7 +127,7 @@ export function mountFlowRoutes(app: Hono, deps: FlowRouteDeps): void {
     const id = c.req.param("id");
     const project = resolveProject(manager, id);
     if (!project) return c.json({ error: `no such project "${id}"` }, 404);
-    const dir = project.ontologyDir ?? domainsDir(project.rootPath);
+    const dir = effectiveOntologyDir(project) ?? domainsDir(project.rootPath);
     const defs = await loadEditableDomains(dir);
     return c.json({ dir, domains: defs });
   });
@@ -146,7 +147,7 @@ export function mountFlowRoutes(app: Hono, deps: FlowRouteDeps): void {
     }
 
     const opts = parseDraftOpts(body);
-    const dir = project.ontologyDir ?? domainsDir(project.rootPath);
+    const dir = effectiveOntologyDir(project) ?? domainsDir(project.rootPath);
 
     try {
       // Gate A recomputes the snapshot from the project's own analysis, so an
@@ -213,7 +214,7 @@ export function mountFlowRoutes(app: Hono, deps: FlowRouteDeps): void {
       const drafts = parseDomainDrafts(body["drafts"]);
       const overrideNames = parseOverrideNames(body["overrideNames"]);
       const expectedSnapshot = requiredString(body["snapshotId"], "snapshotId");
-      const dir = project.ontologyDir ?? domainsDir(project.rootPath);
+      const dir = effectiveOntologyDir(project) ?? domainsDir(project.rootPath);
       const minGroupFunctions = positiveInteger(body["minGroupFunctions"], 3);
       const result = await applyGateAApproval({
         repoRoot: project.rootPath,
@@ -318,7 +319,7 @@ export function mountFlowRoutes(app: Hono, deps: FlowRouteDeps): void {
     const project = resolveProject(manager, id);
     if (!project) return c.json({ error: `no such project "${id}"` }, 404);
     try {
-      const dir = project.ontologyDir ?? domainsDir(project.rootPath);
+      const dir = effectiveOntologyDir(project) ?? domainsDir(project.rootPath);
       await requireGateAApproval(project.rootPath, dir);
       const ctx = await manager.getContext(project.id);
       const minGroupFunctions = positiveInteger(c.req.query("minGroupFunctions"), 3);
@@ -343,7 +344,7 @@ export function mountFlowRoutes(app: Hono, deps: FlowRouteDeps): void {
       return c.json({ error: "body must be JSON" }, 400);
     }
     try {
-      const dir = project.ontologyDir ?? domainsDir(project.rootPath);
+      const dir = effectiveOntologyDir(project) ?? domainsDir(project.rootPath);
       await requireGateAApproval(project.rootPath, dir);
       const ctx = await manager.getContext(project.id);
       const investigation = await investigateProjectOrphans(
@@ -412,7 +413,7 @@ export function mountFlowRoutes(app: Hono, deps: FlowRouteDeps): void {
       const approved = parseApprovedOrphanProposals(body["proposals"]);
       const requestedSnapshot = requiredString(body["snapshotId"], "snapshotId");
       const minGroupFunctions = positiveInteger(body["minGroupFunctions"], 3);
-      const dir = project.ontologyDir ?? domainsDir(project.rootPath);
+      const dir = effectiveOntologyDir(project) ?? domainsDir(project.rootPath);
       const applied = await approveAndApplyOrphanDomains({
         repoRoot: project.rootPath,
         ontologyDir: dir,

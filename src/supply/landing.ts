@@ -50,6 +50,12 @@ export interface Sibling {
   name: string;
   /** Layer this sibling lives in (for proposal text / filtering). */
   layer: string | null;
+  /**
+   * How many call sites reference this sibling. A heavily-referenced function
+   * is the one the repo actually treats as the pattern; optional so hand-built
+   * siblings (tests, external callers) may omit it (counted as 0).
+   */
+  references?: number;
 }
 
 /**
@@ -77,10 +83,54 @@ const CONF_PRECEDENT = 0.9; // sibling exists -> deterministic
 const CONF_LAYER_ONLY = 0.5; // layer known, no sibling -> proposal
 const CONF_NOVEL = 0.25; // no layer, no sibling -> fully novel
 
-/** Stable sort helper for siblings by anchor then name (deterministic pick). */
-function pickPrecedent(siblings: Sibling[]): Sibling | undefined {
+/**
+ * Layer preference for the precedent pick, most-exemplary first. A repo's own
+ * `src` / `app` / `samples` code is what a new implementation should imitate;
+ * vendored code is present but is nobody's convention.
+ */
+const LAYER_PRIORITY: readonly string[] = ["src", "app", "samples", "sample", "examples", "example"];
+
+/** Layers that are copied-in third-party code — never a precedent to imitate. */
+const VENDOR_LAYERS: ReadonlySet<string> = new Set([
+  "third_party",
+  "thirdparty",
+  "3rdparty",
+  "vendor",
+  "vendors",
+  "extern",
+  "external",
+  "deps",
+  "node_modules",
+]);
+
+/** Lower rank = better precedent. Unknown layers sit between preferred and vendor. */
+function layerRank(layer: string | null): number {
+  if (layer === null) return LAYER_PRIORITY.length + 1;
+  const normalized = layer.toLowerCase();
+  const preferred = LAYER_PRIORITY.indexOf(normalized);
+  if (preferred !== -1) return preferred;
+  if (VENDOR_LAYERS.has(normalized)) return LAYER_PRIORITY.length + 2;
+  return LAYER_PRIORITY.length + 1;
+}
+
+/**
+ * Choose the sibling a new implementation should be modelled on: the repo's own
+ * layers before vendored code, then the most-referenced function, then anchor
+ * order as the deterministic tie-break.
+ *
+ * Anchor order ALONE (the previous rule) picked whichever content hash sorted
+ * first, which is meaningless as a design signal — Figmentum's `kirie-transform`
+ * landed on `third_party/stb_image.h`, telling the author to imitate a vendored
+ * header. Every component of this comparison is derived from the analysed repo,
+ * so the pick stays deterministic.
+ */
+export function pickPrecedent(siblings: Sibling[]): Sibling | undefined {
   if (siblings.length === 0) return undefined;
   return [...siblings].sort((a, b) => {
+    const rank = layerRank(a.layer) - layerRank(b.layer);
+    if (rank !== 0) return rank;
+    const refs = (b.references ?? 0) - (a.references ?? 0);
+    if (refs !== 0) return refs;
     if (a.anchor !== b.anchor) return a.anchor < b.anchor ? -1 : 1;
     return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
   })[0];
