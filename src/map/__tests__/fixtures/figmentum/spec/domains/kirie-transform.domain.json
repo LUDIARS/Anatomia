@@ -9,7 +9,7 @@
       "pathPattern": "(^|/)src/kirie/(?:.*/)?[^/]+$"
     },
     {
-      "pathPattern": "(^|/)spec/feature/kirie-transform\\.md$"
+      "pathPattern": "(^|/)spec/feature/kirie(?:-anim|-transform)\\.md$"
     }
   ]
 }

@@ -126,10 +126,16 @@ describe("buildProjectDomainMap", () => {
   });
 
   it("falls back to the spec H1 when a repo declares no content source", async () => {
-    const map = await fixtureMap("figmentum");
-    const names = map.records.map((record) => record.name);
-    expect(names).toContain("切り絵変換");
-    expect(map.notes.join(" ")).toContain("content-sources.json");
+    const root = await mkdtemp(join(tmpdir(), "anatomia-domain-map-fallback-"));
+    try {
+      await mkdir(join(root, "spec", "feature"), { recursive: true });
+      await writeFile(join(root, "spec", "feature", "kirie-transform.md"), "# 切り絵変換\n", "utf8");
+      const map = await buildProjectDomainMap({ id: "fallback", rootPath: root }, { roster: [] });
+      expect(map.records.map((record) => record.name)).toContain("切り絵変換");
+      expect(map.notes.join(" ")).toContain("content-sources.json");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it("reads frontmatter titles when the declaration asks for them", async () => {

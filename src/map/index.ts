@@ -26,6 +26,7 @@ export {
 } from "./aliases.js";
 export {
   CONTENT_SOURCES_REL,
+  SPEC_FEATURE_REL,
   collectContentEntries,
   collectContentSourceFiles,
   frontmatterTitleOf,
@@ -48,6 +49,7 @@ export {
   computeMapSourceKey,
   layersForPaths,
   pathHintFromPattern,
+  pathHintsFromPattern,
 } from "./sources.js";
 export type { BuildProjectMapOptions, MapProjectInput } from "./sources.js";
 export {

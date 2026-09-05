@@ -30,6 +30,7 @@ import type { ProgramDomainConfig } from "../domains/program/types.js";
 import { aliasKeys } from "./aliases.js";
 import {
   CONTENT_SOURCES_REL,
+  SPEC_FEATURE_REL,
   collectContentEntries,
   collectContentSourceFiles,
   headingOf,
@@ -61,8 +62,13 @@ export interface BuildProjectMapOptions {
   sourceKey?: string;
 }
 
-/** Repo-relative dir the H1 fallback reads when no content source is declared. */
-const SPEC_FEATURE_REL = "spec/feature";
+/** A core domain's concrete ownership claims and preferred specification. */
+interface CorePathOwner {
+  domain: string;
+  paths: string[];
+  specs: string[];
+  spec: string | null;
+}
 
 /** Build the whole map of one project. */
 export async function buildProjectDomainMap(
@@ -86,17 +92,21 @@ export async function buildProjectDomainMap(
   if (!layersPresent) notes.push(".anatomia/layers.json が無いためプログラムドメインは空です。");
 
   const records: DomainMapRecord[] = [];
-  const coreByPath: { domain: string; paths: string[]; spec: string | null }[] = [];
+  const coreByPath: CorePathOwner[] = [];
 
   for (const def of defs) {
     if ((def.role ?? "semantic") !== "semantic") continue;
     const patterns = (def.membership ?? [])
       .map((filter) => filter.pathPattern)
       .filter((pattern): pattern is string => typeof pattern === "string");
-    const hints = patterns.map(pathHintFromPattern).filter((hint): hint is string => hint !== null);
+    const hints = patterns.flatMap(pathHintsFromPattern);
     const paths = dedupe(hints.filter((hint) => !hint.endsWith(".md")));
-    const spec = hints.find((hint) => hint.endsWith(".md")) ?? null;
-    coreByPath.push({ domain: def.name, paths, spec });
+    // A membership may name several spec documents (`kirie(?:-anim|-transform)`).
+    // All of them own their content; the record displays the one named after the
+    // domain when there is one, so the obvious document is not hidden behind a sibling.
+    const specs = dedupe(hints.filter((hint) => hint.endsWith(".md")));
+    const spec = specs.find((path) => specStem(path) === def.name) ?? specs[0] ?? null;
+    coreByPath.push({ domain: def.name, paths, specs, spec });
     records.push({
       project: project.id,
       kind: "core-domain",
@@ -167,26 +177,34 @@ export async function buildProjectDomainMap(
  * ポリン カウンター」 and 「uni-jump — トランポリン カウンター」. They are one
  * thing, and showing both would spend two of the search's few result slots on it.
  * The shorter name wins: it is the catalog name a person actually types.
+ *
+ * The DOCUMENT is part of the identity, which is what keeps this from eating a
+ * repo alive: two records that describe different spec documents are two things
+ * however much their owner and paths coincide. Without it, every document under
+ * one domain's membership collapsed into a single record.
  */
 function dedupeContent(records: DomainMapRecord[]): void {
-  const byKey = new Map<string, number>();
+  const byKey = new Map<string, DomainMapRecord>();
+  const discarded = new Set<DomainMapRecord>();
   for (let at = records.length - 1; at >= 0; at--) {
     const record = records[at]!;
     if (record.kind !== "content" || record.coreDomain === null) continue;
-    const key = `${record.coreDomain}::${record.paths.join(",")}`;
+    const key = JSON.stringify([record.coreDomain, record.paths, record.spec]);
     const kept = byKey.get(key);
     if (kept === undefined) {
-      byKey.set(key, at);
+      byKey.set(key, record);
       continue;
     }
-    const loser = records[kept]!.name.length <= record.name.length ? at : kept;
+    const loser = kept.name.length < record.name.length ? record : kept;
     // The survivor keeps both spellings so either one still matches exactly.
-    const winner = loser === at ? kept : at;
-    records[winner]!.aliases = [...new Set([...records[winner]!.aliases, ...records[loser]!.aliases])].sort();
-    records[winner]!.spec = records[winner]!.spec ?? records[loser]!.spec;
-    records.splice(loser, 1);
-    byKey.set(key, winner > loser ? winner - 1 : winner);
+    const winner = loser === record ? kept : record;
+    winner.aliases = [...new Set([...winner.aliases, ...loser.aliases])].sort();
+    winner.spec = winner.spec ?? loser.spec;
+    discarded.add(loser);
+    byKey.set(key, winner);
   }
+  const unique = records.filter((record) => !discarded.has(record));
+  records.splice(0, records.length, ...unique);
 }
 
 /**
@@ -231,12 +249,15 @@ async function specFeatureHeadings(repoPath: string): Promise<ContentEntry[]> {
  * a guess would be exactly the kind of soft link the map exists to replace.
  */
 function ownerOf(
-  cores: { domain: string; paths: string[]; spec: string | null }[],
+  cores: CorePathOwner[],
   entry: ContentEntry,
-): { domain: string; paths: string[]; spec: string | null } | undefined {
+): CorePathOwner | undefined {
+  // A `dirname` entry lives in its directory but is NAMED by its spec document:
+  // the document decides the owner, the directory places it.
+  const specTarget = entry.spec ?? entry.path;
   const target = entry.path;
   const exactSpec = cores
-    .filter((core) => core.spec === target)
+    .filter((core) => core.specs.includes(specTarget))
     .sort((a, b) => a.domain.localeCompare(b.domain))[0];
   if (exactSpec) return exactSpec;
 
@@ -256,27 +277,145 @@ function ownerOf(
 }
 
 /**
- * A concrete path prefix from a `membership[].pathPattern` RegExp source.
+ * Every concrete path a `membership[].pathPattern` RegExp source can be reduced to.
  *
- * Membership is declared as a regular expression, but the map shows people
- * WHERE to look, so it keeps the leading literal segments and stops at the first
- * segment containing regex syntax: a membership claiming everything under
- * `src/kirie/` yields the literal prefix `src/kirie`.
- * Returns null when nothing literal survives.
+ * Membership is declared as a regular expression; the map shows people WHERE to
+ * look, so a pattern is turned back into paths two ways:
+ *
+ *   1. LITERALISE. A pattern built from literals and simple alternations is
+ *      expanded into the exact paths it matches:
+ *      `spec/feature/kirie(?:-anim|-transform)\.md` → both documents.
+ *   2. TRUNCATE, but only for a genuine subtree claim. `src/kirie/(?:.*\/)?[^/]+`
+ *      claims everything under `src/kirie`, so the prefix stands in for it.
+ *
+ * Anything else yields NOTHING. Keeping the literal prefix of a pattern that
+ * merely NAMES files inside a directory is what collapsed a repo's whole
+ * `spec/feature` into one content record: every document there looked like it
+ * belonged to the one domain whose membership happened to name two of them.
+ * A membership the map cannot literalise claims no path at all — silence is
+ * correct where a guess is a wrong ownership claim.
  */
-export function pathHintFromPattern(pattern: string): string | null {
+export function pathHintsFromPattern(pattern: string): string[] {
   const body = pattern
     .replace(/^\(\^\|\/\)/, "")
     .replace(/^\^/, "")
-    .replace(/\$$/, "")
-    .replace(/\\([.\-/])/g, "$1");
-  const kept: string[] = [];
-  for (const segment of body.split("/")) {
-    if (segment === "") continue;
-    if (/[\\^$*+?()[\]{}|]/.test(segment)) break;
-    kept.push(segment);
+    .replace(/\$$/, "");
+  const literal = expandLiteralPaths(body);
+  if (literal) {
+    return dedupe(literal.map((path) => path.replace(/\/+$/, "")).filter(isSafePathHint));
   }
-  return kept.length > 0 ? kept.join("/") : null;
+
+  const unescaped = body.replace(/\\([.\-/])/g, "$1");
+  const kept: string[] = [];
+  let rest = unescaped;
+  while (rest !== "") {
+    const slash = rest.indexOf("/");
+    const segment = slash === -1 ? rest : rest.slice(0, slash);
+    if (segment !== "" && /[\\^$*+?()[\]{}|]/.test(segment)) break;
+    if (segment !== "") kept.push(segment);
+    rest = slash === -1 ? "" : rest.slice(slash + 1);
+  }
+  if (kept.length === 0 || !SUBTREE_TAIL.test(rest)) return [];
+  const prefix = kept.join("/");
+  return isSafePathHint(prefix) ? [prefix] : [];
+}
+
+/** The first path a membership pattern reduces to, or null when it reduces to none. */
+export function pathHintFromPattern(pattern: string): string | null {
+  return pathHintsFromPattern(pattern)[0] ?? null;
+}
+
+/**
+ * Tails that claim the whole subtree below the literal prefix.
+ *
+ * `(?:.*\/)?[^/]+` and `[^/]+` match any name at (or below) the prefix, so the
+ * prefix is the honest answer to "where does this domain live". A tail that
+ * constrains the NAME (`uni-jump-[a-z-]+\.test\.mjs`) does not: the domain owns
+ * two files in `test/`, not `test/`.
+ */
+const SUBTREE_TAIL = /^(?:\(\?:\.\*\/\)\?|\.\*\/)?(?:\[\^\/\][*+]|\.[*+])?$/;
+
+/** Cap on alternation expansion; a wider pattern is treated as unliteralisable. */
+const MAX_LITERAL_PATHS = 32;
+
+/**
+ * The exact paths a pattern of literals and simple alternations matches.
+ *
+ * Returns null as soon as the pattern needs anything else (`.`, `*`, `[…]`, a
+ * quantified group): those cannot be enumerated, and the caller falls back to
+ * the subtree rule.
+ */
+function expandLiteralPaths(body: string): string[] | null {
+  let out = [""];
+  let at = 0;
+  while (at < body.length) {
+    const char = body[at]!;
+    if (char === "\\") {
+      const next = body[at + 1];
+      if (next === undefined || /[A-Za-z0-9]/.test(next)) return null;
+      out = out.map((path) => path + next);
+      at += 2;
+      continue;
+    }
+    if (char === "(") {
+      const group = readGroup(body, at);
+      if (!group) return null;
+      if (out.length * group.alternatives.length > MAX_LITERAL_PATHS) return null;
+      out = out.flatMap((path) => group.alternatives.map((alternative) => path + alternative));
+      at = group.end;
+      continue;
+    }
+    if (/[.*+?[\]{}|^$]/.test(char)) return null;
+    out = out.map((path) => path + char);
+    at++;
+  }
+  return out;
+}
+
+/** A `(a|b)` / `(?:a|b)` group of literal alternatives, `?` making one of them empty. */
+function readGroup(body: string, start: number): { alternatives: string[]; end: number } | null {
+  const open = body.startsWith("(?:", start) ? start + 3 : start + 1;
+  const close = body.indexOf(")", open);
+  if (close === -1) return null;
+  const alternatives = readLiteralAlternatives(body.slice(open, close));
+  if (!alternatives) return null;
+  const optional = body[close + 1] === "?";
+  if (!optional && /[*+{]/.test(body[close + 1] ?? "")) return null;
+  return {
+    alternatives: optional ? [...alternatives, ""] : alternatives,
+    end: close + (optional ? 2 : 1),
+  };
+}
+
+/** Split a group's unescaped `|` delimiters while preserving escaped literals. */
+function readLiteralAlternatives(inner: string): string[] | null {
+  const alternatives: string[] = [];
+  let current = "";
+  for (let at = 0; at < inner.length; at++) {
+    const char = inner[at]!;
+    if (char === "\\") {
+      const next = inner[++at];
+      if (next === undefined || /[A-Za-z0-9]/.test(next)) return null;
+      current += next;
+      continue;
+    }
+    if (char === "|") {
+      alternatives.push(current);
+      current = "";
+      continue;
+    }
+    if (/[.*+?[\]{}()^$]/.test(char)) return null;
+    current += char;
+  }
+  alternatives.push(current);
+  return alternatives;
+}
+
+/** Only repository-relative, normalized paths may later be joined to `repoPath`. */
+function isSafePathHint(path: string): boolean {
+  if (path === "" || path.startsWith("/") || path.includes("\\") || path.includes("\0")) return false;
+  if (/^[A-Za-z]:/.test(path)) return false;
+  return path.split("/").every((segment) => segment !== "" && segment !== "." && segment !== "..");
 }
 
 /** Layers whose declared globs cover any of `paths`. */
@@ -398,6 +537,11 @@ function firstParagraph(markdown: string): string {
 
 function dedupe(values: string[]): string[] {
   return [...new Set(values.filter((value) => value !== ""))];
+}
+
+/** `spec/feature/kirie-transform.md` → `kirie-transform`. */
+function specStem(path: string): string {
+  return (path.split("/").pop() ?? "").replace(/\.md$/i, "");
 }
 
 /** Content first: a person names the product before they name its architecture. */

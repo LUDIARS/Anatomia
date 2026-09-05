@@ -1,200 +1,210 @@
 {
   "version": 1,
   "entries": {
-    "E:\\tmp\\revisor-scratch\\revisor-local-pr-CDDnUL\\head\\src\\__tests__\\spec-dirs.test.ts::spec:src/provisional-f1832433819cb7d16895ee9b?provisional=1#mini-domain-spec/heading[0]": {
+    "E:\\tmp\\revisor-scratch\\revisor-local-pr-IgT6UK\\head\\src\\__tests__\\spec-dirs.test.ts::spec:src/provisional-03f869baeee48ec9f27c627b?provisional=1#mini-domain-spec/heading[0]": {
       "streak": 2,
       "lastConfidence": 0.48000000000000004,
-      "lastFingerprint": "b87404f6c39dedfbdeeda06bdf6431a1"
+      "lastFingerprint": "77071909257e18f910f8a94b44ce39bc"
     },
-    "E:\\tmp\\revisor-scratch\\revisor-local-pr-CDDnUL\\head\\src\\web-cache\\business-domain-view.test.ts::spec:src/provisional-f1832433819cb7d16895ee9b?provisional=1#mini-domain-spec/heading[0]": {
+    "E:\\tmp\\revisor-scratch\\revisor-local-pr-IgT6UK\\head\\src\\web-cache\\business-domain-view.test.ts::spec:src/provisional-03f869baeee48ec9f27c627b?provisional=1#mini-domain-spec/heading[0]": {
       "streak": 2,
       "lastConfidence": 0.4666666666666667,
-      "lastFingerprint": "b87404f6c39dedfbdeeda06bdf6431a1"
+      "lastFingerprint": "77071909257e18f910f8a94b44ce39bc"
     },
-    "E:\\tmp\\revisor-scratch\\revisor-local-pr-CDDnUL\\head\\src\\web-cache\\business-domain-view.ts::spec:src/provisional-f1832433819cb7d16895ee9b?provisional=1#mini-domain-spec/heading[0]": {
+    "E:\\tmp\\revisor-scratch\\revisor-local-pr-IgT6UK\\head\\src\\web-cache\\business-domain-view.ts::spec:src/provisional-03f869baeee48ec9f27c627b?provisional=1#mini-domain-spec/heading[0]": {
       "streak": 2,
       "lastConfidence": 0.4666666666666667,
-      "lastFingerprint": "b87404f6c39dedfbdeeda06bdf6431a1"
+      "lastFingerprint": "77071909257e18f910f8a94b44ce39bc"
     },
-    "E:\\tmp\\revisor-scratch\\revisor-local-pr-CDDnUL\\head\\src\\web-cache\\domain-correspondence.ts::spec:src/provisional-f1832433819cb7d16895ee9b?provisional=1#mini-domain-spec/heading[0]": {
-      "streak": 2,
-      "lastConfidence": 0.4666666666666667,
-      "lastFingerprint": "b87404f6c39dedfbdeeda06bdf6431a1"
-    },
-    "E:\\tmp\\revisor-scratch\\revisor-local-pr-CDDnUL\\head\\src\\web-cache\\domain-correspondence.test.ts::spec:src/provisional-f1832433819cb7d16895ee9b?provisional=1#mini-domain-spec/heading[0]": {
+    "E:\\tmp\\revisor-scratch\\revisor-local-pr-IgT6UK\\head\\src\\web-cache\\domain-correspondence.test.ts::spec:src/provisional-03f869baeee48ec9f27c627b?provisional=1#mini-domain-spec/heading[0]": {
       "streak": 2,
       "lastConfidence": 0.48000000000000004,
-      "lastFingerprint": "b87404f6c39dedfbdeeda06bdf6431a1"
+      "lastFingerprint": "77071909257e18f910f8a94b44ce39bc"
     },
-    "E:\\tmp\\revisor-scratch\\revisor-local-pr-CDDnUL\\head\\src\\web-cache\\program-domain-view.test.ts::spec:src/provisional-f1832433819cb7d16895ee9b?provisional=1#mini-domain-spec/heading[0]": {
+    "E:\\tmp\\revisor-scratch\\revisor-local-pr-IgT6UK\\head\\src\\web-cache\\domain-correspondence.ts::spec:src/provisional-03f869baeee48ec9f27c627b?provisional=1#mini-domain-spec/heading[0]": {
       "streak": 2,
       "lastConfidence": 0.4666666666666667,
-      "lastFingerprint": "b87404f6c39dedfbdeeda06bdf6431a1"
+      "lastFingerprint": "77071909257e18f910f8a94b44ce39bc"
     },
-    "E:\\tmp\\revisor-scratch\\revisor-local-pr-CDDnUL\\head\\src\\web-cache\\program-domain-view.ts::spec:src/provisional-f1832433819cb7d16895ee9b?provisional=1#mini-domain-spec/heading[0]": {
+    "E:\\tmp\\revisor-scratch\\revisor-local-pr-IgT6UK\\head\\src\\web-cache\\program-domain-view.test.ts::spec:src/provisional-03f869baeee48ec9f27c627b?provisional=1#mini-domain-spec/heading[0]": {
       "streak": 2,
       "lastConfidence": 0.4666666666666667,
-      "lastFingerprint": "b87404f6c39dedfbdeeda06bdf6431a1"
+      "lastFingerprint": "77071909257e18f910f8a94b44ce39bc"
     },
-    "E:\\tmp\\revisor-scratch\\revisor-local-pr-CDDnUL\\head\\src\\supply\\__tests__\\spec-linkage-gate.test.ts::spec:src/provisional-f1832433819cb7d16895ee9b?provisional=1#mini-domain-spec/heading[0]": {
+    "E:\\tmp\\revisor-scratch\\revisor-local-pr-IgT6UK\\head\\src\\web-cache\\program-domain-view.ts::spec:src/provisional-03f869baeee48ec9f27c627b?provisional=1#mini-domain-spec/heading[0]": {
       "streak": 2,
       "lastConfidence": 0.4666666666666667,
-      "lastFingerprint": "b87404f6c39dedfbdeeda06bdf6431a1"
+      "lastFingerprint": "77071909257e18f910f8a94b44ce39bc"
     },
-    "E:\\tmp\\revisor-scratch\\revisor-local-pr-CDDnUL\\head\\src\\supply\\gates\\spec_linkage.ts::spec:src/provisional-f1832433819cb7d16895ee9b?provisional=1#mini-domain-spec/heading[0]": {
+    "E:\\tmp\\revisor-scratch\\revisor-local-pr-IgT6UK\\head\\src\\supply\\__tests__\\spec-linkage-gate.test.ts::spec:src/provisional-03f869baeee48ec9f27c627b?provisional=1#mini-domain-spec/heading[0]": {
+      "streak": 2,
+      "lastConfidence": 0.4666666666666667,
+      "lastFingerprint": "77071909257e18f910f8a94b44ce39bc"
+    },
+    "E:\\tmp\\revisor-scratch\\revisor-local-pr-IgT6UK\\head\\src\\supply\\gates\\spec_linkage.ts::spec:src/provisional-03f869baeee48ec9f27c627b?provisional=1#mini-domain-spec/heading[0]": {
       "streak": 2,
       "lastConfidence": 0.48000000000000004,
-      "lastFingerprint": "b87404f6c39dedfbdeeda06bdf6431a1"
+      "lastFingerprint": "77071909257e18f910f8a94b44ce39bc"
     },
-    "E:\\tmp\\revisor-scratch\\revisor-local-pr-CDDnUL\\head\\src\\spec\\cache.ts::spec:src/provisional-f1832433819cb7d16895ee9b?provisional=1#mini-domain-spec/heading[0]": {
+    "E:\\tmp\\revisor-scratch\\revisor-local-pr-IgT6UK\\head\\src\\spec\\cache.ts::spec:src/provisional-03f869baeee48ec9f27c627b?provisional=1#mini-domain-spec/heading[0]": {
       "streak": 2,
       "lastConfidence": 0.45,
-      "lastFingerprint": "b87404f6c39dedfbdeeda06bdf6431a1"
+      "lastFingerprint": "77071909257e18f910f8a94b44ce39bc"
     },
-    "E:\\tmp\\revisor-scratch\\revisor-local-pr-CDDnUL\\head\\src\\spec\\persist.ts::spec:src/provisional-f1832433819cb7d16895ee9b?provisional=1#mini-domain-spec/heading[0]": {
+    "E:\\tmp\\revisor-scratch\\revisor-local-pr-IgT6UK\\head\\src\\spec\\persist.ts::spec:src/provisional-03f869baeee48ec9f27c627b?provisional=1#mini-domain-spec/heading[0]": {
       "streak": 2,
       "lastConfidence": 0.4444444444444445,
-      "lastFingerprint": "b87404f6c39dedfbdeeda06bdf6431a1"
+      "lastFingerprint": "77071909257e18f910f8a94b44ce39bc"
     },
-    "E:\\tmp\\revisor-scratch\\revisor-local-pr-CDDnUL\\head\\src\\review\\domain-review-by-layer.ts::spec:src/provisional-f1832433819cb7d16895ee9b?provisional=1#mini-domain-spec/heading[0]": {
-      "streak": 2,
-      "lastConfidence": 0.4571428571428572,
-      "lastFingerprint": "b87404f6c39dedfbdeeda06bdf6431a1"
-    },
-    "E:\\tmp\\revisor-scratch\\revisor-local-pr-CDDnUL\\head\\src\\review\\domain-review-format.ts::spec:src/provisional-f1832433819cb7d16895ee9b?provisional=1#mini-domain-spec/heading[0]": {
-      "streak": 2,
-      "lastConfidence": 0.4571428571428572,
-      "lastFingerprint": "b87404f6c39dedfbdeeda06bdf6431a1"
-    },
-    "E:\\tmp\\revisor-scratch\\revisor-local-pr-CDDnUL\\head\\src\\review\\domain-review.ts::spec:src/provisional-f1832433819cb7d16895ee9b?provisional=1#mini-domain-spec/heading[0]": {
-      "streak": 2,
-      "lastConfidence": 0.48000000000000004,
-      "lastFingerprint": "b87404f6c39dedfbdeeda06bdf6431a1"
-    },
-    "E:\\tmp\\revisor-scratch\\revisor-local-pr-CDDnUL\\head\\src\\review\\__tests__\\domain-review-by-layer.test.ts::spec:src/provisional-f1832433819cb7d16895ee9b?provisional=1#mini-domain-spec/heading[0]": {
-      "streak": 2,
-      "lastConfidence": 0.4666666666666667,
-      "lastFingerprint": "b87404f6c39dedfbdeeda06bdf6431a1"
-    },
-    "E:\\tmp\\revisor-scratch\\revisor-local-pr-CDDnUL\\head\\src\\review\\__tests__\\domain-review.test.ts::spec:src/provisional-f1832433819cb7d16895ee9b?provisional=1#mini-domain-spec/heading[0]": {
-      "streak": 2,
-      "lastConfidence": 0.48000000000000004,
-      "lastFingerprint": "b87404f6c39dedfbdeeda06bdf6431a1"
-    },
-    "E:\\tmp\\revisor-scratch\\revisor-local-pr-CDDnUL\\head\\src\\project\\spec-detect.ts::spec:src/provisional-f1832433819cb7d16895ee9b?provisional=1#mini-domain-spec/heading[0]": {
-      "streak": 2,
-      "lastConfidence": 0.4666666666666667,
-      "lastFingerprint": "b87404f6c39dedfbdeeda06bdf6431a1"
-    },
-    "E:\\tmp\\revisor-scratch\\revisor-local-pr-CDDnUL\\head\\src\\project\\__tests__\\spec-detect.test.ts::spec:src/provisional-f1832433819cb7d16895ee9b?provisional=1#mini-domain-spec/heading[0]": {
-      "streak": 2,
-      "lastConfidence": 0.4666666666666667,
-      "lastFingerprint": "b87404f6c39dedfbdeeda06bdf6431a1"
-    },
-    "E:\\tmp\\revisor-scratch\\revisor-local-pr-CDDnUL\\head\\src\\map\\types.ts::spec:src/provisional-f1832433819cb7d16895ee9b?provisional=1#mini-domain-spec/heading[0]": {
-      "streak": 2,
-      "lastConfidence": 0.4666666666666667,
-      "lastFingerprint": "b87404f6c39dedfbdeeda06bdf6431a1"
-    },
-    "E:\\tmp\\revisor-scratch\\revisor-local-pr-CDDnUL\\head\\src\\knowledge\\program-domain\\program-domain.test.ts::spec:src/provisional-f1832433819cb7d16895ee9b?provisional=1#mini-domain-spec/heading[0]": {
-      "streak": 2,
-      "lastConfidence": 0.48000000000000004,
-      "lastFingerprint": "b87404f6c39dedfbdeeda06bdf6431a1"
-    },
-    "E:\\tmp\\revisor-scratch\\revisor-local-pr-CDDnUL\\head\\src\\knowledge\\domain\\domain-okf.ts::spec:src/provisional-f1832433819cb7d16895ee9b?provisional=1#mini-domain-spec/heading[0]": {
-      "streak": 2,
-      "lastConfidence": 0.4571428571428572,
-      "lastFingerprint": "b87404f6c39dedfbdeeda06bdf6431a1"
-    },
-    "E:\\tmp\\revisor-scratch\\revisor-local-pr-CDDnUL\\head\\src\\knowledge\\domain\\relation-types.ts::spec:src/provisional-f1832433819cb7d16895ee9b?provisional=1#mini-domain-spec/heading[0]": {
+    "E:\\tmp\\revisor-scratch\\revisor-local-pr-IgT6UK\\head\\src\\spec\\structural.test.ts::spec:src/provisional-ec45f277065c36d84ab3c455?provisional=1#render-output-%E2%80%94-%E6%8F%8F%E7%94%BB%E7%B5%90%E6%9E%9C%E3%81%AE%E6%9B%B8%E3%81%8D%E5%87%BA%E3%81%97/paragraph[0]": {
       "streak": 2,
       "lastConfidence": 0.45,
-      "lastFingerprint": "b87404f6c39dedfbdeeda06bdf6431a1"
+      "lastFingerprint": "77071909257e18f910f8a94b44ce39bc"
     },
-    "E:\\tmp\\revisor-scratch\\revisor-local-pr-CDDnUL\\head\\src\\knowledge\\domain\\spec-proposals.ts::spec:src/provisional-f1832433819cb7d16895ee9b?provisional=1#mini-domain-spec/heading[0]": {
-      "streak": 2,
-      "lastConfidence": 0.4666666666666667,
-      "lastFingerprint": "b87404f6c39dedfbdeeda06bdf6431a1"
-    },
-    "E:\\tmp\\revisor-scratch\\revisor-local-pr-CDDnUL\\head\\src\\knowledge\\application\\domain-application.ts::spec:src/provisional-f1832433819cb7d16895ee9b?provisional=1#mini-domain-spec/heading[0]": {
+    "E:\\tmp\\revisor-scratch\\revisor-local-pr-IgT6UK\\head\\src\\review\\domain-review.ts::spec:src/provisional-03f869baeee48ec9f27c627b?provisional=1#mini-domain-spec/heading[0]": {
       "streak": 2,
       "lastConfidence": 0.48000000000000004,
-      "lastFingerprint": "b87404f6c39dedfbdeeda06bdf6431a1"
+      "lastFingerprint": "77071909257e18f910f8a94b44ce39bc"
     },
-    "E:\\tmp\\revisor-scratch\\revisor-local-pr-CDDnUL\\head\\src\\domains\\assignment.ts::spec:src/provisional-f1832433819cb7d16895ee9b?provisional=1#mini-domain-spec/heading[0]": {
+    "E:\\tmp\\revisor-scratch\\revisor-local-pr-IgT6UK\\head\\src\\review\\domain-review-format.ts::spec:src/provisional-03f869baeee48ec9f27c627b?provisional=1#mini-domain-spec/heading[0]": {
       "streak": 2,
       "lastConfidence": 0.4571428571428572,
-      "lastFingerprint": "b87404f6c39dedfbdeeda06bdf6431a1"
+      "lastFingerprint": "77071909257e18f910f8a94b44ce39bc"
     },
-    "E:\\tmp\\revisor-scratch\\revisor-local-pr-CDDnUL\\head\\src\\domains\\domain-view-payload.ts::spec:src/provisional-f1832433819cb7d16895ee9b?provisional=1#mini-domain-spec/heading[0]": {
+    "E:\\tmp\\revisor-scratch\\revisor-local-pr-IgT6UK\\head\\src\\review\\domain-review-by-layer.ts::spec:src/provisional-03f869baeee48ec9f27c627b?provisional=1#mini-domain-spec/heading[0]": {
+      "streak": 2,
+      "lastConfidence": 0.4571428571428572,
+      "lastFingerprint": "77071909257e18f910f8a94b44ce39bc"
+    },
+    "E:\\tmp\\revisor-scratch\\revisor-local-pr-IgT6UK\\head\\src\\review\\__tests__\\domain-review-by-layer.test.ts::spec:src/provisional-03f869baeee48ec9f27c627b?provisional=1#mini-domain-spec/heading[0]": {
+      "streak": 2,
+      "lastConfidence": 0.4666666666666667,
+      "lastFingerprint": "77071909257e18f910f8a94b44ce39bc"
+    },
+    "E:\\tmp\\revisor-scratch\\revisor-local-pr-IgT6UK\\head\\src\\review\\__tests__\\domain-review.test.ts::spec:src/provisional-03f869baeee48ec9f27c627b?provisional=1#mini-domain-spec/heading[0]": {
+      "streak": 2,
+      "lastConfidence": 0.48000000000000004,
+      "lastFingerprint": "77071909257e18f910f8a94b44ce39bc"
+    },
+    "E:\\tmp\\revisor-scratch\\revisor-local-pr-IgT6UK\\head\\src\\project\\spec-detect.ts::spec:src/provisional-03f869baeee48ec9f27c627b?provisional=1#mini-domain-spec/heading[0]": {
+      "streak": 2,
+      "lastConfidence": 0.4666666666666667,
+      "lastFingerprint": "77071909257e18f910f8a94b44ce39bc"
+    },
+    "E:\\tmp\\revisor-scratch\\revisor-local-pr-IgT6UK\\head\\src\\project\\__tests__\\spec-detect.test.ts::spec:src/provisional-03f869baeee48ec9f27c627b?provisional=1#mini-domain-spec/heading[0]": {
+      "streak": 2,
+      "lastConfidence": 0.4666666666666667,
+      "lastFingerprint": "77071909257e18f910f8a94b44ce39bc"
+    },
+    "E:\\tmp\\revisor-scratch\\revisor-local-pr-IgT6UK\\head\\src\\map\\types.ts::spec:src/provisional-03f869baeee48ec9f27c627b?provisional=1#mini-domain-spec/heading[0]": {
+      "streak": 2,
+      "lastConfidence": 0.4666666666666667,
+      "lastFingerprint": "77071909257e18f910f8a94b44ce39bc"
+    },
+    "E:\\tmp\\revisor-scratch\\revisor-local-pr-IgT6UK\\head\\src\\knowledge\\program-domain\\program-domain.test.ts::spec:src/provisional-03f869baeee48ec9f27c627b?provisional=1#mini-domain-spec/heading[0]": {
+      "streak": 2,
+      "lastConfidence": 0.48000000000000004,
+      "lastFingerprint": "77071909257e18f910f8a94b44ce39bc"
+    },
+    "E:\\tmp\\revisor-scratch\\revisor-local-pr-IgT6UK\\head\\src\\knowledge\\domain\\domain-okf.ts::spec:src/provisional-03f869baeee48ec9f27c627b?provisional=1#mini-domain-spec/heading[0]": {
+      "streak": 2,
+      "lastConfidence": 0.4571428571428572,
+      "lastFingerprint": "77071909257e18f910f8a94b44ce39bc"
+    },
+    "E:\\tmp\\revisor-scratch\\revisor-local-pr-IgT6UK\\head\\src\\knowledge\\domain\\relation-types.ts::spec:src/provisional-03f869baeee48ec9f27c627b?provisional=1#mini-domain-spec/heading[0]": {
+      "streak": 2,
+      "lastConfidence": 0.45,
+      "lastFingerprint": "77071909257e18f910f8a94b44ce39bc"
+    },
+    "E:\\tmp\\revisor-scratch\\revisor-local-pr-IgT6UK\\head\\src\\knowledge\\domain\\spec-proposals.ts::spec:src/provisional-03f869baeee48ec9f27c627b?provisional=1#mini-domain-spec/heading[0]": {
+      "streak": 2,
+      "lastConfidence": 0.4666666666666667,
+      "lastFingerprint": "77071909257e18f910f8a94b44ce39bc"
+    },
+    "E:\\tmp\\revisor-scratch\\revisor-local-pr-IgT6UK\\head\\src\\knowledge\\application\\domain-application.ts::spec:src/provisional-03f869baeee48ec9f27c627b?provisional=1#mini-domain-spec/heading[0]": {
+      "streak": 2,
+      "lastConfidence": 0.48000000000000004,
+      "lastFingerprint": "77071909257e18f910f8a94b44ce39bc"
+    },
+    "E:\\tmp\\revisor-scratch\\revisor-local-pr-IgT6UK\\head\\src\\domains\\assignment.ts::spec:src/provisional-03f869baeee48ec9f27c627b?provisional=1#mini-domain-spec/heading[0]": {
+      "streak": 2,
+      "lastConfidence": 0.4571428571428572,
+      "lastFingerprint": "77071909257e18f910f8a94b44ce39bc"
+    },
+    "E:\\tmp\\revisor-scratch\\revisor-local-pr-IgT6UK\\head\\src\\domains\\domain-view-payload.ts::spec:src/provisional-03f869baeee48ec9f27c627b?provisional=1#mini-domain-spec/heading[0]": {
       "streak": 2,
       "lastConfidence": 0.44000000000000006,
-      "lastFingerprint": "b87404f6c39dedfbdeeda06bdf6431a1"
+      "lastFingerprint": "77071909257e18f910f8a94b44ce39bc"
     },
-    "E:\\tmp\\revisor-scratch\\revisor-local-pr-CDDnUL\\head\\src\\domains\\spec-links.ts::spec:src/provisional-f1832433819cb7d16895ee9b?provisional=1#mini-domain-spec/heading[0]": {
+    "E:\\tmp\\revisor-scratch\\revisor-local-pr-IgT6UK\\head\\src\\domains\\spec-links.ts::spec:src/provisional-03f869baeee48ec9f27c627b?provisional=1#mini-domain-spec/heading[0]": {
       "streak": 2,
       "lastConfidence": 0.48000000000000004,
-      "lastFingerprint": "b87404f6c39dedfbdeeda06bdf6431a1"
+      "lastFingerprint": "77071909257e18f910f8a94b44ce39bc"
     },
-    "E:\\tmp\\revisor-scratch\\revisor-local-pr-CDDnUL\\head\\src\\domains\\workflow\\spec-store.ts::spec:src/provisional-f1832433819cb7d16895ee9b?provisional=1#mini-domain-spec/heading[0]": {
+    "E:\\tmp\\revisor-scratch\\revisor-local-pr-IgT6UK\\head\\src\\domains\\workflow\\spec-store.ts::spec:src/provisional-03f869baeee48ec9f27c627b?provisional=1#mini-domain-spec/heading[0]": {
       "streak": 2,
       "lastConfidence": 0.4571428571428572,
-      "lastFingerprint": "b87404f6c39dedfbdeeda06bdf6431a1"
+      "lastFingerprint": "77071909257e18f910f8a94b44ce39bc"
     },
-    "E:\\tmp\\revisor-scratch\\revisor-local-pr-CDDnUL\\head\\src\\domains\\workflow\\__tests__\\spec-store.test.ts::spec:src/provisional-f1832433819cb7d16895ee9b?provisional=1#mini-domain-spec/heading[0]": {
+    "E:\\tmp\\revisor-scratch\\revisor-local-pr-IgT6UK\\head\\src\\domains\\workflow\\__tests__\\spec-store.test.ts::spec:src/provisional-03f869baeee48ec9f27c627b?provisional=1#mini-domain-spec/heading[0]": {
       "streak": 2,
       "lastConfidence": 0.48000000000000004,
-      "lastFingerprint": "b87404f6c39dedfbdeeda06bdf6431a1"
+      "lastFingerprint": "77071909257e18f910f8a94b44ce39bc"
     },
-    "E:\\tmp\\revisor-scratch\\revisor-local-pr-CDDnUL\\head\\src\\domains\\retune\\screens.ts::spec:src/provisional-f1832433819cb7d16895ee9b?provisional=1#mini-domain-spec/heading[0]": {
+    "E:\\tmp\\revisor-scratch\\revisor-local-pr-IgT6UK\\head\\src\\domains\\retune\\screens.ts::spec:src/provisional-03f869baeee48ec9f27c627b?provisional=1#mini-domain-spec/heading[0]": {
       "streak": 2,
       "lastConfidence": 0.44000000000000006,
-      "lastFingerprint": "b87404f6c39dedfbdeeda06bdf6431a1"
+      "lastFingerprint": "77071909257e18f910f8a94b44ce39bc"
     },
-    "E:\\tmp\\revisor-scratch\\revisor-local-pr-CDDnUL\\head\\src\\adapters\\web\\domain-organization-page.ts::spec:src/provisional-f1832433819cb7d16895ee9b?provisional=1#mini-domain-spec/heading[0]": {
-      "streak": 2,
-      "lastConfidence": 0.4666666666666667,
-      "lastFingerprint": "b87404f6c39dedfbdeeda06bdf6431a1"
-    },
-    "E:\\tmp\\revisor-scratch\\revisor-local-pr-CDDnUL\\head\\src\\adapters\\web\\__tests__\\domain-view-logic.test.ts::spec:src/provisional-f1832433819cb7d16895ee9b?provisional=1#mini-domain-spec/heading[0]": {
-      "streak": 2,
-      "lastConfidence": 0.4666666666666667,
-      "lastFingerprint": "b87404f6c39dedfbdeeda06bdf6431a1"
-    },
-    "E:\\tmp\\revisor-scratch\\revisor-local-pr-CDDnUL\\head\\src\\adapters\\web\\__tests__\\domain-organization-route.test.ts::spec:src/provisional-f1832433819cb7d16895ee9b?provisional=1#mini-domain-spec/heading[0]": {
-      "streak": 2,
-      "lastConfidence": 0.4571428571428572,
-      "lastFingerprint": "b87404f6c39dedfbdeeda06bdf6431a1"
-    },
-    "E:\\tmp\\revisor-scratch\\revisor-local-pr-CDDnUL\\head\\src\\adapters\\web\\__tests__\\spec-links-route.test.ts::spec:src/provisional-f1832433819cb7d16895ee9b?provisional=1#mini-domain-spec/heading[0]": {
-      "streak": 2,
-      "lastConfidence": 0.4571428571428572,
-      "lastFingerprint": "b87404f6c39dedfbdeeda06bdf6431a1"
-    },
-    "E:\\tmp\\revisor-scratch\\revisor-local-pr-CDDnUL\\head\\src\\adapters\\web\\routes\\domain-map.ts::spec:src/provisional-f1832433819cb7d16895ee9b?provisional=1#mini-domain-spec/heading[0]": {
-      "streak": 2,
-      "lastConfidence": 0.48000000000000004,
-      "lastFingerprint": "b87404f6c39dedfbdeeda06bdf6431a1"
-    },
-    "E:\\tmp\\revisor-scratch\\revisor-local-pr-CDDnUL\\head\\src\\adapters\\web\\routes\\domain-organization.ts::spec:src/provisional-f1832433819cb7d16895ee9b?provisional=1#mini-domain-spec/heading[0]": {
-      "streak": 2,
-      "lastConfidence": 0.48000000000000004,
-      "lastFingerprint": "b87404f6c39dedfbdeeda06bdf6431a1"
-    },
-    "E:\\tmp\\revisor-scratch\\revisor-local-pr-CDDnUL\\head\\src\\adapters\\web\\routes\\domain-view.ts::spec:src/provisional-f1832433819cb7d16895ee9b?provisional=1#mini-domain-spec/heading[0]": {
-      "streak": 2,
-      "lastConfidence": 0.48000000000000004,
-      "lastFingerprint": "b87404f6c39dedfbdeeda06bdf6431a1"
-    },
-    "E:\\tmp\\revisor-scratch\\revisor-local-pr-CDDnUL\\head\\src\\adapters\\web\\routes\\spec-links.ts::spec:src/provisional-f1832433819cb7d16895ee9b?provisional=1#mini-domain-spec/heading[0]": {
-      "streak": 2,
-      "lastConfidence": 0.48000000000000004,
-      "lastFingerprint": "b87404f6c39dedfbdeeda06bdf6431a1"
-    },
-    "E:\\tmp\\revisor-scratch\\revisor-local-pr-CDDnUL\\head\\src\\adapters\\web\\public\\domain-view-logic.js::spec:src/provisional-f1832433819cb7d16895ee9b?provisional=1#mini-domain-spec/heading[0]": {
+    "E:\\tmp\\revisor-scratch\\revisor-local-pr-IgT6UK\\head\\src\\adapters\\__tests__\\cli-domains-program.test.ts::spec:src/provisional-ec45f277065c36d84ab3c455?provisional=1#render-output-%E2%80%94-%E6%8F%8F%E7%94%BB%E7%B5%90%E6%9E%9C%E3%81%AE%E6%9B%B8%E3%81%8D%E5%87%BA%E3%81%97/paragraph[0]": {
       "streak": 2,
       "lastConfidence": 0.4444444444444445,
-      "lastFingerprint": "b87404f6c39dedfbdeeda06bdf6431a1"
+      "lastFingerprint": "77071909257e18f910f8a94b44ce39bc"
+    },
+    "E:\\tmp\\revisor-scratch\\revisor-local-pr-IgT6UK\\head\\src\\adapters\\web\\domain-organization-page.ts::spec:src/provisional-03f869baeee48ec9f27c627b?provisional=1#mini-domain-spec/heading[0]": {
+      "streak": 2,
+      "lastConfidence": 0.4666666666666667,
+      "lastFingerprint": "77071909257e18f910f8a94b44ce39bc"
+    },
+    "E:\\tmp\\revisor-scratch\\revisor-local-pr-IgT6UK\\head\\src\\adapters\\web\\__tests__\\domain-organization-route.test.ts::spec:src/provisional-03f869baeee48ec9f27c627b?provisional=1#mini-domain-spec/heading[0]": {
+      "streak": 2,
+      "lastConfidence": 0.4571428571428572,
+      "lastFingerprint": "77071909257e18f910f8a94b44ce39bc"
+    },
+    "E:\\tmp\\revisor-scratch\\revisor-local-pr-IgT6UK\\head\\src\\adapters\\web\\__tests__\\domain-view-logic.test.ts::spec:src/provisional-03f869baeee48ec9f27c627b?provisional=1#mini-domain-spec/heading[0]": {
+      "streak": 2,
+      "lastConfidence": 0.4666666666666667,
+      "lastFingerprint": "77071909257e18f910f8a94b44ce39bc"
+    },
+    "E:\\tmp\\revisor-scratch\\revisor-local-pr-IgT6UK\\head\\src\\adapters\\web\\__tests__\\spec-links-route.test.ts::spec:src/provisional-03f869baeee48ec9f27c627b?provisional=1#mini-domain-spec/heading[0]": {
+      "streak": 2,
+      "lastConfidence": 0.4571428571428572,
+      "lastFingerprint": "77071909257e18f910f8a94b44ce39bc"
+    },
+    "E:\\tmp\\revisor-scratch\\revisor-local-pr-IgT6UK\\head\\src\\adapters\\web\\routes\\domain-map.ts::spec:src/provisional-03f869baeee48ec9f27c627b?provisional=1#mini-domain-spec/heading[0]": {
+      "streak": 2,
+      "lastConfidence": 0.48000000000000004,
+      "lastFingerprint": "77071909257e18f910f8a94b44ce39bc"
+    },
+    "E:\\tmp\\revisor-scratch\\revisor-local-pr-IgT6UK\\head\\src\\adapters\\web\\routes\\domain-organization.ts::spec:src/provisional-03f869baeee48ec9f27c627b?provisional=1#mini-domain-spec/heading[0]": {
+      "streak": 2,
+      "lastConfidence": 0.48000000000000004,
+      "lastFingerprint": "77071909257e18f910f8a94b44ce39bc"
+    },
+    "E:\\tmp\\revisor-scratch\\revisor-local-pr-IgT6UK\\head\\src\\adapters\\web\\routes\\domain-view.ts::spec:src/provisional-03f869baeee48ec9f27c627b?provisional=1#mini-domain-spec/heading[0]": {
+      "streak": 2,
+      "lastConfidence": 0.48000000000000004,
+      "lastFingerprint": "77071909257e18f910f8a94b44ce39bc"
+    },
+    "E:\\tmp\\revisor-scratch\\revisor-local-pr-IgT6UK\\head\\src\\adapters\\web\\routes\\spec-links.ts::spec:src/provisional-03f869baeee48ec9f27c627b?provisional=1#mini-domain-spec/heading[0]": {
+      "streak": 2,
+      "lastConfidence": 0.48000000000000004,
+      "lastFingerprint": "77071909257e18f910f8a94b44ce39bc"
+    },
+    "E:\\tmp\\revisor-scratch\\revisor-local-pr-IgT6UK\\head\\src\\adapters\\web\\public\\domain-view-logic.js::spec:src/provisional-03f869baeee48ec9f27c627b?provisional=1#mini-domain-spec/heading[0]": {
+      "streak": 2,
+      "lastConfidence": 0.4444444444444445,
+      "lastFingerprint": "77071909257e18f910f8a94b44ce39bc"
     }
   }
 }

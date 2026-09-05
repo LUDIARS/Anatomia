@@ -42,6 +42,47 @@ x-anatomia:
 | 4 | spec 本文中の他プロジェクト名 (Cc `GET /v1/project-codes`) と HTTP 経路 (`loopback <port>` / `/api/...`) | `links.ts` / `project-codes.ts` |
 | 5 | 表記ゆれ正規化 (NFKC 全角/半角、カタカナ→ひらがな、スペース・長音・中黒の除去) | `aliases.ts` |
 
+### コンテンツの名前の出所 (`nameFrom`)
+
+| 値 | 名前の出所 | 使いどころ |
+|---|---|---|
+| `manifest.json:title` | ディレクトリ直下の `manifest.json` の `title` / `name` | カタログを持つゲーム群 (`renderer/mr/games/*`) |
+| `h1` | Markdown の最初の `# ` 見出し | `spec/feature/*.md` (宣言が無いリポの既定) |
+| `frontmatter:title` | 先頭 YAML frontmatter の `title:` | カタログ Markdown |
+| `dirname` | ディレクトリ名 (ファイル名) そのもの | 名乗るものが何も無いコンテンツ (`Pictor/demo/*`) |
+
+- `dirname` は **区切り文字を空白へ均すだけ** (`shadow_play` → 「shadow play」)。
+  **日本語へ訳さない**。リポが書いていない名前を索引に持ち込まないため。
+- glob の末尾 `/` は「ディレクトリのみ」。`dirname` でディレクトリを拾うときは
+  `"glob": "demo/<star>/"` のように末尾 `/` を付ける (`<star>` は `*`)。
+- `dirname` のエントリは、**同じものを指す `spec/feature/*.md` があればそちらへ寄せる**。
+  ファイル名の slug が一致するか `<slug>-…` で始まる文書の候補が 1 本だけなら選び、
+  名前はその H1、`paths` はディレクトリ、`spec` はその文書になる。候補が複数あるか
+  H1 が無い場合は誤結合を避けるため寄せない。`demo/shadow_play` と
+  `spec/feature/shadow-play-kirie-backdrop.md` が 2 レコードに割れるのを防ぐのが目的。
+
+### membership の正規表現 → パス (`pathHintsFromPattern`)
+
+コアドメインの `paths` / `spec` は `membership[].pathPattern` から決まる。
+正規表現なので、パスに戻せるのは次の 2 つの形だけで、それ以外は何も主張しない。
+
+| 形 | 例 | 結果 |
+|---|---|---|
+| リテラル + 単純な選択肢 | `spec/feature/kirie(?:-anim\|-transform)\.md$` | 展開して **両方の実パス** |
+| リテラル前置き + サブツリー主張 | `src/kirie/(?:.*/)?[^/]+$` | 前置き `src/kirie` |
+| 名前を絞る末尾 | `test/uni-jump-[a-z-]+\.test\.mjs$` | **何も返さない** |
+
+3 つ目が肝。「`test/` 配下の 2 ファイルを持つ」ドメインの前置き `test` を
+パスとして採ると、そのドメインが `test/` 全体の持ち主に見える。実際
+`spec/feature/kirie(?:-anim|-transform)\.md$` から `spec/feature` を採っていたため、
+Figmentum の `spec/feature/*.md` **18 本が全部同じ owner・同じ paths** になり、
+`dedupeContent` が 1 レコードへ畳んでいた (`q=切り絵` で content レコードが消える)。
+確定できない membership は **パスを主張しない**。
+また、絶対パスや `..` を含むリポジトリ外のパスは採用しない。
+
+`dedupeContent` の同一性には **その文書自身** (`spec`) も含める。owner とパスが
+同じでも、別の spec 文書を説明するレコードは別のコンテンツである。
+
 Concordia が落ちている場合、プロジェクト名ロースターは **空**になり、
 名前ベースのリンクだけが落ちる (経路ベースのリンクは残る)。
 その旨は project map の `notes[]` に記録され、黙って劣化させない。
@@ -144,10 +185,30 @@ GET /api/domain-map/:project                   # 1 プロジェクトの全レ�
 
 ### Pictor — `spec/domains/content-sources.json`
 
+`demo/` 直下の 19 ディレクトリのうち 17 本が出荷デモで、`manifest.json` も
+README も持たない。共有アセット置き場 (`demo/assets`) とシェーダ置き場
+(`demo/shaders`) はコンテンツではないので、`demo/*` ではなく **デモを列挙**する。
+
 ```json
 [
+  { "glob": "demo/benchmark/", "nameFrom": "dirname" },
+  { "glob": "demo/fbx/", "nameFrom": "dirname" },
+  { "glob": "demo/fbx_viewer/", "nameFrom": "dirname" },
+  { "glob": "demo/graph/", "nameFrom": "dirname" },
+  { "glob": "demo/graphics/", "nameFrom": "dirname" },
+  { "glob": "demo/material_serializer/", "nameFrom": "dirname" },
+  { "glob": "demo/mobile/", "nameFrom": "dirname" },
+  { "glob": "demo/ocean/", "nameFrom": "dirname" },
+  { "glob": "demo/postprocess/", "nameFrom": "dirname" },
+  { "glob": "demo/rive/", "nameFrom": "dirname" },
+  { "glob": "demo/rive_cube/", "nameFrom": "dirname" },
+  { "glob": "demo/shadow_play/", "nameFrom": "dirname" },
+  { "glob": "demo/sharc/", "nameFrom": "dirname" },
+  { "glob": "demo/text/", "nameFrom": "dirname" },
+  { "glob": "demo/text_effects/", "nameFrom": "dirname" },
+  { "glob": "demo/texture2d/", "nameFrom": "dirname" },
+  { "glob": "demo/webgl/", "nameFrom": "dirname" },
   { "glob": "visus/**/*.md", "nameFrom": "frontmatter:title" },
-  { "glob": "samples/*", "nameFrom": "manifest.json:title" },
   { "glob": "spec/feature/*.md", "nameFrom": "h1" }
 ]
 ```
@@ -176,6 +237,16 @@ fixture の `spec/domains/*.domain.json` は、順位を決める競合シグナ
   上位 3 位以内に `figmentum/kirie-transform`。「デモ」しか共有しない
   `cernere/demo` と `figmentum/fg-web-audio-tools` は `kirie-transform` より下。
 - 「量子暗号の鍵配送を実装する」→ 0 件 (plan の question になる)。
+
+### コンテンツの命名と同一性 (`src/map/__tests__/content-naming.test.ts`)
+
+- `nameFrom: "dirname"` の `demo/text_effects` は 「text effects」 として索引に入る
+  (区切りを均すだけ・訳さない)。宣言していない `demo/assets` `demo/shaders` は入らない。
+- `demo/shadow_play` と `spec/feature/shadow-play-kirie-backdrop.md` は **1 レコード**。
+  名前は文書の H1、`paths` はディレクトリ、`coreDomain` はそのディレクトリの持ち主。
+- 1 つの membership が `spec/feature` の 2 文書を名指すとき、同ディレクトリの
+  他の文書は**その owner にならず**、文書ごとに別レコードとして残る。
+- カタログの `manifest.json:title` と同じものの spec H1 は、従来どおり 1 件へ畳まれる。
 
 ### レジストリ正規化
 

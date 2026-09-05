@@ -6,6 +6,7 @@
  * the display name comes from:
  *
  *   [{ "glob": "renderer/mr/games/*", "nameFrom": "manifest.json:title" },
+ *    { "glob": "demo/<star>/", "nameFrom": "dirname" },   // <star> = a literal *
  *    { "glob": "spec/feature/uni-*.md", "nameFrom": "h1" }]
  *
  * A repo with no declaration is not left out: the caller falls back to the H1 of
@@ -22,8 +23,16 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { EXCLUDE_DIRS } from "../fs/walk.js";
 
-/** Where a content entry's display name is read from. */
-export type ContentNameSource = "manifest.json:title" | "h1" | "frontmatter:title";
+/**
+ * Where a content entry's display name is read from.
+ *
+ * `dirname` is the last resort for content that carries no name of its own:
+ * `Pictor/demo/*` is 19 shipped demos with neither a manifest nor a README, so
+ * the directory name IS the only name that exists. It is normalised
+ * (`shadow_play` → 「shadow play」) and never translated — inventing Japanese
+ * for a directory would put a name in the index that the repo never wrote.
+ */
+export type ContentNameSource = "manifest.json:title" | "h1" | "frontmatter:title" | "dirname";
 
 /** One declared content source. */
 export interface ContentSourceRule {
@@ -43,6 +52,20 @@ export interface ContentEntry {
 
 /** Repo-relative location of the declaration. */
 export const CONTENT_SOURCES_REL = "spec/domains/content-sources.json";
+
+/** Repo-relative dir holding the spec documents a content entry can be named by. */
+export const SPEC_FEATURE_REL = "spec/feature";
+
+/** Every accepted `nameFrom`, so the validator and the type cannot drift apart. */
+const NAME_SOURCES: ContentNameSource[] = [
+  "manifest.json:title",
+  "h1",
+  "frontmatter:title",
+  "dirname",
+];
+
+/** A top-level `spec/feature` Markdown document. */
+const SPEC_FEATURE_DOC = new RegExp(`^${SPEC_FEATURE_REL}/[^/]+\\.md$`, "i");
 
 /** How deep the content walk descends before giving up (declared globs are shallow). */
 const MAX_DEPTH = 8;
@@ -97,14 +120,31 @@ export async function collectContentEntries(
   repoPath: string,
   rules: ContentSourceRule[],
 ): Promise<ContentEntry[]> {
+  const { matches, entries } = await resolveContentSourceMatches(repoPath, rules);
+  const docs = specDocIndex(entries);
   const out: ContentEntry[] = [];
-  const seen = new Set<string>();
-  for (const source of await resolveContentSourceMatches(repoPath, rules)) {
-    const entry = await readEntry(repoPath, source.path, source.nameFrom);
-    const key = entry ? `${entry.name}\0${entry.path}` : "";
-    if (!entry || seen.has(key)) continue;
-    seen.add(key);
-    out.push(entry);
+  const seen = new Map<string, number>();
+  for (const match of matches) {
+    const entry = await readEntry(repoPath, match, docs);
+    if (!entry) continue;
+    // One spec document describes ONE thing. A repo that declares both its demo
+    // directories and `spec/feature/*.md` would otherwise index the demo twice —
+    // once under its directory and once under the document that names it.
+    const key = entry.spec ?? `${entry.name}\0${entry.path}`;
+    const existing = seen.get(key);
+    if (existing === undefined) {
+      seen.set(key, out.length);
+      out.push(entry);
+      continue;
+    }
+    // Prefer the entry that connects the document to the content itself. This
+    // keeps the result independent of whether the H1 or dirname rule came first.
+    const previous = out[existing]!;
+    const hasContentPath = entry.spec !== null && entry.path !== entry.spec;
+    const previousHasContentPath = previous.spec !== null && previous.path !== previous.spec;
+    if (hasContentPath && !previousHasContentPath) {
+      out[existing] = entry;
+    }
   }
   return out;
 }
@@ -120,17 +160,27 @@ export async function collectContentSourceFiles(
   repoPath: string,
   rules: ContentSourceRule[],
 ): Promise<string[]> {
-  const files = (await resolveContentSourceMatches(repoPath, rules)).map((source) =>
-    source.nameFrom === "manifest.json:title"
-      ? `${source.path}/manifest.json`
-      : source.path,
+  const { matches } = await resolveContentSourceMatches(repoPath, rules);
+  // A `dirname` match names a DIRECTORY, which has no bytes to hash. Listing it
+  // still makes adding or removing one change the key, and the spec document a
+  // `dirname` entry borrows its name from is hashed with the rest of
+  // `spec/feature/` by the caller.
+  const files = matches.map((match) =>
+    match.nameFrom === "manifest.json:title" ? `${match.path}/manifest.json` : match.path,
   );
   return [...new Set(files)].sort();
 }
 
 interface ContentSourceMatch {
   path: string;
+  isDirectory: boolean;
   nameFrom: ContentNameSource;
+}
+
+/** A `spec/feature` document, keyed by the slug of its file stem. */
+interface SpecDoc {
+  slug: string;
+  path: string;
 }
 
 interface WalkEntry {
@@ -142,7 +192,7 @@ interface WalkEntry {
 async function resolveContentSourceMatches(
   repoPath: string,
   rules: ContentSourceRule[],
-): Promise<ContentSourceMatch[]> {
+): Promise<{ matches: ContentSourceMatch[]; entries: WalkEntry[] }> {
   const matches: ContentSourceMatch[] = [];
   // A repository may declare several content rules. Enumerate it once and
   // apply every rule to the same snapshot so request cost does not multiply by
@@ -153,20 +203,21 @@ async function resolveContentSourceMatches(
     const pattern = globToRegExp(rule.glob.replace(/\/+$/, ""));
     for (const entry of entries) {
       if (entry.isDirectory === wantsDir && pattern.test(entry.path)) {
-        matches.push({ path: entry.path, nameFrom: rule.nameFrom });
+        matches.push({ path: entry.path, isDirectory: wantsDir, nameFrom: rule.nameFrom });
       }
     }
   }
-  return matches;
+  return { matches, entries };
 }
 
 /** Read one match's display name; null when the source holds no usable name. */
 async function readEntry(
   repoPath: string,
-  relPath: string,
-  nameFrom: ContentNameSource,
+  match: ContentSourceMatch,
+  docs: SpecDoc[],
 ): Promise<ContentEntry | null> {
-  if (nameFrom === "manifest.json:title") {
+  const relPath = match.path;
+  if (match.nameFrom === "manifest.json:title") {
     const manifest = join(repoPath, relPath, "manifest.json");
     try {
       const parsed = JSON.parse(await readFile(manifest, "utf8")) as Record<string, unknown>;
@@ -178,15 +229,83 @@ async function readEntry(
     }
   }
 
+  if (match.nameFrom === "dirname") return dirnameEntry(repoPath, match, docs);
+
   let text: string;
   try {
     text = await readFile(join(repoPath, relPath), "utf8");
   } catch {
     return null;
   }
-  const name = nameFrom === "h1" ? headingOf(text) : frontmatterTitleOf(text);
+  const name = match.nameFrom === "h1" ? headingOf(text) : frontmatterTitleOf(text);
   if (!name) return null;
   return { name, path: relPath, spec: relPath };
+}
+
+/**
+ * A directory (or file) named by its own path, bound to its spec when one exists.
+ *
+ * `demo/shadow_play` and `spec/feature/shadow-play-kirie-backdrop.md` are the
+ * same demo written down twice. Binding them here gives ONE entry that carries
+ * both the code location and the name a person actually wrote, instead of the
+ * directory name competing in the index with the document that explains it.
+ */
+async function dirnameEntry(
+  repoPath: string,
+  match: ContentSourceMatch,
+  docs: SpecDoc[],
+): Promise<ContentEntry | null> {
+  const base = match.path.split("/").pop() ?? "";
+  const stem = match.isDirectory ? base : base.replace(/\.[A-Za-z0-9]+$/, "");
+  const spec = specDocFor(docs, slugOf(stem));
+  if (spec) {
+    const heading = headingOf(await readText(join(repoPath, spec)));
+    if (heading) return { name: heading, path: match.path, spec };
+  }
+  const name = stem.replace(/[._-]+/g, " ").replace(/\s+/g, " ").trim();
+  return name === "" ? null : { name, path: match.path, spec: null };
+}
+
+/** `spec/feature/*.md` of one walk, keyed by the slug of each file stem. */
+function specDocIndex(entries: WalkEntry[]): SpecDoc[] {
+  return entries
+    .filter((entry) => !entry.isDirectory && SPEC_FEATURE_DOC.test(entry.path))
+    .map((entry) => ({
+      slug: slugOf((entry.path.split("/").pop() ?? "").replace(/\.md$/i, "")),
+      path: entry.path,
+    }))
+    .sort((a, b) => a.slug.localeCompare(b.slug) || a.path.localeCompare(b.path));
+}
+
+/**
+ * The spec document that names the same thing as `slug`, when there is one.
+ *
+ * Exact stem first, then the `<slug>-…` form a repo uses when the document
+ * title says more than the directory does
+ * (`shadow_play` → `shadow-play-kirie-backdrop.md`). Never a suffix or
+ * substring match: that would bind unrelated documents to a short directory name.
+ */
+function specDocFor(docs: SpecDoc[], slug: string): string | null {
+  if (slug === "") return null;
+  const exact = docs.filter((doc) => doc.slug === slug);
+  if (exact.length === 1) return exact[0]!.path;
+  if (exact.length > 1) return null;
+
+  const prefixed = docs.filter((doc) => doc.slug.startsWith(`${slug}-`));
+  return prefixed.length === 1 ? prefixed[0]!.path : null;
+}
+
+/** `shadow_play` and `Shadow Play` both key on `shadow-play`. */
+function slugOf(value: string): string {
+  return value.toLowerCase().replace(/[\s._]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
+}
+
+async function readText(path: string): Promise<string> {
+  try {
+    return await readFile(path, "utf8");
+  } catch {
+    return "";
+  }
 }
 
 /** The document's first `# ` heading, trimmed of Markdown decoration. */
@@ -267,7 +386,7 @@ export function globToRegExp(glob: string): RegExp {
 }
 
 function isNameSource(value: unknown): value is ContentNameSource {
-  return value === "manifest.json:title" || value === "h1" || value === "frontmatter:title";
+  return NAME_SOURCES.includes(value as ContentNameSource);
 }
 
 function isSafeContentGlob(value: unknown): value is string {

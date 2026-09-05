@@ -1,0 +1,10 @@
+[
+  {
+    "glob": "src/kirie/",
+    "nameFrom": "dirname"
+  },
+  {
+    "glob": "spec/feature/*.md",
+    "nameFrom": "h1"
+  }
+]

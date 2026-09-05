@@ -1,5 +1,13 @@
 [
   {
+    "glob": "demo/shadow_play/",
+    "nameFrom": "dirname"
+  },
+  {
+    "glob": "demo/text_effects/",
+    "nameFrom": "dirname"
+  },
+  {
     "glob": "visus/catalog/*.md",
     "nameFrom": "frontmatter:title"
   },
