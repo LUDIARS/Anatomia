@@ -17,7 +17,7 @@
  */
 // @implements SPEC-domain-map
 
-import { aliasKeys, indexTokens, pathTokens } from "./aliases.js";
+import { aliasKeys, indexTokens, katakanaToHiragana, pathTokens } from "./aliases.js";
 import type { DomainMapRecord, ProjectDomainMap } from "./types.js";
 
 /** One token occurrence: which record, and how much this field is worth. */
@@ -38,14 +38,34 @@ export interface DomainMapIndex {
 /**
  * Field weights.
  *
- * The name is what a person types; the core domain name is the answer they
- * want; paths and description are corroboration. Keeping the spread wide means
- * a description that merely mentions a word never outranks a name that is it.
+ * The name is what a person types; the core domain name is the answer they want;
+ * paths corroborate.
+ *
+ * The description is NOT mere corroboration, which is what a weight of 1 made of
+ * it. A `core-domain` record's name is a romaji identifier (`kirie-transform`)
+ * that a Japanese instruction never contains, so its description — the design's
+ * 「日本語のまま」 field (§12.2) — is the ONLY text such a record can be found by.
+ * At a sixth of the name weight, a domain merely NAMED `demo` beat the domain
+ * whose description is about 切り絵 for 「切り絵のデモを実装する」. Half the name
+ * weight keeps the original property (a passing mention still loses to a name
+ * that IS the word) without making the only Japanese field nearly worthless.
  */
 const WEIGHT_NAME = 6;
 const WEIGHT_DOMAIN = 4;
 const WEIGHT_PATH = 2;
-const WEIGHT_DESCRIPTION = 1;
+const WEIGHT_DESCRIPTION = 3;
+
+/** Weight of the strongest single field that contains `phrase` contiguously. */
+export function phraseWeight(record: DomainMapRecord, phrase: string): number {
+  const contains = (text: string): boolean =>
+    katakanaToHiragana(text.normalize("NFKC")).includes(phrase);
+  return Math.max(
+    contains(record.name) ? WEIGHT_NAME : 0,
+    contains(record.coreDomain ?? "") ? WEIGHT_DOMAIN : 0,
+    contains(record.description) ? WEIGHT_DESCRIPTION : 0,
+    contains(record.spec ?? "") || record.paths.some(contains) ? WEIGHT_PATH : 0,
+  );
+}
 
 /** Fold one project's records into an existing index (mutates `index`). */
 export function addProjectToIndex(index: DomainMapIndex, map: ProjectDomainMap): void {

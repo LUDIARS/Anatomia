@@ -6,6 +6,7 @@
  *   content-sources.ts  `spec/domains/content-sources.json` + the spec H1 fallback
  *   project-codes.ts    LUDIARS roster (Concordia), for cross-project links
  *   links.ts            spec text → cross-project + service links
+ *   project-roots.ts    dead / duplicate registry roots, dropped before indexing
  *   sources.ts          one repo → its records
  *   inverted-index.ts   records → the searchable index
  *   search.ts           free-text instruction → ranked hits
@@ -14,7 +15,15 @@
  */
 // @implements SPEC-domain-map
 
-export { aliasKeys, indexTokens, katakanaToHiragana, normalizeAlias, pathTokens, queryTokens } from "./aliases.js";
+export {
+  aliasKeys,
+  indexTokens,
+  katakanaToHiragana,
+  normalizeAlias,
+  pathTokens,
+  queryBigramPairs,
+  queryTokens,
+} from "./aliases.js";
 export {
   CONTENT_SOURCES_REL,
   collectContentEntries,
@@ -41,6 +50,19 @@ export {
   pathHintFromPattern,
 } from "./sources.js";
 export type { BuildProjectMapOptions, MapProjectInput } from "./sources.js";
+export {
+  clearProjectRootMemo,
+  isGeneratedProjectId,
+  normalizeMapSources,
+  probeProjectRoot,
+} from "./project-roots.js";
+export type {
+  DeadRootReason,
+  MapSourceLike,
+  NormalizedSources,
+  NormalizeSourcesOptions,
+  ProjectRootProbe,
+} from "./project-roots.js";
 export { addProjectToIndex, buildDomainMapIndex } from "./inverted-index.js";
 export type { DomainMapIndex, Posting } from "./inverted-index.js";
 export { DEFAULT_SEARCH_LIMIT, searchDomainMap } from "./search.js";

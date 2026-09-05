@@ -1,12 +1,15 @@
 {
   "name": "samples-and-tools",
-  "description": "サンプルとデモの本体。シーン組立・入力・ループ。切り絵のデモもここに置く。",
+  "description": "利用例と開発補助。 demo アプリ群、 ベンチマーク、 変換/検証ツール。 ライブラリ本体の責務は含まない。",
   "role": "semantic",
   "presetRules": [],
   "templateRules": [],
   "membership": [
     {
-      "pathPattern": "(^|/)samples/"
+      "pathPattern": "(^|/)demo/(?:.*/)?[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)tools/(?:.*/)?[^/]+$"
     }
   ]
 }

@@ -75,13 +75,25 @@ export function aliasKeys(...names: (string | null | undefined)[]): string[] {
 
 /**
  * Scoring tokens of a text: identifier tokens + Japanese bigrams (from the
- * shared relevance tokenizer) plus the same tokens after alias normalisation,
- * so 「カウンター」 in a record and 「カウンタ」 in a query still share bigrams.
+ * shared relevance tokenizer), with kana folded so 「カウンター」 in a record and
+ * 「カウンタ」 in a query still share bigrams.
+ *
+ * Both spellings are tokenised, but only the FOLDED bigrams are kept. Emitting
+ * both counted one occurrence twice: 「プロジェクトのデータ」 yields 「のデ」 and
+ * 「ので」 for the same three characters, so a description merely containing a
+ * katakana word scored double for it, and 「切り絵のデモを実装する」 ranked a
+ * `project-data` domain above the domain about 切り絵 on the particle alone.
+ * Latin tokens survive the filter, including the romaji a katakana loanword
+ * emits (「デモ」 → `demo`, supply/katakana-latin.ts), which is what lets a
+ * Japanese instruction reach an English identifier at all.
  */
 export function indexTokens(text: string): string[] {
   if (!text) return [];
-  const normalized = katakanaToHiragana(text.normalize("NFKC"));
-  return [...new Set([...tokenizeRelevanceText(text), ...tokenizeRelevanceText(normalized)])];
+  const normalized = text.normalize("NFKC");
+  const folded = katakanaToHiragana(normalized);
+  return [
+    ...new Set([...tokenizeRelevanceText(normalized), ...tokenizeRelevanceText(folded)]),
+  ].filter((token) => katakanaToHiragana(token) === token);
 }
 
 /**
@@ -110,11 +122,49 @@ const TASK_BOILERPLATE = [
  * text does not fuse across the gap into bigrams nobody wrote.
  */
 export function queryTokens(text: string): string[] {
+  return indexTokens(stripTaskBoilerplate(text));
+}
+
+/**
+ * Adjacent bigram pairs of a QUERY — the phrase evidence a record can corroborate.
+ *
+ * Bigrams flatten a distinction the ranking needs. 「切り絵」 is a three-character
+ * subject and 「デモ」 a two-character generic word, but tokenised they are two
+ * cheap tokens and one cheap token: the MORE specific term ends up worth barely
+ * more than the less specific one, so a domain merely named `demo` outranks the
+ * one whose description is about 切り絵. Pairing the bigrams restores the
+ * difference — a record whose text runs 切り→り絵 answers the phrase, a record
+ * that only shares 「デモ」 answers a syllable (see search.ts).
+ *
+ * Runs are kana-folded, matching how {@link indexTokens} stores a record, and
+ * the pairs are deduped so a phrase a query repeats is still one piece of
+ * evidence.
+ */
+export function queryBigramPairs(text: string): [string, string][] {
+  const pairs = new Map<string, [string, string]>();
+  for (const run of japaneseRuns(stripTaskBoilerplate(text))) {
+    const folded = katakanaToHiragana(run);
+    for (let at = 0; at + 2 < folded.length; at++) {
+      const first = folded.slice(at, at + 2);
+      const second = folded.slice(at + 1, at + 3);
+      pairs.set(`${first}${second}`, [first, second]);
+    }
+  }
+  return [...pairs.values()];
+}
+
+/** Remove the phrases that describe the ACT of working, not its subject. */
+function stripTaskBoilerplate(text: string): string {
   let stripped = text;
   for (const phrase of TASK_BOILERPLATE) {
     stripped = stripped.split(phrase).join(" ");
   }
-  return indexTokens(stripped);
+  return stripped;
+}
+
+/** Maximal runs of kana/kanji — the parts of a query that bigrams come from. */
+function japaneseRuns(text: string): string[] {
+  return text.normalize("NFKC").match(/[\u3040-\u30ff\u3400-\u9fff]+/g) ?? [];
 }
 
 /**

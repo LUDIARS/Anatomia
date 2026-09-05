@@ -20,6 +20,11 @@
 // @implements SPEC-domain-map
 
 import { computeMapSourceKey, buildProjectDomainMap, type MapProjectInput } from "./sources.js";
+import {
+  clearProjectRootMemo,
+  normalizeMapSources,
+  type NormalizeSourcesOptions,
+} from "./project-roots.js";
 import { buildDomainMapIndex, type DomainMapIndex } from "./inverted-index.js";
 import {
   fetchProjectCodes,
@@ -46,7 +51,7 @@ export interface DomainMapBundle {
 }
 
 /** Options for {@link loadDomainMapBundle}. */
-export interface LoadBundleOptions {
+export interface LoadBundleOptions extends NormalizeSourcesOptions {
   /** Skip the process memo and the prepared artifact (tests, `--refresh`). */
   refresh?: boolean;
   /** Pre-fetched roster; omitted → fetched once from Concordia. */
@@ -87,6 +92,7 @@ export function clearDomainMapMemo(): void {
   memoCheckedAt.clear();
   inFlight.clear();
   rosterMemo = null;
+  clearProjectRootMemo();
 }
 
 /** Build (or refresh) the bundle over `sources`. */
@@ -97,10 +103,15 @@ export async function loadDomainMapBundle(
   if (sources.length === 0) {
     return { index: buildDomainMapIndex([]), maps: [], notes: [] };
   }
+  // A shared registry outlives the checkouts in it: drop the roots that are gone
+  // and fold repeat registrations of one repository before anything is indexed,
+  // so one repo never spends two of the search's few result slots on the same
+  // content (project-roots.ts).
+  const registry = await normalizeMapSources(sources, options);
   const roster = options.roster ?? (await resolveRoster(options));
   const maps: ProjectDomainMap[] = [];
-  const notes: string[] = [];
-  for (const source of sources) {
+  const notes: string[] = [...registry.notes];
+  for (const source of registry.sources) {
     const map = await loadProjectDomainMap(source, {
       ...options,
       roster,

@@ -1,0 +1,12 @@
+{
+  "name": "demo",
+  "description": "Standalone demonstration application.",
+  "role": "semantic",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    {
+      "pathPattern": "(^|/)demo/src/[^/]+$"
+    }
+  ]
+}

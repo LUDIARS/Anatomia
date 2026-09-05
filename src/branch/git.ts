@@ -1,16 +1,17 @@
 /**
- * src/branch/git.ts — Minimal git access for branch-diff analysis.
+ * src/branch/git.ts — Minimal Git process primitives.
  *
  * SRP: shells out to `git` and returns plain data. No parsing, no diff
- * classification, no HTTP. Used by branch/diff.ts to discover what a branch
- * changed relative to its fork point and to read the base version of a file.
+ * classification, repository policy, or HTTP. Used by branch/diff.ts for branch
+ * changes and by map/project-roots.ts for checkout identity.
  *
  * Everything here degrades gracefully: a non-git directory, a missing ref, or
  * an absent file resolves to null/[]/false rather than throwing, so the
- * branch-diff feature is a no-op (not an error) outside a git checkout.
+ * callers can degrade to path identity or a no-op outside a Git checkout.
  */
 
 import { execFile } from "node:child_process";
+import { basename, dirname, resolve } from "node:path";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -41,6 +42,49 @@ async function git(cwd: string, args: string[]): Promise<string | null> {
 export async function isGitRepo(rootPath: string): Promise<boolean> {
   const out = await git(rootPath, ["rev-parse", "--is-inside-work-tree"]);
   return out === "true";
+}
+
+/** The two checkout roots a path belongs to. */
+export interface RepoRoots {
+  /** Toplevel of the working tree the path is in, forward-slashed. */
+  worktree: string;
+  /**
+   * Root of the MAIN checkout. A linked worktree resolves to the repository it
+   * was added from; a normal checkout resolves to itself.
+   */
+  main: string;
+}
+
+/**
+ * Resolve which repository a path belongs to, and which checkout of it.
+ *
+ * `--git-common-dir` is the whole point: every linked worktree shares the main
+ * checkout's git dir, so its parent is the one identity two worktrees of the
+ * same repository agree on. Callers that must not count one repository twice
+ * (the domain map's project registry) key on `main`.
+ *
+ * Returns null outside a git checkout, like everything else here.
+ */
+export async function resolveRepoRoots(path: string): Promise<RepoRoots | null> {
+  const out = await git(path, [
+    "rev-parse",
+    "--path-format=absolute",
+    "--show-toplevel",
+    "--git-common-dir",
+  ]);
+  if (out === null) return null;
+  const [worktree, commonDir] = out.split(/\r?\n/);
+  if (!worktree || !commonDir) return null;
+  // Absolute output avoids interpreting a relative common-dir against the wrong
+  // directory when the registered analysis root is a repository subdirectory.
+  const gitDir = resolve(path, commonDir);
+  const main = basename(gitDir) === ".git" ? dirname(gitDir) : worktree;
+  return { worktree: forwardSlashed(worktree), main: forwardSlashed(main) };
+}
+
+/** Forward-slashed, trailing-separator-free form, so two spellings compare equal. */
+function forwardSlashed(path: string): string {
+  return path.replace(/\\/g, "/").replace(/\/+$/, "");
 }
 
 /** Current branch name (or null when detached / not a repo). */

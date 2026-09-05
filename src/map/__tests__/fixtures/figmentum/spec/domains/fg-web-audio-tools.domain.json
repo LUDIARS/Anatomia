@@ -1,0 +1,12 @@
+{
+  "name": "fg-web-audio-tools",
+  "description": "ブラウザ向けの音声デモツール。",
+  "role": "semantic",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    {
+      "pathPattern": "(^|/)web/audio-demo/"
+    }
+  ]
+}

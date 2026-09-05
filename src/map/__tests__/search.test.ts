@@ -5,11 +5,13 @@
  *   「トランポリンカウンターで〇〇」 → ludellus / uni-jump-trampoline, ranked FIRST,
  *      carrying renderer/mr/games/uni-jump + renderer/lib/jump
  *   「切り絵のデモ」               → figmentum / kirie-transform AND the Pictor
- *      domain that owns the demo, both in the top hits
+ *      content that owns the demo, in the top hits — and the records that merely
+ *      share the word 「デモ」 (cernere `demo`, figmentum `fg-web-audio-tools`)
+ *      below them, which is the ordering the shipped index got backwards.
  *
- * The fixtures stand in for Ludellus / Figmentum / Pictor because those repos are
- * read-only from here and their `content-sources.json` is proposed by this PR
- * rather than committed into them (see spec/feature/domain-map.md).
+ * The fixtures are minimal synthetic declarations containing only the competing
+ * signals needed to pin the ranking. They deliberately do not copy sibling
+ * repositories' domain catalogs or internal architecture into this repository.
  */
 
 import { fileURLToPath } from "node:url";
@@ -35,6 +37,7 @@ async function fixtureIndex() {
     await fixtureMap("ludellus"),
     await fixtureMap("figmentum"),
     await fixtureMap("pictor"),
+    await fixtureMap("cernere"),
   ]);
 }
 
@@ -59,11 +62,41 @@ describe("searchDomainMap", () => {
     expect(hits[0]!.coreDomain).toBe("uni-jump-trampoline");
   });
 
-  it("surfaces both repos for 「切り絵のデモ」", async () => {
+  it("surfaces both repos for 「切り絵のデモ」, Pictor's demo and Figmentum's domain on top", async () => {
     const hits = searchDomainMap(await fixtureIndex(), "切り絵のデモを実装する", { limit: 6 });
-    const pairs = hits.map((hit) => `${hit.project}/${hit.coreDomain ?? hit.name}`);
-    expect(pairs).toContain("figmentum/kirie-transform");
-    expect(pairs.some((pair) => pair.startsWith("pictor/"))).toBe(true);
+    const top = hits.slice(0, 3);
+    expect(hits[0]!.project).toBe("pictor");
+    expect(top.map((hit) => hit.name)).toContain("影絵デモ — 切り絵バックドロップ");
+    expect(top.map((hit) => `${hit.project}/${hit.coreDomain ?? hit.name}`))
+      .toContain("figmentum/kirie-transform");
+  });
+
+  it("ranks the domain an instruction is ABOUT over one merely named after a word in it", async () => {
+    // 「切り絵」 lives only in kirie-transform's DESCRIPTION, while cernere's
+    // `demo` and figmentum's `fg-web-audio-tools` carry 「デモ」 and nothing about
+    // 切り絵 at all. The shipped weights put both of those above it.
+    const hits = searchDomainMap(await fixtureIndex(), "切り絵のデモを実装する", { limit: 12 });
+    const rankOf = (project: string, name: string) =>
+      hits.findIndex((hit) => hit.project === project && hit.kind === "core-domain" && hit.name === name);
+
+    const kirie = rankOf("figmentum", "kirie-transform");
+    expect(kirie).toBeGreaterThanOrEqual(0);
+    expect(rankOf("cernere", "demo")).toBeGreaterThan(kirie);
+    expect(rankOf("figmentum", "fg-web-audio-tools")).toBeGreaterThan(kirie);
+    expect(hits[kirie]!.matched).toContain("切り絵");
+  });
+
+  it("does not manufacture phrase evidence across separate record fields", async () => {
+    const map = await fixtureMap("figmentum");
+    const source = map.records.find((record) => record.name === "kirie-transform")!;
+    const index = buildDomainMapIndex([{
+      ...map,
+      records: [{ ...source, name: "切り", description: "り絵" }],
+    }]);
+
+    const [hit] = searchDomainMap(index, "切り絵");
+    expect(hit).toBeDefined();
+    expect(hit!.matched).not.toContain("切り絵");
   });
 
   it("returns nothing for an instruction the index cannot place", async () => {

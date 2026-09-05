@@ -7,7 +7,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { aliasKeys, normalizeAlias, pathTokens } from "../aliases.js";
+import { aliasKeys, indexTokens, normalizeAlias, pathTokens, queryBigramPairs } from "../aliases.js";
 import { loadContentSources } from "../content-sources.js";
 import { extractLinks, httpSurfaces } from "../links.js";
 import { parseProjectCodes, fetchProjectCodes, resolveProjectCodesUrl } from "../project-codes.js";
@@ -64,6 +64,35 @@ describe("aliasKeys", () => {
 
   it("drops one-character fragments that would match everything", () => {
     expect(aliasKeys("a")).toEqual([]);
+  });
+});
+
+describe("indexTokens", () => {
+  it("emits one token per bigram, kana folded, plus the loanword's romaji", () => {
+    const tokens = indexTokens("プロジェクトのデータ");
+    // 「のデ」 and 「ので」 are the same three characters: counting both let a
+    // katakana word score twice for one occurrence.
+    expect(tokens).toContain("ので");
+    expect(tokens).not.toContain("のデ");
+    expect(indexTokens("デモ")).toContain("demo");
+  });
+
+  it("folds the katakana of a record onto the hiragana of a query", () => {
+    expect(indexTokens("カウンター")).toEqual(expect.arrayContaining(indexTokens("かうんたー")));
+  });
+});
+
+describe("queryBigramPairs", () => {
+  it("pairs adjacent bigrams of a query, boilerplate stripped", () => {
+    const phrases = queryBigramPairs("切り絵のデモを実装する")
+      .map(([first, second]) => `${first}${second.slice(1)}`);
+    expect(phrases).toContain("切り絵");
+    // 「実装する」 is the act, not the subject: it must not become phrase evidence.
+    expect(phrases.some((phrase) => phrase.includes("実"))).toBe(false);
+  });
+
+  it("has nothing to pair in a run too short to hold a phrase", () => {
+    expect(queryBigramPairs("デモ")).toEqual([]);
   });
 });
 

@@ -1,12 +1,12 @@
 {
   "name": "kirie-transform",
-  "description": "実写真→多層切り絵風イラスト変換。平滑化、紙色パレット、累積層マスク、輪郭簡略化、積層レンダリング。Pictor から呼ばれる。",
+  "description": "実写真→多層切り絵風イラスト変換。平滑化、紙色パレット、累積層マスク、輪郭簡略化、積層レンダリング。",
   "role": "semantic",
   "presetRules": [],
   "templateRules": [],
   "membership": [
     {
-      "pathPattern": "(^|/)src/kirie/"
+      "pathPattern": "(^|/)src/kirie/(?:.*/)?[^/]+$"
     },
     {
       "pathPattern": "(^|/)spec/feature/kirie-transform\\.md$"

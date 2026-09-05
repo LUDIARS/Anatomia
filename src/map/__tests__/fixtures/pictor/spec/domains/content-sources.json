@@ -2,5 +2,9 @@
   {
     "glob": "visus/catalog/*.md",
     "nameFrom": "frontmatter:title"
+  },
+  {
+    "glob": "spec/feature/*.md",
+    "nameFrom": "h1"
   }
 ]
