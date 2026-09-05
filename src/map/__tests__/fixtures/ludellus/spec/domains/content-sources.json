@@ -1,0 +1,10 @@
+[
+  {
+    "glob": "renderer/mr/games/*",
+    "nameFrom": "manifest.json:title"
+  },
+  {
+    "glob": "spec/feature/*.md",
+    "nameFrom": "h1"
+  }
+]

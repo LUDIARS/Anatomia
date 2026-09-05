@@ -1,0 +1,18 @@
+{
+  "name": "uni-jump-trampoline",
+  "description": "uni-jump のトランポリン計数とカメラ上の演出。Interpres のジャンプ検知 (poses[].jump) を受け、累積 count の差分から跳んだ回数を作る。配信は loopback 8790 に限定する。",
+  "role": "semantic",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    {
+      "pathPattern": "(^|/)renderer/lib/jump/"
+    },
+    {
+      "pathPattern": "(^|/)renderer/mr/games/uni-jump/"
+    },
+    {
+      "pathPattern": "(^|/)spec/feature/uni-jump-trampoline\\.md$"
+    }
+  ]
+}

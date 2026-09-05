@@ -7,9 +7,14 @@
  *
  * `--project` is repeatable and analyses each registered project through the
  * ProjectManager (cache-aware); `--repo` analyses one unregistered checkout so
- * a repo that was never registered still gets a plan. Every covered repo gets
- * the plan written under its `.anatomia/plan/` so `verify --plan` can reconcile
- * the finished PR against it.
+ * a repo that was never registered still gets a plan. When NEITHER is given the
+ * cross-project domain map picks the projects from the task itself
+ * (design §12.3, `--hints-from-map`, on by default, `--no-map` to opt out) —
+ * that is the whole point of the map: 「切り絵のデモを実装する」 should not also
+ * have to say "in Pictor and Figmentum".
+ *
+ * Every covered repo gets the plan written under its `.anatomia/plan/` so
+ * `verify --plan` can reconcile the finished PR against it.
  *
  * The exit code is ALWAYS 0: a plan is a briefing, not a gate. An LLM that was
  * unavailable shows up as a note in the output, not as a failure.
@@ -22,7 +27,18 @@ import { analyze } from "../core.js";
 import { ProjectManager } from "../project/manager.js";
 import { effectiveOntologyDir } from "../project/config-paths.js";
 import { slug } from "../project/registry.js";
-import { buildPlan, formatPlan, formatPlanOkf, hasKnowledgeLog, resolveUxCriticalDomainNames, savePlan, type PlanRepo } from "../supply/plan/index.js";
+import {
+  buildPlan,
+  collectMapHints,
+  formatPlan,
+  formatPlanOkf,
+  hasKnowledgeLog,
+  resolveUxCriticalDomainNames,
+  savePlan,
+  type PlanMapHints,
+  type PlanRepo,
+} from "../supply/plan/index.js";
+import { resolveMapSources } from "./map-cli.js";
 import { detectScreens } from "../screens/index.js";
 import { detectEntryPoints } from "../entrypoints/index.js";
 import type { CliArgs } from "./cli.js";
@@ -34,8 +50,12 @@ import type { CliArgs } from "./cli.js";
  * warm cache instead of re-parsing the repo; an unregistered `--repo` path is
  * analysed directly and gets a slug id derived from its directory name.
  */
-export async function resolvePlanRepos(args: CliArgs): Promise<PlanRepo[]> {
-  const projectIds = args.projects ?? (args.project ? [args.project] : []);
+export async function resolvePlanRepos(
+  args: CliArgs,
+  hintedProjects: string[] = [],
+): Promise<PlanRepo[]> {
+  const explicit = args.projects ?? (args.project ? [args.project] : []);
+  const projectIds = explicit.length > 0 ? explicit : hintedProjects;
   if (projectIds.length === 0) {
     // Resolve first: `--repo .` would otherwise slug the literal "." into an
     // empty id, and the plan would name its items "/<domain>".
@@ -60,10 +80,36 @@ export async function resolvePlanRepos(args: CliArgs): Promise<PlanRepo[]> {
   return repos;
 }
 
+/**
+ * The map's contribution, or null when it was refused or unusable.
+ *
+ * A map failure never takes the plan down: the search is an accelerator, and a
+ * registry whose repos cannot be read still deserves a plan for the repo the
+ * caller is standing in. The reason is carried into the plan's notes.
+ */
+export async function resolveMapHints(
+  args: CliArgs,
+): Promise<{ hints: PlanMapHints | null; note: string | null }> {
+  if (args.hintsFromMap === false) return { hints: null, note: null };
+  const task = args.task ?? "";
+  if (task.trim() === "") return { hints: null, note: null };
+  try {
+    const sources = await resolveMapSources({ ...args, repoExplicit: args.repoExplicit === true });
+    if (sources.length === 0) return { hints: null, note: null };
+    return { hints: await collectMapHints(task, sources), note: null };
+  } catch (error) {
+    return {
+      hints: null,
+      note: `ドメインマップ検索を実行できませんでした: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
 /** Run `plan` and render it (Markdown by default, `--json`, or `--format okf`). */
 export async function runPlan(args: CliArgs): Promise<{ exitCode: number; output: string }> {
   const task = args.task ?? "";
-  const repos = await resolvePlanRepos(args);
+  const { hints, note } = await resolveMapHints(args);
+  const repos = await resolvePlanRepos(args, hints?.projects ?? []);
   // A-10: which detection domains a UX-critical business domain covers, per
   // repo. Resolved through approved `domain-owns-code`, never by name.
   const uxCriticalDomains: Record<string, string[]> = {};
@@ -90,7 +136,12 @@ export async function runPlan(args: CliArgs): Promise<{ exitCode: number; output
       },
     });
   }
-  const plan = await buildPlan(task, repos, { noLlm: args.noLlm === true, uxCriticalDomains });
+  const plan = await buildPlan(task, repos, {
+    noLlm: args.noLlm === true,
+    uxCriticalDomains,
+    ...(hints ? { mapHints: hints } : {}),
+  });
+  if (note) plan.notes.push(note);
 
   const { failed } = await savePlan(
     plan,

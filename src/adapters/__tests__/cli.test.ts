@@ -100,6 +100,23 @@ describe("parseArgs", () => {
     expect(args.repoPath).toBe(process.cwd());
   });
 
+  it("parses map and plan map-selection options", () => {
+    expect(parseArgs(["map", "search", "切り絵のデモ", "--limit", "4", "--project", "pictor"]))
+      .toMatchObject({
+        subcommand: "map",
+        mapAction: "search",
+        query: "切り絵のデモ",
+        limit: 4,
+        projects: ["pictor"],
+      });
+    expect(parseArgs(["plan", "--task", "x", "--no-map"]))
+      .toMatchObject({ subcommand: "plan", hintsFromMap: false });
+    expect(() => parseArgs(["map", "search", "x", "--limit", "0.5"]))
+      .toThrow(/positive integer/);
+    expect(() => parseArgs(["map", "show", "p", "--repo"]))
+      .toThrow(/requires a path/);
+  });
+
   it("parses verify --file / -f (changed path for by:path rules)", () => {
     expect(parseArgs(["verify", "-d", "-", "--file", "src/scene/x.cpp"]).file).toBe("src/scene/x.cpp");
     expect(parseArgs(["verify", "-d", "-", "-f", "src/gpu/y.cpp"]).file).toBe("src/gpu/y.cpp");

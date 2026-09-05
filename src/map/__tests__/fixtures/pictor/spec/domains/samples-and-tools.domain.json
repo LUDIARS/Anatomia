@@ -1,0 +1,12 @@
+{
+  "name": "samples-and-tools",
+  "description": "サンプルとデモの本体。シーン組立・入力・ループ。切り絵のデモもここに置く。",
+  "role": "semantic",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    {
+      "pathPattern": "(^|/)samples/"
+    }
+  ]
+}

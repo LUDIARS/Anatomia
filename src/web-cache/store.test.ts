@@ -20,6 +20,7 @@ import {
   type SceneViewPayload,
   type SearchCorpus,
 } from "./types.js";
+import { DOMAIN_MAP_VERSION } from "../map/types.js";
 
 const scene: SceneModulesPayload = { hasScenes: false, scenes: [] };
 const sceneView: SceneViewPayload = { scenes: [] };
@@ -38,6 +39,15 @@ const bundle: WebCacheBundle = {
   "scene-view": sceneView,
   "entrypoint-view": { entries: [], nodes: [], edges: [], unrooted: [], diagnostics: [] },
   "search-corpus": corpus,
+  "domain-map": {
+    version: DOMAIN_MAP_VERSION,
+    project: "p",
+    builtAt: "2026-09-05T00:00:00.000Z",
+    sourceKey: "k",
+    rosterKey: "r",
+    records: [],
+    notes: [],
+  },
 };
 
 let dir: string;

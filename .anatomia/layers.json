@@ -6,6 +6,7 @@
 
     { "glob": "src/*", "layer": "application" },
     { "glob": "src/supply/**", "layer": "application" },
+    { "glob": "src/map/**", "layer": "application" },
     { "glob": "src/review/**", "layer": "application" },
     { "glob": "src/spec-review/**", "layer": "application" },
     { "glob": "src/integral/**", "layer": "application" },

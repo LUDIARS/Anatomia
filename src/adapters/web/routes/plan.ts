@@ -19,9 +19,11 @@ import type { ProjectManager } from "../../../project/manager.js";
 import { effectiveOntologyDir } from "../../../project/config-paths.js";
 import {
   buildPlan,
+  collectMapHints,
   formatPlan,
   formatPlanOkf,
   savePlan,
+  type PlanMapHints,
   type PlanRepo,
 } from "../../../supply/plan/index.js";
 
@@ -35,6 +37,12 @@ interface PlanRequestBody {
   llm?: unknown;
   /** Also render the OKF document (for delegation prompts). */
   okf?: unknown;
+  /**
+   * Consult the cross-project domain map for project + domain hints. Default
+   * true (design §12.3): the hook calls this route on every coding prompt, and
+   * the map is what turns 「トランポリンカウンターで〇〇」 into a project id.
+   */
+  map?: unknown;
 }
 
 /** Mount `POST /api/plan`. */
@@ -57,13 +65,31 @@ export function mountPlanRoutes(app: Hono, deps: { manager: ProjectManager | nul
     const task = typeof body.task === "string" ? body.task.trim() : "";
     if (task === "") return c.json({ error: "task is required" }, 400);
 
-    const requested = [
+    const requested: string[] = [
       ...(typeof body.project === "string" ? [body.project] : []),
       ...(Array.isArray(body.projects)
         ? body.projects.filter((p): p is string => typeof p === "string")
         : []),
     ];
-    if (requested.length === 0) return c.json({ error: "project is required" }, 400);
+    // The map runs BEFORE the project resolution so a request that names no
+    // project still gets one; an explicit `project` narrows the search instead.
+    let hints: PlanMapHints | null = null;
+    if (body.map !== false) {
+      const sources = manager.list().map((project) => ({
+        id: project.id,
+        rootPath: project.rootPath,
+        ontologyDir: effectiveOntologyDir(project),
+        cacheDir: manager.cache.dirFor(project.id),
+      }));
+      hints = await collectMapHints(task, sources, { projects: requested });
+      if (requested.length === 0) requested.push(...hints.projects);
+    }
+
+    // A zero-hit map search is a valid question-only plan. Do not reject it
+    // before buildPlan can carry the documented "索引に無い" question.
+    if (requested.length === 0 && (!hints || hints.questions.length === 0)) {
+      return c.json({ error: "project is required" }, 400);
+    }
 
     const repos: PlanRepo[] = [];
     for (const requestedId of [...new Set(requested)]) {
@@ -82,7 +108,10 @@ export function mountPlanRoutes(app: Hono, deps: { manager: ProjectManager | nul
       });
     }
 
-    const plan = await buildPlan(task, repos, { noLlm: body.llm === false });
+    const plan = await buildPlan(task, repos, {
+      noLlm: body.llm === false,
+      ...(hints ? { mapHints: hints } : {}),
+    });
     const { failed } = await savePlan(
       plan,
       repos.map((repo) => ({ id: repo.id, repoPath: repo.repoPath })),

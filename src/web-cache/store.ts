@@ -213,6 +213,7 @@ function countOf(view: WebViewName, data: unknown): number {
     if (view === "scene-modules" && Array.isArray(o["domains"])) return (o["domains"] as unknown[]).length;
     if (view === "search-corpus" && Array.isArray(o["entries"])) return (o["entries"] as unknown[]).length;
     if (view === "domain-view" && Array.isArray(o["views"])) return (o["views"] as unknown[]).length;
+    if (view === "domain-map" && Array.isArray(o["records"])) return (o["records"] as unknown[]).length;
     if (view === "business-domain-view" && Array.isArray(o["domains"])) return (o["domains"] as unknown[]).length;
     if (view === "program-domain-view" && Array.isArray(o["layers"])) return (o["layers"] as unknown[]).length;
     if (view === "scene-view" && Array.isArray(o["scenes"])) return (o["scenes"] as unknown[]).length;

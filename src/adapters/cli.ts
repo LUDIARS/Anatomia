@@ -89,6 +89,7 @@ import { ProjectManager } from "../project/manager.js";
 import { exportGraphHtml } from "./web/export.js";
 import { runEntryPoints } from "./entrypoints-cli.js";
 import { runPlan } from "./plan-cli.js";
+import { runMap, type MapAction } from "./map-cli.js";
 import { PLAN_DIR_REL, latestPlanFile, loadPlan } from "../supply/plan/index.js";
 import type { Plan } from "../supply/plan/index.js";
 import { startServer } from "./web/server.js";
@@ -161,7 +162,8 @@ export interface CliArgs {
     | "entrypoints"
     | "knowledge"
     | "links"
-    | "plan";
+    | "plan"
+    | "map";
   repoPath: string;
   /** For cache-stats: path to the JSONL transcript (defaults to ANATOMIA_CACHE_LOG). */
   logPath?: string;
@@ -256,6 +258,21 @@ export interface CliArgs {
   specSetDirs?: string[];
   /** For project spec: clear the config (back to auto-detect default). */
   specClear?: boolean;
+  /** For map: action (search | show). */
+  mapAction?: MapAction;
+  /** For map: the free-text instruction (search) or project id (show). */
+  query?: string;
+  /**
+   * For plan/map: true when `--repo` was passed explicitly. `repoPath` always
+   * holds a path (it defaults to the cwd), so the flag is the only way to tell
+   * "this checkout" from "wherever I happened to run it".
+   */
+  repoExplicit?: boolean;
+  /**
+   * For plan: consult the cross-project domain map for project + domain hints.
+   * Default true; `--no-map` turns it off.
+   */
+  hintsFromMap?: boolean;
   /** For plan: every `--project` given, in order (a plan may span repos). */
   projects?: string[];
   /** For domain-review: also aggregate coverage / violations / cohesion per layer. */
@@ -300,10 +317,11 @@ export function parseArgs(argv: string[]): CliArgs {
     subcommand !== "entrypoints" &&
     subcommand !== "knowledge" &&
     subcommand !== "links" &&
-    subcommand !== "plan"
+    subcommand !== "plan" &&
+    subcommand !== "map"
   ) {
     throw new Error(
-      `Unknown subcommand "${subcommand ?? ""}". Expected: verify | context | where | find | callers | callees | review | spec-review | domain-review | pr-review | project | export-graph | web | cache-stats | integral | domains | trace | screens | scenes | entrypoints | knowledge | links | plan`,
+      `Unknown subcommand "${subcommand ?? ""}". Expected: verify | context | where | find | callers | callees | review | spec-review | domain-review | pr-review | project | export-graph | web | cache-stats | integral | domains | trace | screens | scenes | entrypoints | knowledge | links | plan | map`,
     );
   }
 
@@ -334,6 +352,10 @@ export function parseArgs(argv: string[]): CliArgs {
 
   if (subcommand === "plan") {
     return parsePlanArgs(args);
+  }
+
+  if (subcommand === "map") {
+    return parseMapArgs(args);
   }
 
   // The `web` subcommand has its own flag set.
@@ -454,9 +476,13 @@ export function parseArgs(argv: string[]): CliArgs {
  */
 function parsePlanArgs(args: string[]): CliArgs {
   let repoPath = process.cwd();
+  let repoExplicit = false;
   let task: string | undefined;
   let json = false;
   let noLlm = false;
+  // Design §12.3: the map search runs BEFORE the plan, so a task that names a
+  // product does not also have to name a repo. `--no-map` opts out.
+  let hintsFromMap = true;
   let planFormat: "markdown" | "okf" = "markdown";
   const projects: string[] = [];
   for (let i = 0; i < args.length; i++) {
@@ -468,11 +494,18 @@ function parsePlanArgs(args: string[]): CliArgs {
       if (!value || value.startsWith("-")) throw new Error("plan --project requires an id");
       projects.push(value);
     } else if (flag === "--repo" || flag === "-r") {
-      repoPath = args[++i] ?? repoPath;
+      const value = args[++i];
+      if (!value || value.startsWith("-")) throw new Error("plan --repo requires a path");
+      repoPath = value;
+      repoExplicit = true;
     } else if (flag === "--json" || flag === "-j") {
       json = true;
     } else if (flag === "--no-llm") {
       noLlm = true;
+    } else if (flag === "--hints-from-map") {
+      hintsFromMap = true;
+    } else if (flag === "--no-map") {
+      hintsFromMap = false;
     } else if (flag === "--format") {
       const value = args[++i];
       if (value !== "markdown" && value !== "okf") {
@@ -487,10 +520,77 @@ function parsePlanArgs(args: string[]): CliArgs {
   return {
     subcommand: "plan",
     repoPath,
+    repoExplicit,
     task,
     json,
     noLlm,
+    hintsFromMap,
     planFormat,
+    ...(projects.length > 0 ? { projects, project: projects[0] } : {}),
+  };
+}
+
+/**
+ * `anatomia map search "<指示文>"` / `anatomia map show <project>`.
+ *
+ * The query is POSITIONAL: it is a sentence a person types, and forcing it
+ * behind a flag would be one more thing to remember at the moment the map is
+ * meant to remove friction.
+ */
+function parseMapArgs(args: string[]): CliArgs {
+  const action = args.shift();
+  if (action !== "search" && action !== "show") {
+    throw new Error(`Unknown map action "${action ?? ""}". Expected: search | show`);
+  }
+  let repoPath = process.cwd();
+  let repoExplicit = false;
+  let query: string | undefined;
+  let json = false;
+  let force = false;
+  let limit: number | undefined;
+  const projects: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const flag = args[i];
+    if (flag === "--project" || flag === "-p") {
+      const value = args[++i];
+      if (!value || value.startsWith("-")) throw new Error("map --project requires an id");
+      projects.push(value);
+    } else if (flag === "--repo" || flag === "-r") {
+      const value = args[++i];
+      if (!value || value.startsWith("-")) throw new Error("map --repo requires a path");
+      repoPath = value;
+      repoExplicit = true;
+    } else if (flag === "--json" || flag === "-j") {
+      json = true;
+    } else if (flag === "--refresh") {
+      force = true;
+    } else if (flag === "--limit") {
+      const value = Number(args[++i]);
+      if (!Number.isSafeInteger(value) || value <= 0) {
+        throw new Error("map --limit requires a positive integer");
+      }
+      limit = value;
+    } else if (!flag?.startsWith("-") && query === undefined) {
+      query = flag;
+    } else {
+      throw new Error(`Unknown map option "${flag ?? ""}"`);
+    }
+  }
+  if (action === "search" && (query === undefined || query.trim() === "")) {
+    throw new Error('map search requires a query: anatomia map search "<指示文>"');
+  }
+  if (action === "show" && query === undefined && projects.length === 0 && !repoExplicit) {
+    throw new Error("map show requires a project id: anatomia map show <project>");
+  }
+  return {
+    subcommand: "map",
+    mapAction: action,
+    repoPath,
+    repoExplicit,
+    json,
+    force,
+    ...(query !== undefined ? { query } : {}),
+    ...(limit !== undefined ? { limit } : {}),
     ...(projects.length > 0 ? { projects, project: projects[0] } : {}),
   };
 }
@@ -804,6 +904,10 @@ export async function runCli(
 
   if (args.subcommand === "plan") {
     return runPlan(args);
+  }
+
+  if (args.subcommand === "map") {
+    return runMap(args);
   }
 
   if (args.subcommand === "spec-review") {

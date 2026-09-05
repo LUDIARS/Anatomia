@@ -25,6 +25,8 @@ import { buildEntryPointViewPayload } from "./entrypoint-view.js";
 import { buildBusinessDomainViewPayload } from "./business-domain-view.js";
 import { buildProgramDomainViewPayload } from "./program-domain-view.js";
 import { buildSearchCorpus } from "./search-corpus.js";
+import { buildProjectDomainMap } from "../map/sources.js";
+import { fetchProjectCodes } from "../map/project-codes.js";
 import type { SceneModel } from "../integral/scene.js";
 import { emptySceneModel } from "../integral/scene.js";
 import type { WebCacheBundle } from "./types.js";
@@ -112,6 +114,16 @@ export async function buildWebCacheBundle(
   // unservable as one payload (measured 353MB), so the persisted graph view is
   // the small group-granularity OVERVIEW and the panel zooms into per-group
   // slices fetched lazily (graph-split.ts).
+  // The domain map is derived from committed declarations, not from the graph,
+  // but it is prepared HERE so a project's records are on disk with the rest of
+  // its views and the cross-project search can start from the artifact instead
+  // of re-reading every repo (design §12.3).
+  const roster = await fetchProjectCodes();
+  const domainMap = await buildProjectDomainMap(
+    { id: options.projectId ?? "repo", rootPath: ctx.repoPath },
+    { roster: roster.codes, rosterError: roster.error },
+  );
+
   const overview = buildGraphOverview(graph);
   const graphSlices = buildGraphSlices(graph);
 
@@ -129,6 +141,7 @@ export async function buildWebCacheBundle(
       domains,
       "scene-modules": sceneModules,
       "search-corpus": searchCorpus,
+      "domain-map": domainMap,
     },
     graphSlices,
   };

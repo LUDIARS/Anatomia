@@ -17,8 +17,8 @@
  * @spec パイプライン（`src/supply/plan/`）
  */
 
-import type { AnalysisContext } from "../../core.js";
-import type { AnchorId, FunctionNode } from "../../types.js";
+import type { AnchorId } from "../../types.js";
+import { isPublicApiName } from "./public-api.js";
 import { repoRelative, type PlanRepo } from "./collect.js";
 import type { PlanDataDef, PlanDomainCandidate } from "./types.js";
 
@@ -71,12 +71,14 @@ function compilePattern(pattern: string): RegExp | null {
 }
 
 /**
- * Type declarations and public functions of a domain, most-referenced first.
+ * Type declarations and public API functions of a domain.
  *
- * "Public" is a naming convention check (no leading underscore) rather than a
- * language visibility check: Anatomia's FunctionNode carries no export/access
- * flag, and claiming a precision the model does not have would be worse than
- * saying plainly that the filter is conventional.
+ * The function half is the domain's ENTRY POINTS, not everything it defines:
+ * accessors and operator overloads are excluded (public-api.ts). Measured on the
+ * first plan PR, an unfiltered list ranked by reference count filled 「データ定義」
+ * with `size` / `empty` / `count` / `begin` / `end`, which told the author
+ * nothing about what the domain is for — accessors are the most-referenced
+ * functions in any codebase precisely because they carry no responsibility.
  */
 export async function collectDataDefs(
   repo: PlanRepo,
@@ -96,7 +98,7 @@ export async function collectDataDefs(
   const functions: { def: PlanDataDef; references: number }[] = [];
   for (const fn of repo.ctx.functions) {
     const rel = repoRelative(repo.repoPath, fn.sourceRange.filePath);
-    if (!files.has(rel) || !isPublicName(fn)) continue;
+    if (!files.has(rel) || !isPublicApiName(fn.name)) continue;
     const references = fn.id ? (await repo.ctx.graph.fanCounts(fn.id)).fanIn : 0;
     functions.push({ def: { kind: "function", name: fn.name, path: rel }, references });
   }
@@ -108,10 +110,6 @@ export async function collectDataDefs(
       .map((f) => f.def),
   ).slice(0, MAX_FUNCTIONS);
   return [...rankedTypes, ...rankedFunctions];
-}
-
-function isPublicName(fn: FunctionNode): boolean {
-  return fn.name !== "" && !fn.name.startsWith("_");
 }
 
 function dedupe(defs: PlanDataDef[]): PlanDataDef[] {

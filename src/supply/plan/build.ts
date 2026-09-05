@@ -21,6 +21,7 @@
 
 import { loadProgramDomainConfig } from "../../domains/program/index.js";
 import { collectAllCandidates, type PlanRepo } from "./collect.js";
+import type { PlanMapHints } from "./hints.js";
 import { DEPENDENCY_LIMIT_NOTE, decomposeDeterministically, type Decomposition } from "./decompose-fallback.js";
 import { buildPlanLayerWarnings } from "./layer-warnings.js";
 import { decomposeWithLlm, type LlmDecomposeOptions } from "./decompose-llm.js";
@@ -28,7 +29,13 @@ import { collectDataDefs, domainFiles } from "./data-defs.js";
 import { findDuplicates } from "./duplicates.js";
 import { domainLayer, findExemplar } from "./exemplar.js";
 import { planHash } from "./store.js";
-import { PLAN_VERSION, type Plan, type PlanItem, type PlanSource } from "./types.js";
+import {
+  PLAN_VERSION,
+  type Plan,
+  type PlanDomainCandidate,
+  type PlanItem,
+  type PlanSource,
+} from "./types.js";
 
 /** Options for {@link buildPlan}. */
 export interface BuildPlanOptions {
@@ -38,6 +45,15 @@ export interface BuildPlanOptions {
   llm?: LlmDecomposeOptions;
   /** Clock, injected so tests get a fixed `generatedAt`. */
   now?: () => Date;
+  /**
+   * What the cross-project domain map said about this task (hints.ts).
+   *
+   * The hints are ADDITIVE: a hinted domain that the repo really declares is
+   * pulled into the plan even when the decomposition missed it, but nothing the
+   * decomposition found is dropped for it. A zero-hit search contributes its
+   * question instead, so "the index does not know this" reaches the human.
+   */
+  mapHints?: PlanMapHints;
   /**
    * Detection-taxonomy domain names that are UX-critical (A-10), per repo id.
    * Resolved by the caller through approved `domain-owns-code`
@@ -104,6 +120,11 @@ export async function buildPlan(
     }
   }
 
+  const hints = options.mapHints;
+  if (hints) {
+    applyMapHints(decomposition, hints, candidates, notes);
+  }
+
   const byId = new Map(repos.map((repo) => [repo.id, repo] as const));
   const { ids, bySourceId } = assignItemIds(decomposition.items);
   const items: PlanItem[] = [];
@@ -114,7 +135,7 @@ export async function buildPlan(
     const candidate = candidates.find((c) => c.repo === piece.repo && c.name === piece.domain);
     const existing = piece.status === "existing";
     const ownFiles = existing ? domainFiles(repo, piece.domain, candidate) : new Set<string>();
-    const exemplar = existing ? await findExemplar(repo, piece.domain) : null;
+    const exemplar = existing ? await findExemplar(repo, piece.domain, { task }) : null;
     items.push({
       id: ids[index]!,
       // Only references that resolve to a piece of THIS plan survive; a dangling
@@ -171,4 +192,54 @@ export async function buildPlan(
     notes,
     layerWarnings,
   };
+}
+
+/**
+ * Fold the domain map's hints into a decomposition.
+ *
+ * A hinted core domain that a covered repo DECLARES becomes a plan item if the
+ * decomposition did not already produce one — the map found the product by name,
+ * which is stronger evidence than a token overlap over the same task text. A
+ * hint naming a domain no covered repo declares is ignored silently here: it
+ * belongs to a project the caller did not include, and saying so is the
+ * `--project` candidate list's job, not this plan's.
+ */
+function applyMapHints(
+  decomposition: Decomposition,
+  hints: PlanMapHints,
+  candidates: PlanDomainCandidate[],
+  notes: string[],
+): void {
+  decomposition.questions.push(...hints.questions);
+  notes.push(...hints.notes);
+  if (hints.hits.length > 0) {
+    notes.push(
+      `ドメインマップ検索の上位: ${hints.hits
+        .slice(0, 3)
+        .map((hit) => `${hit.project}/${hit.coreDomain ?? hit.name}`)
+        .join(", ")}`,
+    );
+  }
+
+  const present = new Set(decomposition.items.map((item) => `${item.repo}::${item.domain}`));
+  const added: string[] = [];
+  for (const target of hints.targets) {
+    const candidate = candidates.find(
+      (entry) => entry.repo === target.project && entry.name === target.domain,
+    );
+    if (!candidate) continue;
+    const key = `${candidate.repo}::${candidate.name}`;
+    if (present.has(key)) continue;
+    present.add(key);
+    decomposition.items.unshift({
+      repo: candidate.repo,
+      domain: candidate.name,
+      status: "existing",
+      responsibility: candidate.description || candidate.name,
+      plannedPaths: [],
+      neededTypes: [],
+    });
+    added.push(`${candidate.repo}/${candidate.name}`);
+  }
+  if (added.length > 0) notes.push(`ドメインマップの命中から追加した着地候補: ${added.join(", ")}`);
 }

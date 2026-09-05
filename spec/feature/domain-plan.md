@@ -44,9 +44,9 @@ anatomia plan --task "<日本語可>" --project <id> [--project <id> ...] \
 |---|---|---|
 | 1. 候補収集 | `collect.ts` | 決定的。各 project の `spec/domains/*.domain.json` を name / description / membership / implementors 数で集める。宣言が読めないが検出ドメインはある場合（operator plugin dir 経由）は検出結果から候補を作る |
 | 2. 分解 | `decompose-llm.ts` / `decompose-fallback.ts` | LLM（`claude -p`、モデル固定 `claude-opus-5`、既定 60 秒）。CLI 不在 / `--no-llm` / 失敗 / 期限超過は決定的検出にフォールバックし、**理由を `notes` に残す** |
-| 3. データ定義 | `data-defs.ts` | 決定的。ドメインの membership + implementors のファイルから型宣言と公開関数を列挙（型 8 件 / 関数 6 件まで、関数は被参照順） |
+| 3. データ定義 | `data-defs.ts` | 決定的。ドメインの membership + implementors のファイルから型宣言と**公開 API 関数**を列挙（型 8 件 / 関数 6 件まで、関数は被参照順）。`size` / `empty` / `count` / `begin` / `end` などのアクセサと `operator...` は除外する (`public-api.ts`) |
 | 4. 重複確認 | `duplicates.ts` | 決定的。responsibility + neededTypes のトークンとリポ全体の型名 / 関数名 / ファイル名を照合。対象ドメイン自身のファイルは除外 |
-| 5. 手本 | `exemplar.ts` | 決定的。`landing.ts` の `pickPrecedent`（layer 優先 + 被参照数）を再利用 |
+| 5. 手本 | `exemplar.ts` | 決定的。候補は `landing.ts` と同じ sibling 集合。plan 側の優先順は **非アクセサ → task トークンとの一致数が最大 → ドメインの主 layer → 被参照数**（最後の同点処理は `pickPrecedent`） |
 | 6. 出力 | `format.ts` / `format-okf.ts` / `store.ts` | 決定的 |
 
 判断が要るのは 2 だけで、他はすべて解析グラフから読む。

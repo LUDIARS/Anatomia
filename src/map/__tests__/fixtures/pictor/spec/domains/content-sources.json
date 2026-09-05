@@ -1,0 +1,6 @@
+[
+  {
+    "glob": "visus/catalog/*.md",
+    "nameFrom": "frontmatter:title"
+  }
+]

@@ -20,6 +20,7 @@ import type { EdgeKind } from "../types.js";
 import type { AccessPattern } from "../patterns/detect.js";
 import type { RefactoringProposal } from "../review/refactoring-proposals.js";
 import type { EntryPointGraph } from "../entrypoints/types.js";
+import type { ProjectDomainMap } from "../map/types.js";
 
 /** The set of views the prepare step builds + the panel renders from cache. */
 export type WebViewName =
@@ -34,7 +35,8 @@ export type WebViewName =
   | "spec-links"
   | "domains"
   | "scene-modules"
-  | "search-corpus";
+  | "search-corpus"
+  | "domain-map";
 
 /** All view names, in render order (also the prepare build order). */
 export const WEB_VIEWS: readonly WebViewName[] = [
@@ -50,6 +52,7 @@ export const WEB_VIEWS: readonly WebViewName[] = [
   "domains",
   "scene-modules",
   "search-corpus",
+  "domain-map",
 ] as const;
 
 /** Analyzer-output schema shared by the prepared manifest and every view. */
@@ -305,4 +308,6 @@ export interface WebCacheBundle {
   domains: unknown;
   "scene-modules": SceneModulesPayload;
   "search-corpus": SearchCorpus;
+  /** The project's cross-project domain-map records (src/map/, design §12.3). */
+  "domain-map": ProjectDomainMap;
 }

@@ -552,6 +552,31 @@ describe("POST /api/plan input validation", () => {
     expect(res.status).toBe(400);
     await expect(res.json()).resolves.toMatchObject({ error: "body must be a JSON object" });
   });
+
+  it("returns a question-only plan when the map cannot place the task", async () => {
+    const res = await managerApp.fetch(
+      new Request("http://localhost/api/plan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ task: "量子暗号の鍵配送を実装する", llm: false }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json() as { plan: { repos: string[]; questions: string[] } };
+    expect(body.plan.repos).toEqual([]);
+    expect(body.plan.questions.join(" ")).toContain("索引に無い");
+  });
+});
+
+describe("GET /api/domain-map input validation", () => {
+  it("rejects an excessively large query before scanning projects", async () => {
+    const query = "x".repeat(4097);
+    const res = await managerApp.fetch(
+      new Request(`http://localhost/api/domain-map/search?q=${query}`),
+    );
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({ error: "q is too long" });
+  });
 });
 
 describe("POST /api/projects (manager mode)", () => {

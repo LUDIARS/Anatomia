@@ -1,0 +1,12 @@
+{
+  "name": "visus-authoring",
+  "description": "Visus 定義データの記述とカタログ。",
+  "role": "semantic",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    {
+      "pathPattern": "(^|/)visus/"
+    }
+  ]
+}

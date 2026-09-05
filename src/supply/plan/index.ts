@@ -4,7 +4,9 @@
  *   collect.ts            candidates (declared domains × analysis)
  *   decompose-llm.ts      task → pieces (LLM, pinned model, deadline)
  *   decompose-fallback.ts task → pieces (deterministic detector)
- *   data-defs.ts          what each target domain already defines
+ *   hints.ts              cross-project map hits → project + domain candidates
+  public-api.ts         accessor / operator filter shared by data-defs + exemplar
+  data-defs.ts          what each target domain already defines
  *   duplicates.ts         what already exists with the same vocabulary
  *   exemplar.ts           the implementation to imitate
  *   build.ts              the pipeline
@@ -32,7 +34,11 @@ export {
 export type { LlmDecomposeOptions } from "./decompose-llm.js";
 export { collectDataDefs, domainFiles } from "./data-defs.js";
 export { findDuplicates } from "./duplicates.js";
-export { domainLayer, findExemplar } from "./exemplar.js";
+export { domainLayer, findExemplar, pickExemplarSibling } from "./exemplar.js";
+export type { ExemplarOptions } from "./exemplar.js";
+export { isAccessorName, isPublicApiName } from "./public-api.js";
+export { collectMapHints, fromHits } from "./hints.js";
+export type { CollectMapHintsOptions, PlanMapHints, PlanMapTarget } from "./hints.js";
 export { formatPlan } from "./format.js";
 export { formatPlanOkf } from "./format-okf.js";
 export {

@@ -1,0 +1,12 @@
+{
+  "name": "uni-throw",
+  "description": "投げるあそび。的あての判定と得点。",
+  "role": "semantic",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    {
+      "pathPattern": "(^|/)renderer/mr/games/uni-throw/"
+    }
+  ]
+}

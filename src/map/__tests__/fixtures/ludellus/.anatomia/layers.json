@@ -1,0 +1,17 @@
+{
+  "layers": [
+    {
+      "glob": "renderer/mr/games/uni-jump/*",
+      "layer": "presentation"
+    },
+    {
+      "glob": "renderer/mr/games/uni-throw/*",
+      "layer": "presentation"
+    },
+    {
+      "glob": "renderer/lib/jump/*",
+      "layer": "domain"
+    }
+  ],
+  "mergeCouplingThreshold": 1
+}
