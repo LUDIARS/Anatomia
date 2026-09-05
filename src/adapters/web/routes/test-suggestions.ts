@@ -18,6 +18,10 @@ import {
 import { buildFocusedTestingFacts, FocusedTestingError } from "../../../domains/focused-testing.js";
 import type { WebContextSource } from "../context.js";
 import { parseFocusedTestingInput } from "./focused-testing-input.js";
+import { UX_CRITICAL_CONSTRAINT, withUxCriticalPolicies } from "./ux-critical-policies.js";
+import { hasKnowledgeLog, resolveUxCriticalDomainNames } from "../../../supply/plan/index.js";
+import { detectScreens } from "../../../screens/index.js";
+import { detectEntryPoints } from "../../../entrypoints/index.js";
 
 const OBJECTIVE_KINDS = new Set([
   "new_feature",
@@ -84,11 +88,50 @@ export function mountTestSuggestionRoutes(
     if (!objective.ok) return c.json({ error: objective.error }, 400);
 
     let focusedTesting;
+    let uxCriticalNotes: string[] = [];
     try {
-      const policies = parseFocusedTestingInput(body.focusedTesting);
-      if (policies !== undefined) {
+      const requested = parseFocusedTestingInput(body.focusedTesting);
+      // A-10: UX-critical domains are added even when the caller did not ask
+      // for them, so a request cannot opt out of testing the UX surface. A repo
+      // with no knowledge log has nothing approved, so the analysis it would
+      // need is not run at all.
+      const registered = source.registeredProject(id);
+      const canDeriveUxCritical = registered !== null
+        && await hasKnowledgeLog(registered.rootPath, registered.id, registered.knowledgeWriteRoot);
+      if (requested === undefined && !canDeriveUxCritical) {
+        focusedTesting = undefined;
+      } else {
         const ctx = await source.resolve(id);
-        focusedTesting = buildFocusedTestingFacts(ctx, policies);
+        let uxCritical: string[] = [];
+        if (canDeriveUxCritical && registered) {
+          const screens = await detectScreens(ctx);
+          const entries = await detectEntryPoints(ctx, { screens });
+          uxCritical = await resolveUxCriticalDomainNames({
+            repoPath: registered.rootPath,
+            projectId: registered.id,
+            knowledgeWriteRoot: registered.knowledgeWriteRoot,
+            detections: (ctx.domains ?? []).map((detection) => ({
+              domain: detection.domain,
+              implementors: detection.implementors,
+            })),
+            surface: {
+              entryCodeSymbolIds: entries.entries
+                .filter((entry) => entry.classes.includes("screen"))
+                .map((entry) => entry.id),
+              screenFiles: screens.screens.map((screen) => screen.file),
+            },
+          });
+        }
+        const merged = withUxCriticalPolicies(
+          requested,
+          uxCritical,
+          new Set((ctx.domains ?? []).map((detection) => detection.domain)),
+        );
+        if (merged.added.length > 0) uxCriticalNotes.push(`UX 直結ドメインを必須追加: ${merged.added.join(", ")}`);
+        if (merged.raised.length > 0) uxCriticalNotes.push(`UX 直結ドメインの優先度を critical に引き上げ: ${merged.raised.join(", ")}`);
+        if (merged.policies !== undefined) {
+          focusedTesting = buildFocusedTestingFacts(ctx, merged.policies);
+        }
       }
     } catch (err) {
       if (err instanceof FocusedTestingError) {
@@ -136,6 +179,7 @@ export function mountTestSuggestionRoutes(
           type: "policy",
           value: "Augur suggests tests only; execution remains outside Augur.",
         },
+        ...(uxCriticalNotes.length > 0 ? [{ type: "policy", value: UX_CRITICAL_CONSTRAINT }] : []),
       ],
       ...(focusedTesting !== undefined ? { focusedTesting } : {}),
     };
@@ -167,6 +211,7 @@ export function mountTestSuggestionRoutes(
       fixPolicy: payload["fixPolicy"] ?? null,
       evidence: payload["evidence"] ?? [],
       focusedTesting: focusedTesting ?? null,
+      uxCriticalNotes,
     });
   });
 }

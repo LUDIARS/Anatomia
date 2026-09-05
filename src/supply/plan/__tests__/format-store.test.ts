@@ -16,6 +16,9 @@ const plan: Plan = {
   source: "llm",
   items: [
     {
+      id: "pictor/samples-and-tools",
+      dependsOn: ["pictor/kirie-demo"],
+      uxCritical: true,
       repo: "pictor",
       domain: "samples-and-tools",
       status: "existing",
@@ -35,6 +38,9 @@ const plan: Plan = {
       },
     },
     {
+      id: "pictor/kirie-demo",
+      dependsOn: [],
+      uxCritical: false,
       repo: "pictor",
       domain: "kirie-demo",
       status: "new",
@@ -56,6 +62,7 @@ const plan: Plan = {
   unresolved: [{ repo: "figmentum", subject: "写真の前処理", reason: "該当ドメインなし" }],
   questions: ["[figmentum] 写真の前処理はどのドメインですか。"],
   notes: [],
+  layerWarnings: [],
 };
 
 describe("formatPlan", () => {
@@ -87,7 +94,7 @@ describe("formatPlanOkf", () => {
     // A task containing a colon must not turn the title into a mapping.
     expect(formatPlanOkf({ ...plan, task: "a: b" })).toContain('title: "ドメイン計画: a: b"');
     expect(text).toContain("## pictor / samples-and-tools (既存)");
-    expect(text).toContain("- 新規ドメイン説明 (要人間レビュー): 切り絵デモのシーン構成");
+    expect(text).toContain("- 新規ドメイン説明 (LLM 下書き — 要人間レビュー): 切り絵デモのシーン構成");
   });
 });
 
@@ -120,8 +127,8 @@ describe("plan store", () => {
     await writeFile(wrongVersion, JSON.stringify({ ...plan, version: "plan-v0" }), "utf8");
     await writeFile(malformedItem, JSON.stringify({ ...plan, items: [{}] }), "utf8");
 
-    await expect(loadPlan(wrongVersion)).rejects.toThrow(/does not match plan-v1/);
-    await expect(loadPlan(malformedItem)).rejects.toThrow(/does not match plan-v1/);
+    await expect(loadPlan(wrongVersion)).rejects.toThrow(/does not match plan-v2/);
+    await expect(loadPlan(malformedItem)).rejects.toThrow(/does not match plan-v2/);
   });
 
   it("has no latest plan in a repo that never planned", async () => {

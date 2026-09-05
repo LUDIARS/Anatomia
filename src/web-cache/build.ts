@@ -61,8 +61,16 @@ export async function buildWebCacheBundle(
     ? buildSceneViewPayload(options.sceneInspection, options.screenGraph, options.domainCorrespondence)
     : { scenes: [] };
   const businessDomainView = options.sceneInspection && options.domainCorrespondence && options.knowledgeState
-    ? buildBusinessDomainViewPayload(options.knowledgeState, options.domainCorrespondence, options.sceneInspection, ctx.specClauses)
-    : { domains: [], unlinkedProgramDomains: [] };
+    ? buildBusinessDomainViewPayload(
+      options.knowledgeState,
+      options.domainCorrespondence,
+      options.sceneInspection,
+      ctx.specClauses,
+      // Screen declaration files are the second UX-critical derivation source
+      // (A-10); without a screen graph only direct scene entries count.
+      (options.screenGraph?.screens ?? []).map((screen) => screen.file),
+    )
+    : { domains: [], relations: [], unlinkedProgramDomains: [] };
 
   // Module partition: computed once, reused by domain-view / scene-modules / search.
   const { evaluation, index } = await evaluateModulesFromGraph(ctx.graph, ctx.functions);

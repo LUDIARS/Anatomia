@@ -15,6 +15,8 @@
  * the human rather than silently returning an empty plan.
  *
  * SRP: task → domain items, without an LLM.
+ *
+ * @spec パイプライン（`src/supply/plan/`）
  */
 
 import { scoreDomains } from "../detectors.js";
@@ -25,6 +27,13 @@ import type { PlanDomainCandidate, PlanUnresolved } from "./types.js";
 export interface DecomposedItem {
   repo: string;
   domain: string;
+  /**
+   * Ids of the pieces this one depends on, as stated by the decomposition.
+   * The deterministic path leaves it empty — see {@link DEPENDENCY_LIMIT_NOTE}.
+   */
+  dependsOn?: string[];
+  /** The id the LLM used for this piece, so `dependsOn` can be resolved. */
+  sourceId?: string;
   status: "existing" | "new";
   responsibility: string;
   plannedPaths: string[];
@@ -41,6 +50,16 @@ export interface Decomposition {
 
 /** How many domains per repo the deterministic path keeps. */
 const TOP_PER_REPO = 3;
+
+/**
+ * What the deterministic path cannot say about dependencies (A-11).
+ *
+ * A ranked list of related domains carries no direction between them, and
+ * `plannedPaths` is empty here, so guessing an order would invent the very fact
+ * the layer warning is about. The limit is recorded in the plan's notes instead.
+ */
+export const DEPENDENCY_LIMIT_NOTE =
+  "決定的検出は item 間の依存方向を確定できないため dependsOn は空です (層間依存の事前警告は出ません)。";
 
 /**
  * Split `task` across `repos` using the domain detector's ranking.
@@ -85,6 +104,7 @@ export function decomposeDeterministically(
         responsibility: candidate?.description ?? hit.name,
         plannedPaths: [],
         neededTypes: [],
+        dependsOn: [],
       });
     }
   }

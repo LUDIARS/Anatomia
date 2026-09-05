@@ -48,6 +48,7 @@ function approved(proposal: DomainProposal): ApprovedDomain {
     responsibilities: proposal.responsibilities,
     boundary: proposal.boundary,
     assignable: proposal.assignable,
+    ...(proposal.uxCritical !== undefined ? { uxCritical: proposal.uxCritical } : {}),
     aliases: [],
     revision: {
       sourceRevision: proposal.sourceRevision,
@@ -75,6 +76,7 @@ function loggedDomains(state: KnowledgeGraph, restated: ApprovedDomain[]): Appro
         ? node.data.boundary as ApprovedDomain["boundary"]
         : { inScope: [], outOfScope: [] },
       assignable: node.data?.assignable !== false,
+      ...(typeof node.data?.uxCritical === "boolean" ? { uxCritical: node.data.uxCritical } : {}),
       aliases: node.aliases ?? [],
       revision: node.revision,
     }));
@@ -127,6 +129,9 @@ export async function applyGateA(request: GateARequest): Promise<GateApplyResult
   if (!request.confirmApply) throw new Error("Gate A requires confirmApply=true");
   if (request.proposals.length === 0) throw new Error("Gate A requires at least one proposal");
   for (const proposal of request.proposals) {
+    if (proposal.uxCritical !== undefined && typeof proposal.uxCritical !== "boolean") {
+      throw new Error(`proposal ${proposal.proposalId} uxCritical must be boolean when present`);
+    }
     if (proposal.sourceRevision !== request.sourceRevision) throw new Error(`stale proposal ${proposal.proposalId}: source revision changed`);
     if (proposal.analysisSnapshotId !== request.analysisSnapshotId) throw new Error(`stale proposal ${proposal.proposalId}: analysis snapshot changed`);
     if (proposal.expectedHead !== request.expectedHead) throw new Error(`stale proposal ${proposal.proposalId}: expected head changed`);

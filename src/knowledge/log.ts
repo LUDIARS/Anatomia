@@ -62,6 +62,7 @@ function validateTransaction(value: unknown, line: number): KnowledgeTransaction
 
 const EDGE_ENDPOINTS: Record<KnowledgeEdgeKind, readonly [KnowledgeNodeKind, KnowledgeNodeKind]> = {
   "subdomain-of": ["domain", "domain"],
+  "domain-relates-domain": ["domain", "domain"],
   "domain-owns-spec": ["domain", "spec-clause"],
   "domain-relates-spec": ["domain", "spec-clause"],
   "domain-owns-code": ["domain", "code-symbol"],

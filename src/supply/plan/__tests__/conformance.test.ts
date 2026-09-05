@@ -5,6 +5,9 @@ import { PLAN_VERSION, type Plan, type PlanItem } from "../types.js";
 
 function item(overrides: Partial<PlanItem> = {}): PlanItem {
   return {
+    id: "pictor/kirie-transform",
+    dependsOn: [],
+    uxCritical: false,
     repo: "pictor",
     domain: "kirie-transform",
     status: "existing",
@@ -32,6 +35,7 @@ function plan(items: PlanItem[]): Plan {
     unresolved: [],
     questions: [],
     notes: [],
+    layerWarnings: [],
   };
 }
 

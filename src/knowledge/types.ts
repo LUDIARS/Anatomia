@@ -13,6 +13,8 @@ export type KnowledgeNodeKind =
 
 export type KnowledgeEdgeKind =
   | "subdomain-of"
+  /** Context-map relation between two core domains; `evidence.relation` carries the kind. */
+  | "domain-relates-domain"
   | "domain-owns-spec"
   | "domain-relates-spec"
   | "domain-owns-code"

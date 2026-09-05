@@ -223,10 +223,10 @@ describe("Gate A/B canonical apply", () => {
   it("persists approved domains then applies exact existing-domain assignment", async () => {
     const root = await mkdtemp(join(tmpdir(), "anatomia-gate-b-"));
     roots.push(root);
-    const proposal = proposeDomainsFromSpec({
+    const proposal = { ...proposeDomainsFromSpec({
       projectId: "p", clauses: [clause("spec:p/rules#one", "Combat", "Resolve combat")],
       sourceRevision: "sha256:spec", analysisSnapshotId: "analysis:a", expectedHead: null,
-    })[0];
+    })[0], uxCritical: true };
     const logPath = join(root, "spec", "data", "domain-map", "p.knowledge.jsonl");
     const gateA = await applyGateA({
       confirmApply: true, repoRoot: root, service: "p", domainRoot: join(root, "spec", "data", "domains"),
@@ -243,6 +243,7 @@ describe("Gate A/B canonical apply", () => {
     });
     const state = replayKnowledgeLog(await readFile(logPath, "utf8"));
     expect(state.head).toBe(gateB.transaction.transactionHash);
+    expect(state.nodes.get(proposal.candidateId)?.data?.uxCritical).toBe(true);
     expect([...state.edges.values()].some((edge) => edge.kind === "domain-owns-code" && edge.to === symbol.symbolId)).toBe(true);
 
     // Approving an abstain records the symbol revision but leaves every edge —

@@ -9,6 +9,8 @@
  * per domain) so Concordia can embed it at the head of a delegation prompt.
  *
  * SRP: Plan → OKF Markdown. The plan's content is decided elsewhere.
+ *
+ * @spec パイプライン（`src/supply/plan/`）
  */
 
 import type { Plan, PlanItem } from "./types.js";
@@ -44,6 +46,14 @@ export function formatPlanOkf(plan: Plan): string {
   }
   for (const item of plan.items) lines.push(...okfSection(item));
 
+  if (plan.layerWarnings.length > 0) {
+    lines.push("## 層間依存の警告");
+    lines.push("");
+    for (const warning of plan.layerWarnings) {
+      lines.push(`- ${warning.fromItemId} -> ${warning.toItemId}: ${warning.reason}`);
+    }
+    lines.push("");
+  }
   if (plan.unresolved.length > 0) {
     lines.push("## 紐付け不能");
     lines.push("");
@@ -71,12 +81,17 @@ function okfSection(item: PlanItem): string[] {
   const lines: string[] = [];
   lines.push(`## ${item.repo} / ${item.domain} (${item.status === "new" ? "新規" : "既存"})`);
   lines.push("");
+  lines.push(`- id: ${item.id}`);
+  if (item.dependsOn.length > 0) lines.push(`- 依存: ${item.dependsOn.join(", ")}`);
   lines.push(`- 責務: ${item.responsibility}`);
+  if (item.uxCritical) {
+    lines.push("- UX 直結ドメイン: レビュー観点は画面遷移・入力・エラー表示。テスト候補の提示を必須とする");
+  }
   if (item.layer) lines.push(`- layer: ${item.layer}`);
   if (item.plannedPaths.length > 0) lines.push(`- 予定パス: ${item.plannedPaths.join(", ")}`);
   if (item.neededTypes.length > 0) lines.push(`- 必要な型: ${item.neededTypes.join(", ")}`);
   if (item.newDomain) {
-    lines.push(`- 新規ドメイン説明 (要人間レビュー): ${item.newDomain.description}`);
+    lines.push(`- 新規ドメイン説明 (LLM 下書き — 要人間レビュー): ${item.newDomain.description}`);
     lines.push(
       `- membership: ${item.newDomain.membership.map((m) => m.pathPattern).join(", ") || "(未提案)"}`,
     );

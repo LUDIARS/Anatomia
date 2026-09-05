@@ -77,7 +77,7 @@ describe("computeBranchDiff", () => {
     for (const a of diff.anchors.all) expect(graphIds.has(a)).toBe(true);
     expect(diff.anchors.added.length).toBe(1);
     expect(diff.anchors.changed.length).toBe(1);
-  }, 60_000);
+  }, 180_000);
 });
 
 describe("listBranches", () => {

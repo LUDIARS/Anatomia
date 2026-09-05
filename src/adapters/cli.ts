@@ -62,9 +62,13 @@ import {
   saveBaseline,
   applyBaseline,
   buildDomainReview,
+  buildDomainReviewByLayer,
   formatDomainReview,
+  formatDomainReviewByLayer,
   buildPrDiffReview,
 } from "../review/index.js";
+import { loadProgramDomainConfig } from "../domains/program/index.js";
+import { hasKnowledgeLog, resolveUxCriticalDomainNames } from "../supply/plan/index.js";
 import { ratifyLink, SpecLinkRatifyError } from "../spec/ratify.js";
 import {
   loadStability,
@@ -75,6 +79,7 @@ import {
 import { computeFingerprint } from "../project/cache.js";
 import { reviewSpec, formatSpecReview } from "../spec-review/index.js";
 import { detectScreens } from "../screens/index.js";
+import { detectEntryPoints } from "../entrypoints/index.js";
 import type { ScreenGraph } from "../screens/index.js";
 import { deriveScenes, type DerivedSceneGraph } from "../scenes/derive.js";
 import { loadScenes, mergeSceneModel } from "../scenes/store.js";
@@ -253,6 +258,8 @@ export interface CliArgs {
   specClear?: boolean;
   /** For plan: every `--project` given, in order (a plan may span repos). */
   projects?: string[];
+  /** For domain-review: also aggregate coverage / violations / cohesion per layer. */
+  byLayer?: boolean;
   /** For plan: output shape. "okf" renders the delegation-ready OKF document. */
   planFormat?: "markdown" | "okf";
   /**
@@ -356,6 +363,7 @@ export function parseArgs(argv: string[]): CliArgs {
   let sceneMaxDepth: number | undefined;
   let entryRef: string | undefined;
   let unrooted = false;
+  let byLayer = false;
   let frontier = false;
   let exportMode: "graph" | "entrypoints" | undefined;
   let planPath: string | undefined;
@@ -378,6 +386,8 @@ export function parseArgs(argv: string[]): CliArgs {
       exportMode = value;
     } else if (flag === "--entry" && subcommand === "entrypoints") {
       entryRef = args[++i];
+    } else if (flag === "--by-layer") {
+      byLayer = true;
     } else if (flag === "--unrooted") {
       unrooted = true;
     } else if (flag === "--frontier") {
@@ -431,7 +441,7 @@ export function parseArgs(argv: string[]): CliArgs {
     }
   }
 
-  return { subcommand, repoPath, diff, file, task, symbol, mode, limit, json, project, output, baselinePath, writeBaseline, base, enforceDualLayerDomainGate, sceneMaxDepth, entryRef, unrooted, frontier, exportMode, planPath };
+  return { subcommand, repoPath, diff, file, task, symbol, mode, limit, json, project, output, baselinePath, writeBaseline, base, enforceDualLayerDomainGate, sceneMaxDepth, entryRef, unrooted, frontier, byLayer, exportMode, planPath };
 }
 
 /**
@@ -1006,12 +1016,16 @@ async function runDomainReview(
 ): Promise<{ exitCode: number; output: string }> {
   let ctx: AnalysisContext;
   let defsDir: string;
+  let knowledgeWriteRoot: string | undefined;
+  let knowledgeProjectId = basename(args.repoPath);
   let autoDiscovered = false;
   if (args.project) {
     const mgr = await ProjectManager.load();
     const projectId = mgr.resolveId(args.project);
+    knowledgeProjectId = projectId;
     ctx = await mgr.getContext(projectId);
     const project = mgr.get(projectId)!;
+    knowledgeWriteRoot = project.knowledgeWriteRoot;
     const operatorDomainsDir = effectiveOntologyDir(project) ?? process.env["ANATOMIA_PLUGIN_DIR"];
     defsDir = operatorDomainsDir
       ?? resolveCommittedOntologyDir(project.rootPath)
@@ -1026,9 +1040,38 @@ async function runDomainReview(
     autoDiscovered = operatorDomainsDir === undefined;
   }
   const domainDefs = await loadEditableDomains(defsDir, { skipInvalid: autoDiscovered });
-  const report = await buildDomainReview(ctx, { domainDefs });
-  if (args.json) return { exitCode: 0, output: JSON.stringify(report, null, 2) };
-  return { exitCode: 0, output: formatDomainReview(report) };
+  let uxCriticalDomains: string[] = [];
+  // A-10: the UX-critical mark comes from approved `domain-owns-code`, resolved
+  // outside the (pure) review builder.
+  if (await hasKnowledgeLog(ctx.repoPath, knowledgeProjectId, knowledgeWriteRoot)) {
+    const screens = await detectScreens(ctx);
+    const entries = await detectEntryPoints(ctx, { screens });
+    uxCriticalDomains = await resolveUxCriticalDomainNames({
+      repoPath: ctx.repoPath,
+      projectId: knowledgeProjectId,
+      knowledgeWriteRoot,
+      detections: (ctx.domains ?? []).map((detection) => ({
+        domain: detection.domain,
+        implementors: detection.implementors,
+      })),
+      surface: {
+        entryCodeSymbolIds: entries.entries
+          .filter((entry) => entry.classes.includes("screen"))
+          .map((entry) => entry.id),
+        screenFiles: screens.screens.map((screen) => screen.file),
+      },
+    });
+  }
+  const report = await buildDomainReview(ctx, { domainDefs, uxCriticalDomains });
+  if (!args.byLayer) {
+    if (args.json) return { exitCode: 0, output: JSON.stringify(report, null, 2) };
+    return { exitCode: 0, output: formatDomainReview(report) };
+  }
+  // A lens, not a gate: the by-layer aggregation never changes the exit code.
+  const config = await loadProgramDomainConfig(ctx.repoPath);
+  const byLayer = await buildDomainReviewByLayer(ctx, report, config);
+  if (args.json) return { exitCode: 0, output: JSON.stringify({ ...report, byLayer }, null, 2) };
+  return { exitCode: 0, output: [formatDomainReview(report), formatDomainReviewByLayer(byLayer)].join("\n") };
 }
 
 /**

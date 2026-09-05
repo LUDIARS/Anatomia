@@ -22,7 +22,9 @@ import { analyze } from "../core.js";
 import { ProjectManager } from "../project/manager.js";
 import { effectiveOntologyDir } from "../project/config-paths.js";
 import { slug } from "../project/registry.js";
-import { buildPlan, formatPlan, formatPlanOkf, savePlan, type PlanRepo } from "../supply/plan/index.js";
+import { buildPlan, formatPlan, formatPlanOkf, hasKnowledgeLog, resolveUxCriticalDomainNames, savePlan, type PlanRepo } from "../supply/plan/index.js";
+import { detectScreens } from "../screens/index.js";
+import { detectEntryPoints } from "../entrypoints/index.js";
 import type { CliArgs } from "./cli.js";
 
 /**
@@ -52,6 +54,7 @@ export async function resolvePlanRepos(args: CliArgs): Promise<PlanRepo[]> {
       repoPath: project.rootPath,
       ctx: await mgr.getContext(id),
       ontologyDir: effectiveOntologyDir(project),
+      knowledgeWriteRoot: project.knowledgeWriteRoot,
     });
   }
   return repos;
@@ -61,7 +64,33 @@ export async function resolvePlanRepos(args: CliArgs): Promise<PlanRepo[]> {
 export async function runPlan(args: CliArgs): Promise<{ exitCode: number; output: string }> {
   const task = args.task ?? "";
   const repos = await resolvePlanRepos(args);
-  const plan = await buildPlan(task, repos, { noLlm: args.noLlm === true });
+  // A-10: which detection domains a UX-critical business domain covers, per
+  // repo. Resolved through approved `domain-owns-code`, never by name.
+  const uxCriticalDomains: Record<string, string[]> = {};
+  for (const repo of repos) {
+    if (!await hasKnowledgeLog(repo.repoPath, repo.id, repo.knowledgeWriteRoot)) {
+      uxCriticalDomains[repo.id] = [];
+      continue;
+    }
+    const screens = await detectScreens(repo.ctx);
+    const entries = await detectEntryPoints(repo.ctx, { screens });
+    uxCriticalDomains[repo.id] = await resolveUxCriticalDomainNames({
+      repoPath: repo.repoPath,
+      projectId: repo.id,
+      knowledgeWriteRoot: repo.knowledgeWriteRoot,
+      detections: (repo.ctx.domains ?? []).map((detection) => ({
+        domain: detection.domain,
+        implementors: detection.implementors,
+      })),
+      surface: {
+        entryCodeSymbolIds: entries.entries
+          .filter((entry) => entry.classes.includes("screen"))
+          .map((entry) => entry.id),
+        screenFiles: screens.screens.map((screen) => screen.file),
+      },
+    });
+  }
+  const plan = await buildPlan(task, repos, { noLlm: args.noLlm === true, uxCriticalDomains });
 
   const { failed } = await savePlan(
     plan,

@@ -53,7 +53,7 @@ export const WEB_VIEWS: readonly WebViewName[] = [
 ] as const;
 
 /** Analyzer-output schema shared by the prepared manifest and every view. */
-export const WEB_CACHE_SCHEMA_VERSION = 5 as const;
+export const WEB_CACHE_SCHEMA_VERSION = 6 as const;
 
 /**
  * One prepared view, on disk as <view>.json. Carries its own generation date so
@@ -180,12 +180,28 @@ export interface EntryPointViewPayload {
 /** Read-only business-domain inspection, assembled during web-cache preparation. */
 export interface BusinessDomainViewPayload {
   domains: BusinessDomainViewDomain[];
+  /**
+   * The context map (A-8): approved `domain-relates-domain` edges. The list of
+   * domains above is the taxonomy; this is the graph over it. Only APPROVED
+   * relations appear — a draft has no edge in the knowledge log, so it cannot
+   * reach this payload.
+   */
+  relations: BusinessDomainRelationView[];
   /** Program-domain code which is intentionally not owned by a business domain. */
   unlinkedProgramDomains: Array<{
     programDomainId: string;
     codeSymbolCount: number;
     codeSymbols: Array<{ id: string; file: string; line: number | null }>;
   }>;
+}
+
+/** One approved context-map edge between two core domains. */
+export interface BusinessDomainRelationView {
+  from: string;
+  to: string;
+  relation: "depends-on" | "collaborates" | "shared-kernel";
+  /** The approver's one-line reason, when the approval recorded one. */
+  rationale: string;
 }
 
 export interface BusinessDomainViewDomain {
@@ -203,6 +219,13 @@ export interface BusinessDomainViewDomain {
     codeSymbols: Array<{ id: string; file: string; line: number | null }>;
   }>;
   relatedSceneIds: string[];
+  /** Ids of domains this one relates to (approved edges, outgoing). */
+  relatedDomainIds: string[];
+  /**
+   * UX-critical (A-10): this domain is reached directly from a screen, or was
+   * declared so by hand. Review and test expectations are raised for it.
+   */
+  uxCritical: boolean;
 }
 
 export interface ProgramDomainModuleDependency {

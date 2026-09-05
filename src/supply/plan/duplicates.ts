@@ -13,6 +13,8 @@
  * verify gate, which compares real implementations.
  *
  * SRP: similarity search over the analysed symbol names of one repo.
+ *
+ * @spec パイプライン（`src/supply/plan/`）
  */
 
 import { tokenizeRelevanceText } from "../relevance.js";

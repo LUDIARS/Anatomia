@@ -16,7 +16,7 @@
  */
 
 /** Schema version of a persisted plan; bumped when the shape changes. */
-export const PLAN_VERSION = "plan-v1";
+export const PLAN_VERSION = "plan-v2";
 
 /** How the task was split into domains. */
 export type PlanSource = "llm" | "deterministic";
@@ -67,8 +67,36 @@ export interface PlanNewDomain {
   membership: { pathPattern: string }[];
 }
 
+/** A layer-direction warning between two plan items (A-11). */
+export interface PlanLayerWarning {
+  fromItemId: string;
+  toItemId: string;
+  fromLayer: string;
+  toLayer: string;
+  /** Why the direction is suspect, in the reviewer's language. */
+  reason: string;
+}
+
 /** One domain-sized piece of the task. */
 export interface PlanItem {
+  /**
+   * Stable id inside this plan (`<repo>/<domain>`, disambiguated when a repo
+   * plans the same domain twice). Dependency edges reference it, so it has to
+   * survive persistence and re-read.
+   */
+  id: string;
+  /**
+   * Ids of the items this piece depends on. Stated by the decomposition, never
+   * inferred from `plannedPaths` (paths carry no direction). Empty when the
+   * deterministic fallback could not state them — see the plan's `notes`.
+   */
+  dependsOn: string[];
+  /**
+   * The landing domain is UX-critical (A-10), resolved through approved
+   * `domain-owns-code` rather than a name match. Raises the review bar and makes
+   * test candidates mandatory.
+   */
+  uxCritical: boolean;
   /** Project id this piece lands in. */
   repo: string;
   /** Domain name — an existing declaration, or the proposed new one. */
@@ -133,4 +161,6 @@ export interface Plan {
   questions: string[];
   /** Diagnostics worth showing: why the LLM path was not used, etc. */
   notes: string[];
+  /** Layer-direction warnings over `items[].dependsOn` (A-11). */
+  layerWarnings: PlanLayerWarning[];
 }

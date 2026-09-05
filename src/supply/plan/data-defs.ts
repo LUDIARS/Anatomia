@@ -13,6 +13,8 @@
  *
  * SRP: enumeration of a domain's own definitions. Ranking against the task is
  * duplicates.ts's job.
+ *
+ * @spec パイプライン（`src/supply/plan/`）
  */
 
 import type { AnalysisContext } from "../../core.js";

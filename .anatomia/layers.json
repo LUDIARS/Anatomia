@@ -46,5 +46,17 @@
 
     { "glob": "src/__tests__/**", "layer": "shared" }
   ],
-  "mergeCouplingThreshold": 1
+  "mergeCouplingThreshold": 1,
+
+  "$order": "内→外。allow を書いているので order は参照されないが、レイヤ図の並び順として残す。",
+  "order": ["infrastructure", "domain-logic", "application", "presentation", "shared"],
+
+  "$allow": "層がどの層に依存してよいか。オニオン状に内向きだけを許す。shared は src/__tests__ で、テストはどの層にも触れてよいため全許可。layers[].layer に出る層はすべて key に書く (書き漏らすと『何にも依存できない』という誰も書いていない方針になるため、ローダーが設定エラーにする)。",
+  "allow": {
+    "infrastructure": [],
+    "domain-logic": ["infrastructure"],
+    "application": ["domain-logic", "infrastructure"],
+    "presentation": ["application", "domain-logic", "infrastructure"],
+    "shared": ["presentation", "application", "domain-logic", "infrastructure"]
+  }
 }

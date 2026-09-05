@@ -2,7 +2,7 @@
 
 import { basename, isAbsolute, relative } from "node:path";
 import type { AnalysisContext } from "../core.js";
-import { deriveProgramDomains, loadProgramDomainConfig } from "../domains/program/index.js";
+import { buildLayerPolicy, deriveProgramDomains, loadProgramDomainConfig } from "../domains/program/index.js";
 import { normalizeIdSegment } from "../knowledge/identity.js";
 import type { DomainCorrespondenceQuery } from "../knowledge/domain-correspondence/types.js";
 import type { ModuleEvaluation } from "../modules/types.js";
@@ -20,8 +20,6 @@ function pathOf(ctx: AnalysisContext, file: string): string {
 function moduleIdOf(ctx: AnalysisContext, moduleId: string): string {
   return pathOf(ctx, moduleId).replace(/^\.\//, "");
 }
-
-const LAYER_RANK: Record<string, number> = { infrastructure: 0, domain: 1, application: 2, presentation: 3 };
 
 interface ModuleDependency {
   fromDomain: string;
@@ -102,12 +100,16 @@ export async function buildProgramDomainViewPayload(
   }));
   const dependencies = new Map<string, { from: string; to: string; weight: number; layerViolation: boolean }>();
   const dependencyTargets = new Map<string, Set<string>>();
-  const layerByDomain = new Map(derived.domains.map((domain) => [domain.id, LAYER_RANK[domain.layer] ?? 0]));
+  // A-7: the repository's declared order/allow decides the direction; a repo
+  // without a declaration keeps the builtin ranking. `null` means the policy was
+  // never told about one of the layers — unjudgeable, so not a violation.
+  const layerPolicy = buildLayerPolicy(config);
+  const layerByDomain = new Map(derived.domains.map((domain) => [domain.id, domain.layer]));
   for (const edge of graph.edges) {
     const from = byAnchor.get(edge.from); const to = byAnchor.get(edge.to);
     if (!from || !to || from === to) continue;
     const key = `${from}\0${to}`; const current = dependencies.get(key);
-    const violation = (layerByDomain.get(from) ?? 0) < (layerByDomain.get(to) ?? 0);
+    const violation = layerPolicy.allows(layerByDomain.get(from) ?? "", layerByDomain.get(to) ?? "") === false;
     dependencies.set(key, { from, to, weight: (current?.weight ?? 0) + edgeWeight(edge), layerViolation: violation });
     if (violation) {
       const targets = dependencyTargets.get(key) ?? new Set<string>();

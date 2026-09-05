@@ -13,6 +13,8 @@ export interface DomainProposal {
   responsibilities: string[];
   boundary: DomainBoundary;
   assignable: boolean;
+  /** Human-authored UX criticality; absent leaves screen evidence to decide. */
+  uxCritical?: boolean;
   sourceClauseIds: string[];
   sourceRevision: string;
   analysisSnapshotId: string;
@@ -41,6 +43,8 @@ export interface ApprovedDomain {
   responsibilities: string[];
   boundary: DomainBoundary;
   assignable: boolean;
+  /** Human-authored UX criticality; absent leaves screen evidence to decide. */
+  uxCritical?: boolean;
   aliases: string[];
   revision: RevisionEvidence;
 }

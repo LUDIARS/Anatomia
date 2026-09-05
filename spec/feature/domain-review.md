@@ -53,7 +53,7 @@ assign/move/unassign/split/merge proposal へ evidence を渡す。
 ## CLI
 
 ```text
-anatomia domain-review [--repo <path> | --project <id>] [--json]
+anatomia domain-review [--repo <path> | --project <id>] [--json] [--by-layer]
 ```
 
 - `--project` では登録 project の `ontologyDir`（未設定なら repo の既定 domains dir）から
@@ -61,6 +61,29 @@ anatomia domain-review [--repo <path> | --project <id>] [--json]
 - `--repo` の単発解析では repo の既定 domains dir を読む。
 - `--json` は `DomainReviewReport`、無指定時は coverage summary と domain 別 edge、isolated、
   unassigned、overlap、boundary drift、spec integrity を表示する。
+
+## 層ごとのレビュー（`--by-layer`、A-9）
+
+taxonomy 全体の指標だけでは「どの**層**が薄いか」が分からない。`--by-layer` は同じ
+決定的な数値を層ごとに集計し直す。
+
+- 層は `.anatomia/layers.json` の glob（無ければ組み込みの依存成果物ルール）で
+  **パスから**決める。どの規則にも当たらない関数は `(unclassified)` に入る
+- ドメインは implementor が最も多い層に属させる。同数のときは層名の辞書順で決める
+- 層ごとに coverage / 未分類 / 凝集（implementor 重み付き平均）/ 層宣言に反する依存の
+  辺数を出す
+- **Revisor 所見も層単位**で出す（被覆が薄い・未分類が多い・違反依存がある・凝集が低い）
+- 出力順は「宣言された層順 → それ以外は名前順 → `(unclassified)` は最後」で決定的
+- 層宣言が無いリポでも組み込みの層順で集計できる
+- **gate ではなく lens**。exit code は 0 のまま
+
+`--json` では `DomainReviewReport` に `byLayer` を足して返す。
+
+## UX 直結ドメインの強調（A-10）
+
+`domain-review` は UX 直結ドメイン（[domain-dual-layer.md](./domain-dual-layer.md)）を
+`uxCritical` として印を付け、所見で強調する。対応は承認済み `domain-owns-code` を経由して
+求め、名前一致では引き継がない。強調まで（block へは昇格させない）。
 
 ## 用語の境界
 

@@ -14,6 +14,8 @@
  *
  * SRP: comparison logic only. Severity and message shaping belong to the gate
  * (supply/gates/plan_conformance.ts).
+ *
+ * @spec verify との連結
  */
 
 import type { Plan, PlanItem } from "./types.js";

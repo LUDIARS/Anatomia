@@ -27,6 +27,7 @@ export function renderDomainOkf(domain: ApprovedDomain, hierarchy: DomainHierarc
     `  id: ${yamlString(domain.id)}`,
     `  assignable: ${domain.assignable}`,
   ];
+  if (domain.uxCritical !== undefined) lines.push(`  ux-critical: ${domain.uxCritical}`);
   if (parent) lines.push(`  parent-id: ${yamlString(parent)}`);
   lines.push("---", "", `# ${domain.name}`, "", "## Purpose", "", domain.purpose, "", "## Responsibilities", "");
   lines.push(...yamlList(domain.responsibilities, 0));

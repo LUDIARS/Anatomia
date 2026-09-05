@@ -9,3 +9,8 @@ export * from "./gate-b.js";
 export * from "./gate-c.js";
 export * from "./code-gaps.js";
 export * from "./organization-view.js";
+export * from "./relation-types.js";
+export * from "./relation-candidates.js";
+export * from "./relation-llm.js";
+export * from "./relation-approval.js";
+export * from "./ux-critical.js";

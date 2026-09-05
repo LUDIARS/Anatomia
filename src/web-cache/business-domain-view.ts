@@ -2,7 +2,9 @@ import type { SpecClause } from "../types.js";
 import type { DomainCorrespondenceQuery } from "../knowledge/domain-correspondence/types.js";
 import type { SceneInspection } from "../knowledge/scene/types.js";
 import type { KnowledgeGraph } from "../knowledge/types.js";
-import type { BusinessDomainViewPayload } from "./types.js";
+import { isDomainRelationKind, type DomainRelationKind } from "../knowledge/domain/relation-types.js";
+import { deriveUxCriticalDomains, type UxCriticalSurface } from "../knowledge/domain/ux-critical.js";
+import type { BusinessDomainRelationView, BusinessDomainViewPayload } from "./types.js";
 
 function text(value: unknown): string {
   return typeof value === "string" ? value : "";
@@ -26,6 +28,7 @@ export function buildBusinessDomainViewPayload(
   correspondence: DomainCorrespondenceQuery,
   inspection: SceneInspection,
   clauses: readonly SpecClause[] = [],
+  screenFiles: readonly string[] = [],
 ): BusinessDomainViewPayload {
   const nodes = state.nodes;
   const edges = [...state.edges.values()];
@@ -38,6 +41,24 @@ export function buildBusinessDomainViewPayload(
     }
   }
   const correspondenceByBusiness = new Map(correspondence.businessDomains.map((item) => [item.businessDomainId, item]));
+  // A-8: only APPROVED relations are edges in the log, so a draft candidate can
+  // never reach the view — the filter below is over log content alone.
+  const relations: BusinessDomainRelationView[] = edges
+    .filter((edge) => edge.kind === "domain-relates-domain")
+    .map((edge) => ({
+      from: edge.from,
+      to: edge.to,
+      relation: (isDomainRelationKind(edge.evidence?.["relation"]) ? edge.evidence["relation"] : "depends-on") as DomainRelationKind,
+      rationale: text(edge.evidence?.["rationale"]),
+    }))
+    .sort((left, right) => left.from.localeCompare(right.from) || left.to.localeCompare(right.to));
+  const surface: UxCriticalSurface = {
+    // Direct scene/screen entries only; the transitive `activeDomainIds` would
+    // mark nearly every domain and so mark nothing (A-10).
+    entryCodeSymbolIds: inspection.scenes.filter((scene) => !scene.tombstone).flatMap((scene) => scene.entryCodeSymbolIds),
+    screenFiles,
+  };
+  const uxCriticalByDomain = new Map(deriveUxCriticalDomains(state, surface).map((finding) => [finding.domainId, finding]));
   const domains = [...nodes.values()]
     .filter((node) => node.kind === "domain")
     .sort((left, right) => left.id.localeCompare(right.id))
@@ -71,10 +92,13 @@ export function buildBusinessDomainViewPayload(
           codeSymbols: program.evidence.codeSymbols,
         })),
         relatedSceneIds: [...(scenesByDomain.get(domain.id) ?? [])].sort(),
+        relatedDomainIds: relations.filter((edge) => edge.from === domain.id).map((edge) => edge.to),
+        uxCritical: uxCriticalByDomain.get(domain.id)?.uxCritical ?? false,
       };
     });
   return {
     domains,
+    relations,
     unlinkedProgramDomains: correspondence.programDomains.map((program) => ({
       programDomainId: program.programDomainId,
       codeSymbolCount: program.unlinkedCodeSymbolCount,

@@ -7,6 +7,8 @@
  * which existing function is a domain's exemplar.
  *
  * SRP: sibling lookup → one exemplar per domain.
+ *
+ * @spec パイプライン（`src/supply/plan/`）
  */
 
 import { contextLayerRules, contextSiblingLookup } from "../detectors.js";

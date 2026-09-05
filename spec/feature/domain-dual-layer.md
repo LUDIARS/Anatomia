@@ -49,6 +49,35 @@ x-anatomia:
   code-authoritative で、sync のたびに全 relation を置換する。誤りの修正先は layer 設定
   （detector config）・code annotation・source code であり、手動 override ではない。
 
+### 層の順序と許可依存の宣言（A-7）
+
+層の順序は **コードに固定しない**。`.anatomia/layers.json` は従来の
+`layers`（path glob → layer）と `mergeCouplingThreshold` に加えて、依存方針を宣言できる。
+
+```jsonc
+{
+  "layers": [{ "glob": "src/ui/**", "layer": "presentation" }],
+  "mergeCouplingThreshold": 1,
+  // 内→外。自分と同じか手前の層にだけ依存してよい
+  "order": ["domain", "application", "presentation"],
+  // もしくは明示（オニオンは内向きだけを列挙して表す）。allow が order に勝つ
+  "allow": { "domain": [], "application": ["domain"], "presentation": ["application", "domain"] }
+}
+```
+
+- 宣言が無いリポは従来の組み込み順（`infrastructure < domain < application < presentation`）
+  のまま。既存リポの `layerViolation` 判定は変わらない。
+- `order` / `allow` が使える層名は、組み込み層名と同じ設定の `layers[].layer` に限る。
+  独自層は `layers` と依存方針の両方に宣言すれば受け付ける。
+- `allow` を書くときは、そのリポの `layers[].layer` を **すべて key として**書く
+  （書き忘れが「何にも依存できない」という誰も書いていない方針になるのを防ぐ）。
+- 壊れた宣言（未宣言の層名・重複した `order`・循環した `allow`・`allow` の key 漏れ）は
+  既定へ落とさず **設定エラーとして fail-fast** する。誤った既定順のまま判定済みにしない。
+- 判定できない辺（宣言が知らない層）は違反ではなく「判定不能」として扱う。
+
+実装: `src/domains/program/layer-policy.ts`（`buildLayerPolicy` / `validateLayerDeclaration`）、
+パスからの層解決は `src/domains/program/layer-paths.ts`。
+
 ### ビジネスドメイン（business domain）
 
 - 既存の approved domain（[domain-organization.md](./domain-organization.md)）を
@@ -58,6 +87,39 @@ x-anatomia:
   **「紐づけなし」がありうる**：新解析ロジック導入後も、既存ビジネスドメインのどれにも
   属さないコードは `abstain` / `code-only` のまま正当である。無理に既存ドメインへ
   押し込まない（default domain 禁止の従来契約を維持）。
+
+### コアドメイン間の関係辺（コンテキストマップ、A-8）
+
+コアドメインは **リストとグラフ**で記述される。グラフ側が knowledge の
+`domain-relates-domain` 辺で、関係種別は辺の `evidence.relation` に持つ
+（`KnowledgeEdge.kind` は辺種別の discriminant なので二重用途にしない）。
+
+- 関係種別: `depends-on` / `collaborates` / `shared-kernel`
+- 候補は **決定的**に作る: program-domain の依存辺を、承認済みの
+  business ⇄ program 対応で畳んでドメイン対にする（`relation-candidates.ts`）
+- 種別の判断は **LLM が下書きし、人間が承認**する（Gate A と同型、`relation-llm.ts`）。
+  下書きは権威データではない。承認したものだけが `applyDomainRelations` で
+  knowledge log に入る（`origin: "human-approval"`）
+- knowledge log は端点の無い辺を拒むため、派生層は **既存 entity id に絞って**辺を張り、
+  張れなかった関係は `skipped` として理由付きで返す（黙って落とさない）
+- `BusinessDomainViewPayload.relations[]` は承認済みの辺だけを返す。
+  候補・下書きは log に無いのでビューに出ようがない
+
+### UX 直結ドメイン（`uxCritical`、A-10）
+
+UX と直結するドメインはレビューとテストを強化する。印は二つの経路で決まる。
+
+- **明示**: ドメイン定義の `uxCritical: true`。人間が言ったことなので優先する
+- **導出**: screen の宣言ファイル、または scene/screen の **直接** entry symbol に対する
+  承認済み `domain-owns-code`
+
+scene の推移的な `activeDomainIds` は呼出し先の内部処理まで含むため、導出根拠にしない
+（全到達ドメインが UX 直結になると、印が何も意味しなくなる）。
+明示と導出が食い違うときは **明示が勝ち、食い違いを報告する**
+（人間が外した印の裏で画面が入っている、はレビューが見るべき事実）。
+
+引き継ぎ先とその橋渡しは [domain-plan.md](./domain-plan.md) の A-10 節を参照。
+実装: `src/knowledge/domain/ux-critical.ts`。
 
 ### 相互リンク
 

@@ -10,6 +10,8 @@
  * Japanese task can be matched against.
  *
  * SRP: candidate collection only. Nothing here decides which candidate wins.
+ *
+ * @spec パイプライン（`src/supply/plan/`）
  */
 
 import { relative } from "node:path";
@@ -29,6 +31,8 @@ export interface PlanRepo {
    * dir is resolved (spec/domains, then the legacy locations).
    */
   ontologyDir?: string | undefined;
+  /** Canonical root for approved knowledge; registered projects may not use `<repo>/spec`. */
+  knowledgeWriteRoot?: string | undefined;
 }
 
 /** Repo-relative, forward-slash form (plans are repo-relative by contract). */

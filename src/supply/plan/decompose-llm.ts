@@ -16,6 +16,8 @@
  *
  * SRP: prompt construction + response parsing. No enrichment, no fallback
  * policy (index.ts owns that).
+ *
+ * @spec パイプライン（`src/supply/plan/`）
  */
 
 import { createClaudeCliLlm } from "../../providers/claude-cli-llm.js";
@@ -68,6 +70,8 @@ export function buildDecomposePrompt(task: string, candidates: PlanDomainCandida
     JSON.stringify({
       items: [
         {
+          id: "<short stable id for this piece, e.g. 1>",
+          dependsOn: ["<id of another item this piece calls into>"],
           repo: "<repo id from the list>",
           domain: "<domain name>",
           status: "existing | new",
@@ -86,6 +90,7 @@ export function buildDecomposePrompt(task: string, candidates: PlanDomainCandida
     }),
   );
   lines.push("Omit newDomain for existing domains. Use empty arrays when there is nothing to report.");
+  lines.push("dependsOn states the direction of the work: list the ids this piece calls INTO, never the callers.");
   return lines.join("\n");
 }
 
@@ -156,11 +161,16 @@ export function parseDecomposition(
       responsibility,
       plannedPaths: readStrings(item["plannedPaths"]),
       neededTypes: readStrings(item["neededTypes"]),
+      // Kept as the model wrote them; build.ts maps them onto the plan's own
+      // item ids and drops references that resolve to nothing.
+      dependsOn: readStrings(item["dependsOn"]),
       ...(newDomain ? { newDomain } : {}),
+      ...(typeof item["id"] === "string" && item["id"] !== "" ? { sourceId: item["id"] } : {}),
     });
     if (status === "new") {
       questions.push(
-        `[${repo}] 新規ドメイン "${domain}" の定義 (説明・membership) をレビューしてください。`,
+        `[${repo}] 新規ドメイン "${domain}" の定義は LLM の下書きです。説明・membership を人間がレビューしてください`
+        + ` (説明案: ${newDomain?.description || "(なし)"})。`,
       );
     }
   }

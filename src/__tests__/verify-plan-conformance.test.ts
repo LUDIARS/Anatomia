@@ -21,6 +21,9 @@ function planFor(plannedPaths: string[]): Plan {
     source: "llm",
     items: [
       {
+        id: "fixture/action",
+        dependsOn: [],
+        uxCritical: false,
         repo: "fixture",
         domain: "action",
         status: "existing",
@@ -37,6 +40,7 @@ function planFor(plannedPaths: string[]): Plan {
     unresolved: [],
     questions: [],
     notes: [],
+    layerWarnings: [],
   };
 }
 

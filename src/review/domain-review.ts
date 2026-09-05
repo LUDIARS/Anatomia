@@ -36,6 +36,11 @@ export type DomainDefWithSpecs = DomainDef & { specRefs?: string[] };
 
 export interface DomainReviewEntry {
   domain: string;
+  /**
+   * UX-critical (A-10): reviewed and tested harder. Resolved by the caller
+   * through approved `domain-owns-code`, never by matching names.
+   */
+  uxCritical: boolean;
   /** Implementor count (functions the detection assigned to this domain). */
   implementors: number;
   /** True iff detection found no error-severity violation for the domain. */
@@ -102,6 +107,8 @@ export interface DomainReviewReport {
     isolated: number;
     specIntegrity: number;
     boundaryDrift: number;
+    /** How many of the domains are UX-critical (A-10). */
+    uxCritical: number;
   };
   domains: DomainReviewEntry[];
   /** Function/method nodes in no domain's implementors (capped, sorted). */
@@ -126,6 +133,12 @@ export interface DomainReviewOptions {
   domainDefs?: DomainDefWithSpecs[];
   /** Label-propagation rounds for boundary drift (boundary.ts). Default 10. */
   driftRounds?: number;
+  /**
+   * Detection-taxonomy names that are UX-critical (A-10). Supplied by the
+   * caller (supply/plan/ux-critical-bridge.ts) so this file stays a pure
+   * function of the AnalysisContext.
+   */
+  uxCriticalDomains?: readonly string[];
 }
 
 const cmp = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
@@ -214,6 +227,7 @@ export async function buildDomainReview(
 
   // ── per-domain entries ─────────────────────────────────────────────────────
   const entries: DomainReviewEntry[] = [];
+  const uxCritical = new Set(opts.uxCriticalDomains ?? []);
   let isolatedTotal = 0;
   for (const d of detections) {
     const internalEdges = internal.get(d.domain) ?? 0;
@@ -231,6 +245,7 @@ export async function buildDomainReview(
 
     entries.push({
       domain: d.domain,
+      uxCritical: uxCritical.has(d.domain),
       implementors: d.implementors.length,
       conforms: d.conforms,
       internalEdges,
@@ -299,6 +314,7 @@ export async function buildDomainReview(
       isolated: isolatedTotal,
       specIntegrity: specIntegrity.length,
       boundaryDrift: driftAll.length,
+      uxCritical: entries.filter((entry) => entry.uxCritical).length,
     },
     domains: entries,
     unassigned: unassignedAll.slice(0, maxList),

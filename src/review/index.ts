@@ -17,6 +17,8 @@ export { formatReview } from "./format.js";
 export { buildRefactoringProposals, refactoringProposalId } from "./refactoring-proposals.js";
 export type { RefactoringAction, RefactoringLocation, RefactoringProposal, RefactoringSignal, RefactoringSignalRule } from "./refactoring-proposals.js";
 export { buildDomainReview } from "./domain-review.js";
+export { buildDomainReviewByLayer, UNCLASSIFIED_LAYER } from "./domain-review-by-layer.js";
+export type { DomainReviewByLayerReport, LayerReviewEntry } from "./domain-review-by-layer.js";
 export type {
   DomainReviewReport,
   DomainReviewEntry,
@@ -26,7 +28,7 @@ export type {
   DomainDefWithSpecs,
   BoundaryDriftFinding,
 } from "./domain-review.js";
-export { formatDomainReview } from "./domain-review-format.js";
+export { formatDomainReview, formatDomainReviewByLayer } from "./domain-review-format.js";
 export { buildPrDiffReview, summarizeComplexity } from "./pr-diff.js";
 export type {
   PrDiffReview,

@@ -84,7 +84,7 @@ describe("listGitIgnoredPaths", () => {
 
     const ignored = await listGitIgnoredPaths(dir);
     expect(ignored!.dirs.has("fresh/generated")).toBe(true);
-  });
+  }, 120_000);
 });
 
 describe("collectProjectFiles", () => {

@@ -43,6 +43,20 @@ export function planConformanceGate(
         ` (計画: ${plan.task})`,
     );
   }
+  // A-10: a UX-critical landing domain raises the review bar. Stated first so
+  // the reviewer sees it before the path-by-path findings.
+  const uxCriticalItems = plan.items.filter((item) => item.uxCritical && (!options.repo || item.repo === options.repo));
+  if (uxCriticalItems.length > 0) {
+    suggestions.unshift(
+      `UX 直結ドメイン (${uxCriticalItems.map((item) => item.domain).sort().join(", ")}) に着地しています。`
+      + "画面遷移・入力・エラー表示のレビューと、テスト候補の提示を必須にしてください",
+    );
+  }
+  // A-11: a layer-direction warning made before the code existed is worth
+  // repeating at review time — the diff is where it either happened or did not.
+  for (const warning of plan.layerWarnings) {
+    suggestions.push(`層間依存の事前警告: ${warning.fromItemId} -> ${warning.toItemId} — ${warning.reason}`);
+  }
   for (const domain of conformance.undeclaredNewDomains) {
     suggestions.push(
       `新規ドメイン "${domain}" の spec/domains/*.domain.json が diff にありません。` +

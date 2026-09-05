@@ -6,6 +6,16 @@ export interface ProgramLayerRule { glob: string; layer: string }
 export interface ProgramDomainConfig {
   layers: ProgramLayerRule[];
   mergeCouplingThreshold: number;
+  /**
+   * Declared layer order, inner-to-outer. A layer may depend on layers at or
+   * before its own position. Absent → the builtin ranking (layer-policy.ts).
+   */
+  order?: string[];
+  /**
+   * Declared dependency permissions, `from` → the layers it may depend on.
+   * Exhaustive over the repository's own `layers[].layer`; wins over `order`.
+   */
+  allow?: Record<string, string[]>;
 }
 
 export interface ProgramSymbol {

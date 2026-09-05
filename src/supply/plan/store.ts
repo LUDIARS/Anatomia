@@ -9,6 +9,8 @@
  * file instead of accumulating near-duplicates).
  *
  * SRP: file naming, reading and writing. No plan content decisions.
+ *
+ * @spec パイプライン（`src/supply/plan/`）
  */
 
 import { createHash } from "node:crypto";
@@ -106,11 +108,30 @@ function isPlan(value: unknown): value is Plan {
   if (!Array.isArray(value["items"]) || !value["items"].every(isPlanItem)) return false;
   if (!value["items"].every((item) => repos.includes(item.repo))) return false;
   if (!Array.isArray(value["unresolved"]) || !value["unresolved"].every(isUnresolved)) return false;
+  // A-11: the warnings and the item ids they reference are part of the stored
+  // shape, so a plan whose warnings dangle is not a plan we can act on.
+  if (!Array.isArray(value["layerWarnings"]) || !value["layerWarnings"].every(isLayerWarning)) return false;
+  const itemIds = new Set(value["items"].map((item) => item.id));
+  if (itemIds.size !== value["items"].length) return false;
+  if (!value["items"].every((item) => item.dependsOn.every((id) => itemIds.has(id)))) return false;
+  if (!value["layerWarnings"].every((warning) => itemIds.has((warning as { fromItemId: string }).fromItemId) && itemIds.has((warning as { toItemId: string }).toItemId))) return false;
   return true;
+}
+
+function isLayerWarning(value: unknown): boolean {
+  return isRecord(value)
+    && isString(value["fromItemId"])
+    && isString(value["toItemId"])
+    && isString(value["fromLayer"])
+    && isString(value["toLayer"])
+    && isString(value["reason"]);
 }
 
 function isPlanItem(value: unknown): value is PlanItem {
   if (!isRecord(value)) return false;
+  if (!isString(value["id"]) || value["id"] === "") return false;
+  if (!isStringArray(value["dependsOn"])) return false;
+  if (typeof value["uxCritical"] !== "boolean") return false;
   if (
     !isString(value["repo"])
     || !isString(value["domain"])

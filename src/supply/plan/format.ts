@@ -7,6 +7,8 @@
  * indented under it, then new domains, unresolved pieces and questions.
  *
  * SRP: Plan → Markdown. No pipeline logic.
+ *
+ * @spec パイプライン（`src/supply/plan/`）
  */
 
 import type { Plan, PlanItem } from "./types.js";
@@ -29,6 +31,12 @@ export function formatPlan(plan: Plan): string {
       : `  新規ドメイン: ${newDomains.map((item) => `${item.repo}/${item.domain}`).join(", ")}`,
   );
 
+  if (plan.layerWarnings.length > 0) {
+    lines.push("  層間依存の警告 (書く前の注意 — plan は gate ではありません):");
+    for (const warning of plan.layerWarnings) {
+      lines.push(`    - ${warning.fromItemId} -> ${warning.toItemId}: ${warning.reason}`);
+    }
+  }
   if (plan.unresolved.length > 0) {
     lines.push("  紐付け不能:");
     for (const entry of plan.unresolved) {
@@ -52,8 +60,12 @@ function formatItem(item: PlanItem, ordinal: number): string[] {
   const status = item.status === "new" ? "新規" : "既存";
   const layer = item.layer ? ` layer=${item.layer}` : "";
   lines.push(
-    `  ${ordinal}. ${item.repo}/${item.domain}\t[${status}]${layer}  ${item.responsibility}`,
+    `  ${ordinal}. ${item.repo}/${item.domain}\t[${status}]${layer}${item.uxCritical ? "  [UX 直結]" : ""}  ${item.responsibility}`,
   );
+  lines.push(`       id: ${item.id}${item.dependsOn.length > 0 ? ` / 依存: ${item.dependsOn.join(", ")}` : ""}`);
+  if (item.uxCritical) {
+    lines.push("       レビュー観点: 画面遷移・入力・エラー表示 (テスト候補は必須)");
+  }
   if (item.plannedPaths.length > 0) {
     lines.push(`       予定パス: ${item.plannedPaths.join(", ")}`);
   }
@@ -79,7 +91,7 @@ function formatItem(item: PlanItem, ordinal: number): string[] {
   );
   if (item.newDomain) {
     const membership = item.newDomain.membership.map((m) => m.pathPattern).join(", ");
-    lines.push(`       新規ドメイン定義案: ${item.newDomain.description}`);
+    lines.push(`       新規ドメイン定義案 (LLM 下書き — 要人間レビュー): ${item.newDomain.description}`);
     lines.push(`       membership: ${membership || "(未提案 — 人間が決める)"}`);
   }
   return lines;

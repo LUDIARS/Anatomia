@@ -31,6 +31,37 @@ domain 定義のように見せない。
 subdomain は child→parent edge の tree、layer/concern は facet、scene activation は usage overlay として
 分ける。ancestor 集約は query 時に行い、transitive edge を保存しない。
 
+## ビジネスドメインビューのグラフ化（A-8）
+
+`BusinessDomainViewPayload` は従来のリスト（`domains[]`）に加えて、承認済みの
+コンテキストマップ辺を `relations[]`（`from` / `to` / `relation` / `rationale`）で返し、
+各ドメインは `relatedDomainIds`（出て行く辺）と `uxCritical` を持つ。
+
+- リストとグラフは同じ payload。グラフ側の正本は knowledge の `domain-relates-domain` 辺
+- **承認済みだけ**が出る。候補も LLM 下書きも knowledge log に入っていないので、
+  ビューに漏れる経路が構造的に無い
+- `uxCritical` は screen 宣言ファイル / 直接 entry symbol の承認済み `domain-owns-code` から
+  導出する（scene の推移的到達は根拠にしない）
+
+詳細は [domain-dual-layer.md](./domain-dual-layer.md) の A-8 / A-10 節。
+
+## 決定的検出のカタカナ語照合
+
+`plan --no-llm` / `where` の決定的検出は task とドメイン description のトークン重なりで
+判定する。日本語の task は外来語をカタカナで書き、description と識別子は英字で書くため、
+同じ概念でもトークンが一致しなかった（実測 2026-09-05: Pictor の `samples-and-tools` は
+description に `demo` と書いてあるが「デモ」と結べなかった）。
+
+`src/supply/katakana-latin.ts` の **明示テーブル**で、Anatomia が扱う語彙
+（demo / shader / texture / render / cache / layer / scene / material / palette 等）に限って
+latin 表記をトークン集合へ追加する。
+
+- 汎用ローマ字変換は作らない（誤変換で無関係ドメインを引き当てるほうが害が大きい）
+- 現行 tokenizer は日本語文を単語分割せず文字 2-gram にするため、辞書キーが日本語 run の
+  **一部**に現れた場合も latin token を 1 回だけ追加する（完全一致 token だけを見ない）
+- 追加した token は他のトークンと同じ集合に入るので重みは同じ。scoring は変えない
+- 辞書に無いカタカナ語は素通し（無言で近い語へ寄せない）
+
 ## パネルでの使われ方
 
 `Domain View` タブ。左にドメイン一覧（名前 + 日本語説明 + conforms バッジ + 実装数）、

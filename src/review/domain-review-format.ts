@@ -6,6 +6,7 @@
 
 import type { ReviewLocation } from "./build.js";
 import type { DomainReviewReport } from "./domain-review.js";
+import type { DomainReviewByLayerReport } from "./domain-review-by-layer.js";
 
 const loc = (l: ReviewLocation): string => `${l.name} (${l.file}:${l.line})`;
 
@@ -18,7 +19,8 @@ export function formatDomainReview(r: DomainReviewReport): string {
   out.push(
     `  domains=${s.domains} functions=${s.functions} assigned=${s.assigned} ` +
       `coverage=${pct(s.coverage)} unassigned=${s.unassigned} overlap=${s.overlap} ` +
-      `isolated=${s.isolated} specIntegrity=${s.specIntegrity} boundaryDrift=${s.boundaryDrift}`,
+      `isolated=${s.isolated} specIntegrity=${s.specIntegrity} boundaryDrift=${s.boundaryDrift} ` +
+      `uxCritical=${s.uxCritical}`,
   );
 
   if (r.domains.length) {
@@ -27,7 +29,8 @@ export function formatDomainReview(r: DomainReviewReport): string {
       const coh = d.cohesion === null ? "n/a" : pct(d.cohesion);
       out.push(
         `  ${d.domain}  implementors=${d.implementors} internal=${d.internalEdges} ` +
-          `boundary=${d.boundaryEdges} cohesion=${coh}${d.conforms ? "" : "  [violations]"}`,
+          `boundary=${d.boundaryEdges} cohesion=${coh}${d.conforms ? "" : "  [violations]"}` +
+          `${d.uxCritical ? "  [UX 直結 — レビュー/テストを強化]" : ""}`,
       );
       if (d.isolatedCount > 0) {
         const capped = d.isolated.length < d.isolatedCount ? ` (first ${d.isolated.length}/${d.isolatedCount})` : "";
@@ -67,5 +70,30 @@ export function formatDomainReview(r: DomainReviewReport): string {
     }
   }
 
+  return out.join("\n");
+}
+
+/**
+ * Render the by-layer lens (A-9). Printed after the flat report when
+ * `--by-layer` is given; the ordering comes from the report, so this function
+ * never re-sorts and the output stays reproducible.
+ */
+export function formatDomainReviewByLayer(report: DomainReviewByLayerReport): string {
+  const out: string[] = [];
+  out.push(`\n# Layers (policy: ${report.policySource})`);
+  if (report.layers.length === 0) {
+    out.push("  (層に分類できるコードがありません)");
+    return out.join("\n");
+  }
+  for (const layer of report.layers) {
+    const coh = layer.cohesion === null ? "n/a" : pct(layer.cohesion);
+    out.push(
+      `  ${layer.layer}  domains=${layer.domains.length} functions=${layer.functions} ` +
+        `coverage=${pct(layer.coverage)} unassigned=${layer.unassigned} cohesion=${coh} ` +
+        `violations=${layer.violatingDependencies}`,
+    );
+    if (layer.domains.length) out.push(`      domains: ${layer.domains.join(", ")}`);
+    for (const finding of layer.findings) out.push(`      所見: ${finding}`);
+  }
   return out.join("\n");
 }

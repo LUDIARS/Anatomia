@@ -92,10 +92,28 @@ git diff | node bin/anatomia.mjs verify --project adventure --json
 
 # 計画と突合する（plan_conformance は advisory）
 git diff | node bin/anatomia.mjs verify --repo <path-to-repo> --plan
+
+# ドメイン taxonomy を層ごとにレビューする（lens、exit 0）
+node bin/anatomia.mjs domain-review --project adventure --by-layer
 ```
 
 `plan` は `--project` を繰り返して複数リポに跨る計画を作れる。LLM 分解を止めるなら
 `--no-llm`、委託プロンプトへ埋める OKF 文書は `--format okf`。
+
+`domain-review --by-layer` は層ごとの coverage / 未分類 / 凝集 / 層宣言に反する依存を出す。
+層の順序と許可依存は `.anatomia/layers.json` に宣言できる（無宣言なら組み込み順のまま）。
+
+```jsonc
+{
+  "layers": [{ "glob": "src/ui/**", "layer": "presentation" }],
+  "mergeCouplingThreshold": 1,
+  "order": ["domain", "application", "presentation"],          // 内→外
+  "allow": { "domain": [], "application": ["domain"],           // オニオンは allow で表す
+             "presentation": ["application", "domain"] }        // allow が order に勝つ
+}
+```
+
+壊れた宣言（未宣言の層名・重複した `order`・循環した `allow`）は既定へ落とさず設定エラーになる。
 
 単発（登録なし）は `--repo <path>`、静的グラフは `export-graph -o graph.html`、
 複数プロジェクト管理 UI は `web --port 4200`。

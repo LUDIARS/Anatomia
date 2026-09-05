@@ -79,6 +79,38 @@ git diff | anatomia verify --repo <path> --plan [<plan.json>]
 - plan に `status: new` の item があるのに `spec/domains/*.json` が diff に無い
   → 「新規ドメインの宣言を同じ PR に入れる」
 
+## plan item 間の層依存の事前警告 (A-11)
+
+各 item は plan 内で安定した `id`（`<repo>/<domain>`、同じ組が二度出たら `#2` を付ける）と
+`dependsOn[]`（依存先 item id）を持つ。依存の向きは **分解が明示したものだけ**を使い、
+`plannedPaths` からは推測しない（パスは「どこに書くか」であって「どちらが呼ぶか」ではない）。
+決定的フォールバックは依存を確定できないので `dependsOn` は空にし、その限界を `notes[]` に残す。
+
+`dependsOn` の各辺について、両 item の `plannedPaths` が属する層を
+`.anatomia/layers.json` の `order` / `allow`（無ければ組み込み順）で照合し、
+許されない向きを `layerWarnings[]` に出す。plan は gate ではないので **exit code は変わらない**。
+層が決まらない item（新規ドメイン / 層外のパス / パスが複数層にまたがる）は違反と断定せず
+`unresolved[]` に回す。
+
+Markdown・JSON・OKF のすべてに item id・依存辺・警告を出す。保存形状が変わったため
+`PLAN_VERSION` は `plan-v2`。読込 validation は item id の一意性と、`dependsOn` /
+`layerWarnings` が実在する item を指すことを確認する。
+
+新規ドメインの `description` は LLM 下書きであることを出力に明示し、
+「要人間レビュー」を付けて `questions[]` に載せる。
+
+## UX 直結ドメインの plan / test-suggestions への引き継ぎ (A-10)
+
+ビジネスドメインの `uxCritical`（`spec/feature/domain-dual-layer.md`）は plan の
+検出 taxonomy とは **別の名前空間**にある。plan item / `test-suggestions` へ引き継ぐときは
+承認済み `domain-owns-code` を経由して「同じ code symbol を主張している検出ドメイン」を求め、
+**同名一致では引き継がない**（`src/supply/plan/ux-critical-bridge.ts`）。
+
+- plan: 着地ドメインが UX 直結なら item に印を付け、レビュー観点（画面遷移・入力・エラー表示）を出す
+- verify: `plan_conformance` の所見の先頭で UX 直結を告げ、テスト候補の提示を必須と書く
+- `POST /api/projects/:id/test-suggestions`: UX 直結ドメインを `critical` として
+  focusedTesting へ必ず混ぜる（呼び出し側が外せない）。knowledge log が無いリポでは何もしない
+
 ## warm server
 
 `POST /api/plan { project, projects?, task, llm?, okf? }`。

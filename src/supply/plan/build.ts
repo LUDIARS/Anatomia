@@ -15,10 +15,14 @@
  * weaker result as the same thing (RULE_CODE §7).
  *
  * SRP: orchestration only. Each step lives in its own file.
+ *
+ * @spec パイプライン（`src/supply/plan/`）
  */
 
+import { loadProgramDomainConfig } from "../../domains/program/index.js";
 import { collectAllCandidates, type PlanRepo } from "./collect.js";
-import { decomposeDeterministically, type Decomposition } from "./decompose-fallback.js";
+import { DEPENDENCY_LIMIT_NOTE, decomposeDeterministically, type Decomposition } from "./decompose-fallback.js";
+import { buildPlanLayerWarnings } from "./layer-warnings.js";
 import { decomposeWithLlm, type LlmDecomposeOptions } from "./decompose-llm.js";
 import { collectDataDefs, domainFiles } from "./data-defs.js";
 import { findDuplicates } from "./duplicates.js";
@@ -34,6 +38,36 @@ export interface BuildPlanOptions {
   llm?: LlmDecomposeOptions;
   /** Clock, injected so tests get a fixed `generatedAt`. */
   now?: () => Date;
+  /**
+   * Detection-taxonomy domain names that are UX-critical (A-10), per repo id.
+   * Resolved by the caller through approved `domain-owns-code`
+   * (`resolveUxCriticalDetectionDomains`) — never by matching names, because the
+   * business and detection taxonomies are different namespaces.
+   */
+  uxCriticalDomains?: Record<string, readonly string[]>;
+}
+
+/**
+ * Stable ids for the decomposed pieces, plus the map from whatever id the LLM
+ * used to ours. `<repo>/<domain>` is readable in the rendered plan; a repeated
+ * pair gets a numeric suffix so the id stays unique inside one plan.
+ */
+function assignItemIds(pieces: readonly { repo: string; domain: string; sourceId?: string }[]): {
+  ids: string[];
+  bySourceId: Map<string, string>;
+} {
+  const used = new Map<string, number>();
+  const ids: string[] = [];
+  const bySourceId = new Map<string, string>();
+  pieces.forEach((piece, index) => {
+    const base = `${piece.repo}/${piece.domain}`;
+    const seen = used.get(base) ?? 0;
+    used.set(base, seen + 1);
+    const id = seen === 0 ? base : `${base}#${seen + 1}`;
+    ids[index] = id;
+    if (piece.sourceId !== undefined && !bySourceId.has(piece.sourceId)) bySourceId.set(piece.sourceId, id);
+  });
+  return { ids, bySourceId };
 }
 
 /** Run the whole pipeline for one task over one or more analysed repos. */
@@ -71,8 +105,10 @@ export async function buildPlan(
   }
 
   const byId = new Map(repos.map((repo) => [repo.id, repo] as const));
+  const { ids, bySourceId } = assignItemIds(decomposition.items);
   const items: PlanItem[] = [];
-  for (const piece of decomposition.items) {
+  if (source === "deterministic" && decomposition.items.length > 1) notes.push(DEPENDENCY_LIMIT_NOTE);
+  for (const [index, piece] of decomposition.items.entries()) {
     const repo = byId.get(piece.repo);
     if (!repo) continue;
     const candidate = candidates.find((c) => c.repo === piece.repo && c.name === piece.domain);
@@ -80,6 +116,13 @@ export async function buildPlan(
     const ownFiles = existing ? domainFiles(repo, piece.domain, candidate) : new Set<string>();
     const exemplar = existing ? await findExemplar(repo, piece.domain) : null;
     items.push({
+      id: ids[index]!,
+      // Only references that resolve to a piece of THIS plan survive; a dangling
+      // id would produce a layer warning about an item nobody planned.
+      dependsOn: [...new Set((piece.dependsOn ?? [])
+        .map((reference) => bySourceId.get(reference) ?? (ids.includes(reference) ? reference : null))
+        .filter((id): id is string => id !== null && id !== ids[index]))].sort(),
+      uxCritical: (options.uxCriticalDomains?.[piece.repo] ?? []).includes(piece.domain),
       repo: piece.repo,
       domain: piece.domain,
       status: piece.status,
@@ -103,6 +146,17 @@ export async function buildPlan(
     });
   }
 
+  // A-11: the warnings need the layer declaration of each repo, and a plan may
+  // span several. Each repo judges its own items.
+  const layerWarnings: Plan["layerWarnings"] = [];
+  const layerUnresolved: Plan["unresolved"] = [];
+  for (const repo of repos) {
+    const config = await loadProgramDomainConfig(repo.repoPath);
+    const analysis = buildPlanLayerWarnings(items.filter((item) => item.repo === repo.id), config);
+    layerWarnings.push(...analysis.warnings);
+    layerUnresolved.push(...analysis.unresolved);
+  }
+
   const repoIds = repos.map((repo) => repo.id);
   return {
     version: PLAN_VERSION,
@@ -112,8 +166,9 @@ export async function buildPlan(
     repos: repoIds,
     source,
     items,
-    unresolved: decomposition.unresolved,
+    unresolved: [...decomposition.unresolved, ...layerUnresolved],
     questions: [...new Set(decomposition.questions)],
     notes,
+    layerWarnings,
   };
 }

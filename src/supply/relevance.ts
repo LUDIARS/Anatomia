@@ -1,3 +1,4 @@
+import { latinTokensForKatakana } from "./katakana-latin.js";
 import type { EmbeddingClient } from "../spec/semantic.js";
 import type { FunctionNode, SpecClause } from "../types.js";
 
@@ -63,6 +64,12 @@ export function rankExemplars(
  * meaning: per-character tokens made every task overlap every domain (single
  * kana like を / する occur in almost any Japanese text), which inflated the
  * score of unrelated domains instead of ranking the related one first.
+ *
+ * Katakana loanwords additionally emit their latin spelling
+ * (katakana-latin.ts), because a Japanese task says "デモ" where the domain
+ * description says `demo`. The latin token joins the SAME set as every other
+ * token, so it carries the same weight — nothing about the scoring changes,
+ * only what the text is seen to contain.
  */
 export function tokenizeRelevanceText(text: string): string[] {
   const normalized = text.replace(/([a-z0-9])([A-Z])/g, "$1 $2").toLowerCase();
@@ -70,7 +77,10 @@ export function tokenizeRelevanceText(text: string): string[] {
   const out: string[] = [];
   for (const word of words) {
     out.push(word);
-    if (JAPANESE_RUN.test(word)) out.push(...bigrams(word));
+    if (JAPANESE_RUN.test(word)) {
+      out.push(...bigrams(word));
+      out.push(...latinTokensForKatakana(word));
+    }
   }
   return out;
 }

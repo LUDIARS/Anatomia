@@ -236,6 +236,9 @@ describe("runCli verify", () => {
       "utf8",
     );
     const item = (repo: string, plannedPaths: string[]) => ({
+      id: `${repo}/example`,
+      dependsOn: [],
+      uxCritical: false,
       repo,
       domain: "example",
       status: "existing" as const,
@@ -259,6 +262,7 @@ describe("runCli verify", () => {
       unresolved: [],
       questions: [],
       notes: [],
+      layerWarnings: [],
     };
     await savePlan(crossPlan, [{ id: "repo-a", repoPath: tmpDir }]);
 

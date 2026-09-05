@@ -12,6 +12,8 @@
  *   format-okf.ts         OKF rendering (for delegation prompts)
  *   store.ts              `.anatomia/plan/<hash>.json`
  *   conformance.ts        plan ↔ changed files (verify --plan)
+ *
+ * @spec パイプライン（`src/supply/plan/`）
  */
 
 export { buildPlan } from "./build.js";
@@ -55,3 +57,6 @@ export type {
   PlanSource,
   PlanUnresolved,
 } from "./types.js";
+
+export { hasKnowledgeLog, knowledgeLogPathFor, resolveUxCriticalDomainNames } from "./ux-critical-bridge.js";
+export { buildPlanLayerWarnings, itemLayer } from "./layer-warnings.js";
