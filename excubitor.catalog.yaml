@@ -1,0 +1,23 @@
+# Multi-project local Anatomia API. Port ownership and topology source.
+services:
+  - code: anatomia
+    name: Anatomia
+    tier: personal
+    project_code: anatomia
+    component: backend
+    repo: LUDIARS/Anatomia
+    runtime: node
+    cwd: ${ARS_ROOT}/Anatomia
+    # --home is explicit: the registry (projects.json) + cache live in the Ars
+    # root, not in this repo. Without it resolveHome() would fall back to
+    # <os.homedir()>/.anatomia and the panel would start with an empty registry.
+    command: node bin/anatomia.mjs web --port 4200 --home ${ARS_ROOT}/.anatomia
+    port: 4200
+    autostart: false
+    restart_policy: "no"
+    provides:
+      ANATOMIA_URL: http://127.0.0.1:${port}
+    health:
+      type: tcp
+      interval_sec: 30
+      grace_period_sec: 15
