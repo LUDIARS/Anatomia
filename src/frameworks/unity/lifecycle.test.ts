@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AnchorId, FileNode, FunctionNode, ParamInfo } from "../../types.js";
-import { resolveUnityLifecycleFunctions } from "./lifecycle.js";
+import { resolveUnityLifecycleFunctions, unityLifecyclePhase } from "./lifecycle.js";
 
 function fn(
   id: string,
@@ -34,7 +34,27 @@ const files: FileNode[] = [{
   ],
 }];
 
+/** Names that a plain `EVENTS[name]` lookup would resolve through Object.prototype. */
+const inheritedNames = ["constructor", "toString", "hasOwnProperty", "__proto__"];
+
 describe("Unity lifecycle map", () => {
+  it("ignores inherited object properties while retaining documented callbacks", () => {
+    const update = fn("valid-update", "Update", "Player");
+    const matches = resolveUnityLifecycleFunctions({
+      projectProfile: { kind: "unity", defaultGraphView: "class" },
+      files,
+      functions: [...inheritedNames.map((name) => fn(name, name, "Player")), update],
+    });
+    expect([...matches.keys()]).toEqual([update.id]);
+  });
+
+  it("reports no phase for inherited object property names", () => {
+    for (const name of inheritedNames) {
+      expect(unityLifecyclePhase(name)).toBeUndefined();
+    }
+    expect(unityLifecyclePhase("Update")).toBe("update");
+  });
+
   it("resolves documented callbacks through a MonoBehaviour inheritance chain", () => {
     const update = fn("update", "Update", "Player");
     const helper = fn("helper", "Helper", "Player");

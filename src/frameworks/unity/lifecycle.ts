@@ -93,6 +93,15 @@ const EVENTS: Readonly<Record<string, UnityEventRule>> = Object.freeze({
   OnDisable: noParameters("teardown"),
 });
 
+/**
+ * Look up a documented event rule by name.
+ * Plain member access would also resolve inherited Object properties such as
+ * `constructor` or `toString`, which are truthy but carry no rule.
+ */
+function eventRule(name: string): UnityEventRule | undefined {
+  return Object.hasOwn(EVENTS, name) ? EVENTS[name] : undefined;
+}
+
 export interface UnityLifecycleInput {
   projectProfile?: ProjectProfile;
   files: FileNode[];
@@ -176,7 +185,7 @@ export function resolveUnityLifecycleFunctions(
 
   for (const fn of input.functions) {
     if (!fn.id || !fn.enclosingType) continue;
-    const rule = EVENTS[fn.name];
+    const rule = eventRule(fn.name);
     if (!rule || !isSupportedEventSignature(fn, rule)) continue;
     const declaration = resolveOwnerDeclaration(fn);
     if (!declaration || !derivesFromMonoBehaviour(declaration)) continue;
@@ -191,5 +200,5 @@ export function resolveUnityLifecycleFunctions(
 }
 
 export function unityLifecyclePhase(name: string): UnityLifecyclePhase | undefined {
-  return EVENTS[name]?.phase;
+  return eventRule(name)?.phase;
 }
