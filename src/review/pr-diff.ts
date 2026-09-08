@@ -23,6 +23,7 @@ import {
   type ReviewLocation,
   type ReviewViolation,
 } from "./build.js";
+import { buildComplexitySnapshot, type FunctionComplexitySnapshot } from "./complexity-snapshot.js";
 import { buildDomainReview, type BoundaryDriftFinding, type DomainOverlap } from "./domain-review.js";
 import { buildDualLayerReview, type DualLayerGateMode, type DualLayerReview } from "./dual-layer-gate.js";
 
@@ -55,6 +56,11 @@ export interface PrDiffReview {
   };
   quality: {
     complexity: PrComplexitySummary;
+    /**
+     * Per-function detail behind `complexity`. Optional so a consumer pinned to
+     * an older report shape stays valid; buildPrDiffReview always emits it.
+     */
+    functionComplexity?: FunctionComplexitySnapshot;
     changedFunctions: NodeMetrics[];
     changedOrphans: ReviewLocation[];
   };
@@ -173,6 +179,7 @@ export async function buildPrDiffReview(
     },
     quality: {
       complexity: summarizeComplexity(metrics),
+      functionComplexity: buildComplexitySnapshot(ctx.repoPath, ctx.functions, metrics),
       changedFunctions: metrics.filter((metric) => changedAnchors.has(metric.anchor)),
       changedOrphans: review.orphans.filter((orphan) =>
         changedAnchors.has(orphan.anchor) && isProductionLocation(orphan)),

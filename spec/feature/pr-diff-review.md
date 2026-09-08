@@ -21,6 +21,7 @@ buildVerdict     (core.ts)         … その unified diff に 5 ゲート検証
 buildReview / buildDomainReview    … 違反 / 循環 / 構造重複 / overlap / drift / isolation
 computeMetrics   (supply/metrics.ts) … 関数ごとの cyclomatic / fanIn / fanOut / coupling
 summarizeComplexity                … 0..100 の複雑度スコア
+buildComplexitySnapshot            … 関数ごとの複雑度スナップショット（全関数）
 → 変更 AnchorId 集合で全部を絞り込んで PrDiffReview を返す
 ```
 
@@ -40,7 +41,7 @@ summarizeComplexity                … 0..100 の複雑度スコア
 |---|---|
 | `diff` | 関数粒度のブランチ差分（→ [branch-diff.md](./branch-diff.md)） |
 | `domain` | 変更 Anchor のターゲットドメイン所属 / 未所属 Anchor |
-| `quality` | 複雑度サマリ + 変更関数のメトリクス + 変更 orphan 関数 |
+| `quality` | 複雑度サマリ + 関数ごとの複雑度スナップショット + 変更関数のメトリクス + 変更 orphan 関数 |
 | `architecture` | 5 ゲート検証結果、違反 / 循環 / 構造重複 / ドメイン間結合 / overlap / drift / isolation |
 | `spec` | 変更ファイルのうち spec リンクが無いもの |
 
@@ -52,6 +53,11 @@ summarizeComplexity                … 0..100 の複雑度スコア
 
 しきい値は Anatomia の関心事ではない：呼び出し側が「PR worktree のスコア」と
 「別途解析した merge-base worktree のスコア」を比較して判断する（= ワークフロー方針）。
+
+集約スコアは平均なので、無関係な関数の増減でも動く。「どの関数が悪化したか」を見るには
+`quality.functionComplexity`（`buildComplexitySnapshot`, `src/review/complexity-snapshot.ts`）
+を使う。全関数について body / 行番号に依存しない識別子で 1 行ずつ出すので、base と head の
+2 つの worktree を関数単位で突き合わせられる（→ [function-complexity-comparison.md](./function-complexity-comparison.md)）。
 
 ## 制約
 
@@ -71,4 +77,5 @@ summarizeComplexity                … 0..100 の複雑度スコア
 
 - インターフェース: [interface/cli.md](../interface/cli.md)
 - 差分の土台: [feature/branch-diff.md](./branch-diff.md)
+- 関数ごとの複雑度比較: [feature/function-complexity-comparison.md](./function-complexity-comparison.md)
 - ゲート: [feature/verify-gates.md](./verify-gates.md)
