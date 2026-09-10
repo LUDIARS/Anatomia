@@ -2,6 +2,9 @@
 services:
   - code: anatomia
     name: Anatomia
+    viewer:
+      enabled: true
+      entry_path: /
     tier: personal
     project_code: anatomia
     component: backend
@@ -13,6 +16,7 @@ services:
     # <os.homedir()>/.anatomia and the panel would start with an empty registry.
     command: node bin/anatomia.mjs web --port 4200 --home ${ARS_ROOT}/.anatomia
     port: 4200
+    frontend_url: http://127.0.0.1:4200
     autostart: false
     restart_policy: "no"
     provides:
