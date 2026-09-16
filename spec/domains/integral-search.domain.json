@@ -11,5 +11,10 @@
       "pathPattern": "(^|/)src/integral/__tests__/[^/]+$"
     }
   ],
-  "cardTemplate": "Summarise the \"integral-search\" domain: 関数・機能・scene の 3 層スコープを横断する統合検索。Agent 入力フォーマットに沿ってスコープを判定し seed を解決する。"
+  "cardTemplate": "Summarise the \"integral-search\" domain: 関数・機能・scene の 3 層スコープを横断する統合検索。Agent 入力フォーマットに沿ってスコープを判定し seed を解決する。",
+  "specRefs": [
+    "spec/ux/product.md",
+    "spec/feature/integral-search.md",
+    "spec/feature/symbol-navigation.md"
+  ]
 }

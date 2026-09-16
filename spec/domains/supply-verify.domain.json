@@ -39,7 +39,19 @@
     },
     {
       "pathPattern": "(^|/)src/map/__tests__/fixtures/(?:.*/)?[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)scripts/(measure|self-analyze).mjs$"
     }
   ],
-  "cardTemplate": "Summarise the \"supply-verify\" domain: 重心となる supply→verify ループ。生成前に着地点・適用ルール・手本・影響半径・重複回避を供給し、生成後に 5 ゲートで検証してレビューを出す。"
+  "cardTemplate": "Summarise the \"supply-verify\" domain: 重心となる supply→verify ループ。生成前に着地点・適用ルール・手本・影響半径・重複回避を供給し、生成後に 5 ゲートで検証してレビューを出す。",
+  "specRefs": [
+    "spec/ux/product.md",
+    "spec/feature/context-supply.md",
+    "spec/feature/verify-gates.md",
+    "spec/feature/code-review.md",
+    "spec/feature/pr-diff-review.md",
+    "spec/feature/analysis-procedure.md",
+    "spec/feature/focused-testing.md"
+  ]
 }

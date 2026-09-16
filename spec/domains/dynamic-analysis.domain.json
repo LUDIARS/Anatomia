@@ -20,5 +20,11 @@
       "pathPattern": "(^|/)src/dynamic/viz/[^/]+$"
     }
   ],
-  "cardTemplate": "Summarise the \"dynamic-analysis\" domain: 実行トレースを録画・stitch し、局面（phase）を学習して scene 層を実トレースで点灯させる動的解析（G7/G10）。"
+  "cardTemplate": "Summarise the \"dynamic-analysis\" domain: 実行トレースを録画・stitch し、局面（phase）を学習して scene 層を実トレースで点灯させる動的解析（G7/G10）。",
+  "specRefs": [
+    "spec/ux/product.md",
+    "spec/feature/dynamic-trace-and-phase.md",
+    "spec/feature/trace-recording.md",
+    "spec/feature/dynamic-edge-recovery.md"
+  ]
 }

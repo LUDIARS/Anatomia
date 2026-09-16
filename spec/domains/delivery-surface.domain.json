@@ -36,7 +36,19 @@
     },
     {
       "pathPattern": "(^|/)src/branch/__tests__/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)bin/[^/]+.mjs$"
     }
   ],
-  "cardTemplate": "Summarise the \"delivery-surface\" domain: 解析機能を外部に届ける入口。CLI/MCP ハンドラ・web 管理パネル・グラフ HTML エクスポート・ブランチ差分・複数プロジェクト管理。"
+  "cardTemplate": "Summarise the \"delivery-surface\" domain: 解析機能を外部に届ける入口。CLI/MCP ハンドラ・web 管理パネル・グラフ HTML エクスポート・ブランチ差分・複数プロジェクト管理。",
+  "specRefs": [
+    "spec/ux/product.md",
+    "spec/interface/cli.md",
+    "spec/interface/mcp.md",
+    "spec/interface/web.md",
+    "spec/feature/branch-diff.md",
+    "spec/feature/graph-export-and-panel.md",
+    "spec/feature/web-cache-views.md"
+  ]
 }

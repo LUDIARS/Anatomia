@@ -23,5 +23,11 @@
       "pathPattern": "(^|/)src/cost/[^/]+$"
     }
   ],
-  "cardTemplate": "Summarise the \"deterministic-cache\" domain: 決定的キャッシュ基盤。content-addressed な LLM 蒸留カードを Redis/File/memory に置き、LLM/embedder プロバイダとコスト計測を束ねる。"
+  "cardTemplate": "Summarise the \"deterministic-cache\" domain: 決定的キャッシュ基盤。content-addressed な LLM 蒸留カードを Redis/File/memory に置き、LLM/embedder プロバイダとコスト計測を束ねる。",
+  "specRefs": [
+    "spec/ux/product.md",
+    "spec/data/llm-cache.md",
+    "spec/data/cost-feed.md",
+    "spec/setup/environment.md"
+  ]
 }

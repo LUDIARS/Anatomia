@@ -17,5 +17,9 @@
       "pathPattern": "(^|/)src/__tests__/fixtures/mini/[^/]+$"
     }
   ],
-  "cardTemplate": "Summarise the \"platform-foundation\" domain: Foundational filesystem access used across analyzers: directory walking and extension-based file collection (collectFilesByExt) plus its unit tests."
+  "cardTemplate": "Summarise the \"platform-foundation\" domain: Foundational filesystem access used across analyzers: directory walking and extension-based file collection (collectFilesByExt) plus its unit tests.",
+  "specRefs": [
+    "spec/ux/product.md",
+    "spec/setup/environment.md"
+  ]
 }
