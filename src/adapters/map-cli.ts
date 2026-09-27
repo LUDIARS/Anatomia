@@ -27,9 +27,10 @@ import {
   type MapProjectSource,
 } from "../map/index.js";
 import type { CliArgs } from "./cli.js";
+import { findPreparedFunction, listPreparedDomains, listPreparedFunctions } from "../web-cache/domain-locator-store.js";
 
 /** `map` actions. */
-export type MapAction = "search" | "show";
+export type MapAction = "search" | "show" | "domains" | "functions" | "function";
 
 /**
  * Every registered project as a bundle source.
@@ -59,6 +60,17 @@ export async function resolveMapSources(args: CliArgs): Promise<MapProjectSource
 
 /** Run `map` and render it (text by default, `--json`). */
 export async function runMap(args: CliArgs): Promise<{ exitCode: number; output: string }> {
+  if (args.mapAction === "domains" || args.mapAction === "functions" || args.mapAction === "function") {
+    const sources = await resolveMapSources(args);
+    const source = sources[0];
+    if (sources.length !== 1 || !source?.cacheDir) return { exitCode: 1, output: "map navigation requires one registered --project <id>" };
+    try {
+      const result = args.mapAction === "domains" ? await listPreparedDomains(source.cacheDir)
+        : args.mapAction === "functions" ? await listPreparedFunctions(source.cacheDir, args.query ?? "", args.limit, args.offset, args.layer, args.name)
+        : await findPreparedFunction(source.cacheDir, args.query ?? "");
+      return { exitCode: 0, output: JSON.stringify(result, null, args.json ? 2 : 0) };
+    } catch (error) { return { exitCode: 1, output: error instanceof Error ? error.message : String(error) }; }
+  }
   if (args.mapAction === "show") return runMapShow(args);
   return runMapSearch(args);
 }

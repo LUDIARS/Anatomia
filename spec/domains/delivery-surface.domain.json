@@ -49,6 +49,7 @@
     "spec/interface/web.md",
     "spec/feature/branch-diff.md",
     "spec/feature/graph-export-and-panel.md",
-    "spec/feature/web-cache-views.md"
+    "spec/feature/web-cache-views.md",
+    "spec/feature/first-query-domain-navigation.md"
   ]
 }

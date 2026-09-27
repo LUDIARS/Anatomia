@@ -181,6 +181,9 @@ export interface CliArgs {
   mode?: SymbolLookupOptions["mode"];
   /** For find/callers/callees. */
   limit?: number;
+  offset?: number;
+  layer?: "business" | "program";
+  name?: string;
   /** --json flag: output raw JSON without human summary. */
   json?: boolean;
   /** --project <id>: target a registered project. */
@@ -531,7 +534,10 @@ function parsePlanArgs(args: string[]): CliArgs {
 }
 
 /**
- * `anatomia map search "<指示文>"` / `anatomia map show <project>`.
+ * `anatomia map search "<指示文>"` / `anatomia map show <project>` /
+ * `anatomia map domains --project <id>` / `map functions <domain-id> --project <id>`.
+ * Prepared navigation serves focused feature investigation; refactoring and
+ * whole-repository research use the broader map search and analysis commands.
  *
  * The query is POSITIONAL: it is a sentence a person types, and forcing it
  * behind a flag would be one more thing to remember at the moment the map is
@@ -539,8 +545,8 @@ function parsePlanArgs(args: string[]): CliArgs {
  */
 function parseMapArgs(args: string[]): CliArgs {
   const action = args.shift();
-  if (action !== "search" && action !== "show") {
-    throw new Error(`Unknown map action "${action ?? ""}". Expected: search | show`);
+  if (action !== "search" && action !== "show" && action !== "domains" && action !== "functions" && action !== "function") {
+    throw new Error(`Unknown map action "${action ?? ""}". Expected: search | show | domains | functions | function`);
   }
   let repoPath = process.cwd();
   let repoExplicit = false;
@@ -548,6 +554,9 @@ function parseMapArgs(args: string[]): CliArgs {
   let json = false;
   let force = false;
   let limit: number | undefined;
+  let offset: number | undefined;
+  let layer: "business" | "program" | undefined;
+  let name: string | undefined;
   const projects: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const flag = args[i];
@@ -570,6 +579,17 @@ function parseMapArgs(args: string[]): CliArgs {
         throw new Error("map --limit requires a positive integer");
       }
       limit = value;
+    } else if (flag === "--offset") {
+      const value = Number(args[++i]);
+      if (!Number.isSafeInteger(value) || value < 0) throw new Error("map --offset requires a nonnegative integer");
+      offset = value;
+    } else if (flag === "--layer") {
+      const value = args[++i];
+      if (value !== "business" && value !== "program") throw new Error("map --layer requires business or program");
+      layer = value;
+    } else if (flag === "--name") {
+      name = args[++i];
+      if (!name) throw new Error("map --name requires a value");
     } else if (!flag?.startsWith("-") && query === undefined) {
       query = flag;
     } else {
@@ -582,6 +602,9 @@ function parseMapArgs(args: string[]): CliArgs {
   if (action === "show" && query === undefined && projects.length === 0 && !repoExplicit) {
     throw new Error("map show requires a project id: anatomia map show <project>");
   }
+  if ((action === "functions" || action === "function") && !query) {
+    throw new Error(`map ${action} requires a domain id or function anchor`);
+  }
   return {
     subcommand: "map",
     mapAction: action,
@@ -591,6 +614,9 @@ function parseMapArgs(args: string[]): CliArgs {
     force,
     ...(query !== undefined ? { query } : {}),
     ...(limit !== undefined ? { limit } : {}),
+    ...(offset !== undefined ? { offset } : {}),
+    ...(layer !== undefined ? { layer } : {}),
+    ...(name !== undefined ? { name } : {}),
     ...(projects.length > 0 ? { projects, project: projects[0] } : {}),
   };
 }

@@ -117,6 +117,19 @@ describe("parseArgs", () => {
       .toThrow(/requires a path/);
   });
 
+  it("parses prepared domain navigation and rejects invalid pagination", () => {
+    expect(parseArgs(["map", "domains", "--project", "pictor"]))
+      .toMatchObject({ mapAction: "domains", project: "pictor" });
+    expect(parseArgs(["map", "functions", "business:orders", "--project", "pictor", "--layer", "business", "--name", "place", "--offset", "20", "--limit", "10"]))
+      .toMatchObject({ mapAction: "functions", query: "business:orders", layer: "business", name: "place", offset: 20, limit: 10 });
+    expect(parseArgs(["map", "function", "anchor-1", "--project", "pictor"]))
+      .toMatchObject({ mapAction: "function", query: "anchor-1" });
+    expect(() => parseArgs(["map", "functions", "business:orders", "--offset", "-1"]))
+      .toThrow(/nonnegative/);
+    expect(() => parseArgs(["map", "functions", "business:orders", "--layer", "unknown"]))
+      .toThrow(/business or program/);
+  });
+
   it("parses verify --file / -f (changed path for by:path rules)", () => {
     expect(parseArgs(["verify", "-d", "-", "--file", "src/scene/x.cpp"]).file).toBe("src/scene/x.cpp");
     expect(parseArgs(["verify", "-d", "-", "-f", "src/gpu/y.cpp"]).file).toBe("src/gpu/y.cpp");

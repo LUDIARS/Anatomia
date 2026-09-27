@@ -37,6 +37,10 @@ import { KnowledgeApplicationService, knowledgePortFromManager } from "../../../
 import { detectScreens } from "../../../screens/index.js";
 import { prepareDomainCorrespondenceWebCache } from "../../../web-cache/domain-correspondence.js";
 import { computeEntryPointConfigRevision } from "../../../entrypoints/config.js";
+import { vgWrite } from "../../../obs/vestigium.js";
+import { buildDomainLocator } from "../../../web-cache/domain-locator.js";
+import { readLocatorComments } from "../../../web-cache/domain-locator-comments.js";
+import { DomainLocatorError, findPreparedFunction, listPreparedDomains, listPreparedFunctions, writeDomainLocator } from "../../../web-cache/domain-locator-store.js";
 
 /** Dependencies for the web-cache routes. */
 export interface WebCacheRouteDeps {
@@ -95,6 +99,12 @@ export function mountWebCacheRoutes(app: Hono, deps: WebCacheRouteDeps): void {
       preparedAt,
       graphSlices,
     );
+    const sourceComments = await readLocatorComments(ctx);
+    if (sourceComments.unavailable.length > 0) vgWrite("warn", "domain locator source comments unavailable", {
+      projectId, count: sourceComments.unavailable.length, paths: sourceComments.unavailable.slice(0, 10),
+    });
+    await writeDomainLocator(manager!.cache.dirFor(project.id), project.id, fingerprint, preparedAt,
+      buildDomainLocator(ctx, bundle["business-domain-view"], bundle["program-domain-view"], sourceComments.comments));
     return { views: manifest.views.length, counts: manifest.counts };
   });
 
@@ -120,6 +130,35 @@ export function mountWebCacheRoutes(app: Hono, deps: WebCacheRouteDeps): void {
   app.get("/api/prepare-jobs", (c) => {
     if (!manager) return c.json({ error: "web cache requires manager mode" }, 501);
     return c.json({ jobs: queue.jobs(), active: queue.active });
+  });
+
+  const mapError = (error: unknown) => error instanceof DomainLocatorError
+    ? { status: error.code === "domain-not-found" ? 404 as const : 409 as const, body: { error: error.code, message: error.message } }
+    : { status: 500 as const, body: { error: String(error) } };
+  app.get("/api/projects/:id/map/domains", async (c) => {
+    if (!manager) return c.json({ error: "manager-required" }, 501);
+    if (!manager.get(c.req.param("id"))) return c.json({ error: "project-not-found" }, 404);
+    try { return c.json(await listPreparedDomains(manager.cache.dirFor(manager.resolveId(c.req.param("id"))))); }
+    catch (error) { const mapped = mapError(error); return c.json(mapped.body, mapped.status); }
+  });
+  app.get("/api/projects/:id/map/functions/:domainId", async (c) => {
+    if (!manager) return c.json({ error: "manager-required" }, 501);
+    if (!manager.get(c.req.param("id"))) return c.json({ error: "project-not-found" }, 404);
+    const layer = c.req.query("layer");
+    if (layer && layer !== "business" && layer !== "program") return c.json({ error: "invalid-layer" }, 400);
+    const limit = Number(c.req.query("limit") ?? 50);
+    const offset = Number(c.req.query("offset") ?? 0);
+    if (!Number.isSafeInteger(limit) || limit < 1 || !Number.isSafeInteger(offset) || offset < 0) return c.json({ error: "invalid-page" }, 400);
+    try { return c.json(await listPreparedFunctions(manager.cache.dirFor(manager.resolveId(c.req.param("id"))),
+      c.req.param("domainId"), limit, offset, layer as "business" | "program" | undefined,
+      c.req.query("name"))); }
+    catch (error) { const mapped = mapError(error); return c.json(mapped.body, mapped.status); }
+  });
+  app.get("/api/projects/:id/map/function/:anchor", async (c) => {
+    if (!manager) return c.json({ error: "manager-required" }, 501);
+    if (!manager.get(c.req.param("id"))) return c.json({ error: "project-not-found" }, 404);
+    try { return c.json(await findPreparedFunction(manager.cache.dirFor(manager.resolveId(c.req.param("id"))), c.req.param("anchor"))); }
+    catch (error) { const mapped = mapError(error); return c.json(mapped.body, mapped.status); }
   });
 
   // GET web/manifest — prepared? + stale (source changed since prepare)?

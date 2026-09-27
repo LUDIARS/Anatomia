@@ -6,12 +6,13 @@
  * ProjectManager.
  */
 
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { mkdtemp, writeFile, rm, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createHandlers } from "../mcp.js";
 import { ProjectManager, ProjectRegistry } from "../../project/index.js";
+import { writeDomainLocator } from "../../web-cache/domain-locator-store.js";
 
 let home: string;
 let rootA: string;
@@ -82,5 +83,25 @@ describe("existing tools take a project arg", () => {
     const nodes = await ctx.graph.allNodes();
     const res = await h["anatomia.impact"]({ anchor: nodes[0].id, project: "proja" });
     expect(Array.isArray(res.anchors)).toBe(true);
+  });
+});
+
+describe("prepared map tools", () => {
+  it("reads a cold manager's prepared data without analysis or fingerprinting", async () => {
+    await writeDomainLocator(mgr.cache.dirFor("proja"), "proja", "prepared-fingerprint", "prepared-time", {
+      domains: [{ id: "business:orders", layer: "business", name: "Orders", functionCount: 1,
+        functions: [{ anchor: "anchor-1", name: "place", path: "src/a.cpp", line: 0, comment: null, specRefs: [] }] }],
+    });
+    const cold = new ProjectManager(mgr.registry, { homeDir: home, analyzeOptions: { quiet: true } });
+    const analyze = vi.spyOn(cold, "getContext").mockRejectedValue(new Error("analysis must not run"));
+    const fingerprint = vi.spyOn(cold, "fingerprint").mockRejectedValue(new Error("fingerprint must not run"));
+    try {
+      const h = createHandlers(cold);
+      expect((await h["anatomia.map.domains"]({ project: "proja" }) as { domains: unknown[] }).domains).toHaveLength(1);
+      expect((await h["anatomia.map.functions"]({ project: "proja", domainId: "business:orders" }) as { total: number }).total).toBe(1);
+      expect((await h["anatomia.map.function"]({ project: "proja", anchor: "anchor-1" }) as { domains: unknown[] }).domains).toHaveLength(1);
+      expect(analyze).not.toHaveBeenCalled();
+      expect(fingerprint).not.toHaveBeenCalled();
+    } finally { analyze.mockRestore(); fingerprint.mockRestore(); }
   });
 });

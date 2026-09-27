@@ -60,6 +60,7 @@ import type { Providers } from "../providers/index.js";
 import type { SceneInspection } from "../knowledge/scene/index.js";
 import { KnowledgeApplicationService, knowledgePortFromManager } from "../knowledge/application/index.js";
 import type { LegacyMigrationPlan } from "../knowledge/migration/index.js";
+import { findPreparedFunction, listPreparedDomains, listPreparedFunctions } from "../web-cache/domain-locator-store.js";
 
 // ---------------------------------------------------------------------------
 // Context resolution: either a fixed ctx (legacy) or a ProjectManager.
@@ -90,6 +91,9 @@ export function contextSourceFrom(src: AnalysisContext | ProjectManager): Contex
 // ---------------------------------------------------------------------------
 
 export interface ToolHandlers {
+  "anatomia.map.domains"(args: { project?: string }): Promise<unknown>;
+  "anatomia.map.functions"(args: { domainId: string; project?: string; limit?: number; offset?: number; layer?: "business" | "program"; name?: string }): Promise<unknown>;
+  "anatomia.map.function"(args: { anchor: string; project?: string }): Promise<unknown>;
   "anatomia.context"(args: { task: string; project?: string }): Promise<ContextBundle>;
   "anatomia.verify"(args: { diff: string; project?: string }): Promise<Verdict>;
   "anatomia.where"(args: { task: string; project?: string }): Promise<{ landings: Landing[] }>;
@@ -169,6 +173,18 @@ export function createHandlers(
   const verifyOpts = providers ? { providers, cardCache } : undefined;
 
   return {
+    async "anatomia.map.domains"({ project }) {
+      if (!source.manager) throw new Error("prepared domain map requires project manager");
+      return listPreparedDomains(source.manager.cache.dirFor(source.manager.resolveId(project)));
+    },
+    async "anatomia.map.functions"({ domainId, project, limit, offset, layer, name }) {
+      if (!source.manager) throw new Error("prepared domain map requires project manager");
+      return listPreparedFunctions(source.manager.cache.dirFor(source.manager.resolveId(project)), domainId, limit, offset, layer, name);
+    },
+    async "anatomia.map.function"({ anchor, project }) {
+      if (!source.manager) throw new Error("prepared domain map requires project manager");
+      return findPreparedFunction(source.manager.cache.dirFor(source.manager.resolveId(project)), anchor);
+    },
     async "anatomia.context"({ task, project }) {
       const ctx = await source.resolve(project);
       return buildContextBundle(ctx, { task });
@@ -309,6 +325,15 @@ export class AnatomiaServer {
 
   private _registerTools(): void {
     const h = this.handlers;
+
+    this.server.tool("anatomia.map.domains", "Read the prepared business and program domain catalog for a focused feature investigation. Global investigation and refactoring should use broader tools.",
+      { project: z.string().optional() }, async ({ project }) => ({ content: [{ type: "text" as const, text: JSON.stringify(await h["anatomia.map.domains"]({ project })) }] }));
+    this.server.tool("anatomia.map.functions", "Read one prepared domain function shard for a focused feature investigation without analysis. Use global tools for refactoring or broad research.",
+      { domainId: z.string(), project: z.string().optional(), limit: z.number().int().positive().optional(), offset: z.number().int().nonnegative().optional(), layer: z.enum(["business", "program"]).optional(), name: z.string().optional() },
+      async ({ domainId, project, limit, offset, layer, name }) => ({ content: [{ type: "text" as const, text: JSON.stringify(await h["anatomia.map.functions"]({ domainId, project, limit, offset, layer, name })) }] }));
+    this.server.tool("anatomia.map.function", "Find prepared domains of a function anchor.",
+      { anchor: z.string(), project: z.string().optional() },
+      async ({ anchor, project }) => ({ content: [{ type: "text" as const, text: JSON.stringify(await h["anatomia.map.function"]({ anchor, project })) }] }));
 
     this.server.tool(
       "anatomia.context",

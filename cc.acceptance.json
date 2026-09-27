@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "implementations": [
+    { "source": "src/web-cache/domain-locator.ts", "tests": ["src/web-cache/domain-locator.test.ts"] },
+    { "source": "src/web-cache/domain-locator-store.ts", "tests": ["src/web-cache/domain-locator.test.ts"] },
+    { "source": "src/web-cache/domain-locator-comments.ts", "tests": ["src/web-cache/domain-locator-comments.test.ts"] },
+    { "source": "src/adapters/web/routes/web-cache.ts", "tests": ["src/adapters/__tests__/web-cache-routes.test.ts", "src/web-cache/domain-locator.test.ts"] },
+    { "source": "src/adapters/cli.ts", "tests": ["src/adapters/__tests__/cli.test.ts"] },
+    { "source": "src/adapters/map-cli.ts", "tests": ["src/adapters/__tests__/cli.test.ts", "src/web-cache/domain-locator.test.ts"] },
+    { "source": "src/adapters/mcp.ts", "tests": ["src/adapters/__tests__/mcp-project.test.ts", "src/web-cache/domain-locator.test.ts"] }
+  ]
+}
