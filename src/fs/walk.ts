@@ -13,6 +13,15 @@
  * Symlinks are not followed (a symlinked dir reports isDirectory() === false),
  * which also avoids cycles via junctions (e.g. a node_modules junction).
  *
+ * Nested working trees are not part of the project either: a subdirectory that
+ * is its own clone (`.git` directory) or a `git worktree` checkout (`.git`
+ * file pointing into `.../worktrees/...`) is a full second copy of some
+ * repository. Teams keep task worktrees inside the main checkout, and git does
+ * not ignore them, so walking them multiplies the analysed source by the
+ * number of worktrees until the heap runs out (Revisor, 2026-10-01: seven
+ * Concordia worktrees). Submodules (`.git` file pointing into
+ * `.../modules/...`) are still walked — they are part of the checkout.
+ *
  * SRP: traversal plus the one exclusion policy every analysis walk shares —
  * the built-in prune list above and whatever git ignores (./git-ignore.ts).
  * Extension sets stay with the callers (core.ts analyze, project/fingerprint.ts,
@@ -93,6 +102,7 @@ export async function collectFilesByExt(
     } catch {
       continue; // unreadable dir — skip, do not crash the whole walk
     }
+    if (current !== dir && (await isNestedWorkingTree(current, entries))) continue;
     for (const entry of entries) {
       const full = join(current, entry.name);
       if (entry.isDirectory()) {
@@ -106,6 +116,28 @@ export async function collectFilesByExt(
     }
   }
   return result;
+}
+
+/**
+ * True when `path` (a subdirectory of the walk root, with its listing
+ * `entries`) is a separate clone or a `git worktree` checkout. A `.git` file
+ * that cannot be read is treated as a submodule (kept) — skipping real source
+ * because of an unreadable marker would silently shrink the analysis.
+ */
+export async function isNestedWorkingTree(path: string, entries: readonly import("node:fs").Dirent[]): Promise<boolean> {
+  const marker = entries.find((entry) => entry.name === ".git");
+  if (!marker) return false;
+  if (marker.isDirectory()) return true;
+  if (!marker.isFile()) return false;
+  let text: string;
+  try {
+    text = await readFile(join(path, ".git"), "utf8");
+  } catch {
+    return false;
+  }
+  const match = /^gitdir:\s*(.+)$/m.exec(text);
+  if (!match) return false;
+  return /[\\/]worktrees[\\/]/.test(match[1]!.trim());
 }
 
 /**

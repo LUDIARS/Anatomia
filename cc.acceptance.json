@@ -7,6 +7,7 @@
     { "source": "src/adapters/web/routes/web-cache.ts", "tests": ["src/adapters/__tests__/web-cache-routes.test.ts", "src/web-cache/domain-locator.test.ts"] },
     { "source": "src/adapters/cli.ts", "tests": ["src/adapters/__tests__/cli.test.ts"] },
     { "source": "src/adapters/map-cli.ts", "tests": ["src/adapters/__tests__/cli.test.ts", "src/web-cache/domain-locator.test.ts"] },
-    { "source": "src/adapters/mcp.ts", "tests": ["src/adapters/__tests__/mcp-project.test.ts", "src/web-cache/domain-locator.test.ts"] }
+    { "source": "src/adapters/mcp.ts", "tests": ["src/adapters/__tests__/mcp-project.test.ts", "src/web-cache/domain-locator.test.ts"] },
+    { "source": "src/fs/walk.ts", "tests": ["src/fs/__tests__/walk.test.ts"] }
   ]
 }
