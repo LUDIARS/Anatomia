@@ -13,6 +13,7 @@
 import { analyze, isPartialScope } from "../core.js";
 import type { AnalysisContext, AnalysisScope, AnalyzeOptions } from "../core.js";
 import { ProjectRegistry } from "./registry.js";
+import { PendingWork } from "./pending-work.js";
 import { AnalysisCache, computeFingerprint, summarize } from "./cache.js";
 import type { SummaryCounts } from "./cache.js";
 import { FileAnalysisDiskCache } from "./file-cache.js";
@@ -50,6 +51,8 @@ export interface ProjectManagerOptions {
 export class ProjectManager {
   readonly registry: ProjectRegistry;
   readonly cache: AnalysisCache;
+  private readonly pendingAnalysis = new PendingWork<AnalysisContext>();
+  private readonly pendingArtifacts = new PendingWork<unknown>();
   /**
    * Process-shared domain-detection cache (memory), instrumented so its hit/miss
    * lands in the cache transcript (ns "detection"). Reused across this manager's
@@ -337,6 +340,18 @@ export class ProjectManager {
     fingerprint: string,
     scope?: AnalysisScope,
   ): Promise<AnalysisContext> {
+    // Scoped calls must never publish or share a canonical full result.
+    if (isPartialScope(scope)) return this.buildAnalysis(projectId, project, fingerprint, scope);
+    return this.pendingAnalysis.run(JSON.stringify([projectId, fingerprint]), () =>
+      this.buildAnalysis(projectId, project, fingerprint));
+  }
+
+  private async buildAnalysis(
+    projectId: string,
+    project: Project,
+    fingerprint: string,
+    scope?: AnalysisScope,
+  ): Promise<AnalysisContext> {
     const cached = this.cache.getIfFresh(projectId, fingerprint);
     if (cached) {
       vgWrite("info", "project analysis cache hit", { project: projectId });
@@ -528,9 +543,21 @@ export class ProjectManager {
     build: (ctx: AnalysisContext) => Promise<T>,
   ): Promise<T> {
     const projectId = this.resolveId(id);
+    await this.ensureSpecConfig(projectId);
     const project = this.registry.get(projectId)!;
     const fingerprint = await computeFingerprint(project.rootPath, fingerprintOptionsOf(project));
+    // Artifact names define their output contract (as in the persisted cache).
+    return this.pendingArtifacts.run(JSON.stringify([projectId, name, fingerprint]), () =>
+      this.buildArtifact(projectId, project, name, fingerprint, build)) as Promise<T>;
+  }
 
+  private async buildArtifact<T>(
+    projectId: string,
+    project: Project,
+    name: string,
+    fingerprint: string,
+    build: (ctx: AnalysisContext) => Promise<T>,
+  ): Promise<T> {
     const cached = await this.cache.readArtifact<T>(projectId, name, fingerprint);
     if (cached !== null) {
       vgWrite("debug", "project artifact cache hit", { project: projectId, artifact: name });

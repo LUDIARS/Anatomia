@@ -22,6 +22,7 @@ import {
   type ReviewDup,
   type ReviewLocation,
   type ReviewViolation,
+  type ReviewReport,
 } from "./build.js";
 import { buildComplexitySnapshot, type FunctionComplexitySnapshot } from "./complexity-snapshot.js";
 import { buildDomainReview, type BoundaryDriftFinding, type DomainOverlap } from "./domain-review.js";
@@ -55,6 +56,8 @@ export interface PrDiffReview {
     dualLayer: DualLayerReview["program"];
   };
   quality: {
+    /** Whole analyzed population, separate from the changed-function fields. */
+    assessment?: ReviewReport["quality"];
     complexity: PrComplexitySummary;
     /**
      * Per-function detail behind `complexity`. Optional so a consumer pinned to
@@ -119,8 +122,8 @@ export async function buildPrDiffReview(
     (ctx.domains ?? []).map((domain) => [domain.domain, domain.implementors]),
   );
   const metrics = await computeMetrics(ctx.graph, membership);
-  const review = await buildReview(ctx, { maxList: Number.MAX_SAFE_INTEGER });
   const domainReview = await buildDomainReview(ctx, { maxList: Number.MAX_SAFE_INTEGER });
+  const review = await buildReview(ctx, { maxList: Number.MAX_SAFE_INTEGER }, { metrics, domains: domainReview });
 
   const targetDomains = (ctx.domains ?? [])
     .map((domain) => ({
@@ -178,6 +181,7 @@ export async function buildPrDiffReview(
       dualLayer: dualLayer.program,
     },
     quality: {
+      assessment: review.quality,
       complexity: summarizeComplexity(metrics),
       functionComplexity: buildComplexitySnapshot(ctx.repoPath, ctx.functions, metrics),
       changedFunctions: metrics.filter((metric) => changedAnchors.has(metric.anchor)),

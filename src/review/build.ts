@@ -24,9 +24,12 @@
  */
 
 import { relative } from "node:path";
-import type { AnalysisContext } from "../core.js";
+import type { AnalysisContext, AnalysisScope } from "../core.js";
 import type { AnchorId, ViolationSeverity } from "../types.js";
-import { computeMetrics } from "../supply/metrics.js";
+import { computeMetrics, type NodeMetrics } from "../supply/metrics.js";
+import { buildDomainReview, type DomainReviewReport } from "./domain-review.js";
+import { buildQualityScores, type QualityScores } from "./quality-scores.js";
+import { findRefactoringOpportunities, type RefactoringOpportunity } from "./refactoring-opportunities.js";
 import { evaluatePredicate } from "../domains/engine.js";
 import { resolveUnityLifecycleFunctions } from "../frameworks/unity/lifecycle.js";
 
@@ -66,6 +69,15 @@ export interface ReviewDomainCoupling {
 
 export interface ReviewReport {
   project: string;
+  /** Optional for consumers of older persisted reports; new reports always include it. */
+  quality?: {
+    version: 1;
+    scope: AnalysisScope | null;
+    population: { kind: "function/method graph nodes including tests"; functions: number; unresolvedCalls: number };
+    scores: QualityScores;
+    opportunities: { total: number; items: RefactoringOpportunity[] };
+    limitations: string[];
+  };
   /** True counts (the listed arrays below may be capped for readability). */
   summary: {
     violations: number;
@@ -98,6 +110,7 @@ const cmp = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 export async function buildReview(
   ctx: AnalysisContext,
   opts: ReviewOptions = {},
+  prepared: { metrics?: NodeMetrics[]; domains?: DomainReviewReport } = {},
 ): Promise<ReviewReport> {
   const topHotspots = opts.topHotspots ?? 20;
   const maxList = opts.maxList ?? 50;
@@ -151,7 +164,7 @@ export async function buildReview(
   // ── hotspots + orphans (AST graph) ─────────────────────────────────────────
   const membershipMap = new Map<string, AnchorId[]>();
   for (const d of ctx.domains ?? []) membershipMap.set(d.domain, d.implementors);
-  const metrics = await computeMetrics(ctx.graph, membershipMap);
+  const metrics = prepared.metrics ?? await computeMetrics(ctx.graph, membershipMap);
   const unityLifecycle = resolveUnityLifecycleFunctions(ctx);
 
   const hotspots: ReviewHotspot[] = [...metrics]
@@ -248,8 +261,25 @@ export async function buildReview(
       .sort(cmp);
   }
 
+  const domainReview = prepared.domains ?? await buildDomainReview(ctx, { maxList });
+  const functionIds = new Set(nodes.filter(n => n.kind === "function" || n.kind === "method").map(n => n.id));
+  const functionMetrics = metrics.filter(m => functionIds.has(m.anchor));
   return {
     project: ctx.repoPath,
+    quality: {
+      version: 1,
+      scope: ctx.partial ?? null,
+      population: { kind: "function/method graph nodes including tests", functions: functionMetrics.length,
+        unresolvedCalls: ctx.graph.raw.unresolved?.length ?? 0 },
+      scores: buildQualityScores(functionMetrics, domainReview),
+      opportunities: findRefactoringOpportunities(domainReview, Math.min(maxList, 50)),
+      limitations: [
+        "Call-out-degree is a graph proxy, not AST cyclomatic or cognitive complexity.",
+        "Scores are descriptive heuristics, not measured AI difficulty or a standard maintainability index.",
+        "Indirect/unresolved calls, runtime ordering and shared-state semantics may be missing; findings require review.",
+        "Opportunity counts are uncapped; source examples are bounded and ordering is by count, not measured risk.",
+      ],
+    },
     summary: {
       violations: dedupViolations.length,
       hotspots: hotspots.length,

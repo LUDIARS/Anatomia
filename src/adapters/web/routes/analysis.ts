@@ -111,12 +111,12 @@ export function mountAnalysisRoutes(app: Hono, source: WebContextSource): void {
     const maxList = Number.isFinite(max) && max > 0 ? max : undefined;
     // Each (topHotspots, maxList) variant gets its own cache key so a
     // parameterised request still answers from disk on a cold server; the
-    // default (both unset) collapses to the bare "review" key. The params are
+    // default (both unset) uses the versioned quality-review key. The params are
     // small bounded ints, so they go straight into the key (no hashing needed).
     const cacheName =
       topHotspots === undefined && maxList === undefined
-        ? "review"
-        : `review-t${topHotspots ?? "d"}-m${maxList ?? "d"}`;
+        ? "review-quality-v1"
+        : `review-quality-v1-t${topHotspots ?? "d"}-m${maxList ?? "d"}`;
     try {
       const report = await source.cachedArtifact(id, cacheName, (ctx) =>
         buildReview(ctx, { topHotspots, maxList }),

@@ -52,9 +52,6 @@ export interface NodeMetrics {
  */
 export type DomainMembership = Map<string, AnchorId[]>;
 
-/** Edge kinds that count as touching shared state. */
-const STATE_KINDS = ["reads", "writes"] as const;
-
 /** Build anchor -> set-of-domain-names from a membership map. */
 function invertMembership(membership: DomainMembership): Map<AnchorId, Set<string>> {
   const byAnchor = new Map<AnchorId, Set<string>>();
@@ -95,17 +92,12 @@ function invertMembership(membership: DomainMembership): Map<AnchorId, Set<strin
  * exponential simple-path enumeration. Results are clamped to maxDepth,
  * matching the old exploration cap.
  */
-async function computeCrossDomainDepths(
-  graph: CodeGraphQuery,
+function computeCrossDomainDepths(
+  adjacency: ReadonlyMap<AnchorId, readonly AnchorId[]>,
   anchorDomains: Map<AnchorId, Set<string>>,
   maxDepth: number,
   sortedIds: readonly AnchorId[],
-): Promise<Map<AnchorId, number>> {
-  // Collect adjacency once (async boundary), then walk synchronously.
-  const adjacency = new Map<AnchorId, AnchorId[]>();
-  for (const id of sortedIds) {
-    adjacency.set(id, (await graph.neighbors(id)).map((n) => n.id));
-  }
+): Map<AnchorId, number> {
   const empty = new Set<string>();
   const crossing = (from: AnchorId, to: AnchorId): boolean => {
     const a = anchorDomains.get(from) ?? empty;
@@ -188,26 +180,37 @@ export async function computeMetrics(
   const nodes = await graph.allNodes();
   const sorted = [...nodes].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   const sortedIds = sorted.map((n) => n.id);
-  const depths = await computeCrossDomainDepths(graph, anchorDomains, maxDepth, sortedIds);
+  // Two graph-query method calls total, including persisted graphs. Preserve
+  // parallel edges and traversal order, as in the original neighbours query.
+  const counts = new Map(sortedIds.map((id) => [id, { fanIn: 0, fanOut: 0, callsOut: 0, stateFanIn: 0 }]));
+  const adjacency = new Map(sortedIds.map((id) => [id, [] as AnchorId[]]));
+  for (const edge of await graph.edgesMatching({})) {
+    const from = counts.get(edge.from);
+    const to = counts.get(edge.to);
+    if (from) {
+      from.fanOut++;
+      if (edge.kind === "calls") from.callsOut++;
+      if (to) adjacency.get(edge.from)!.push(edge.to);
+    }
+    if (to) {
+      to.fanIn++;
+      if (edge.kind === "reads" || edge.kind === "writes") to.stateFanIn++;
+    }
+  }
+  const depths = computeCrossDomainDepths(adjacency, anchorDomains, maxDepth, sortedIds);
 
   const out: NodeMetrics[] = [];
   for (const node of sorted) {
-    const all = await graph.fanCounts(node.id);
-    const callsOut = await graph.fanCounts(node.id, "calls");
-
-    let stateFanIn = 0;
-    for (const kind of STATE_KINDS) {
-      stateFanIn += (await graph.fanCounts(node.id, kind)).fanIn;
-    }
+    const all = counts.get(node.id)!;
 
     const domainOverlap = (anchorDomains.get(node.id) ?? new Set()).size;
 
     out.push({
       anchor: node.id,
       domainOverlap,
-      sharedStateFanIn: stateFanIn,
+      sharedStateFanIn: all.stateFanIn,
       crossDomainDepth: depths.get(node.id) ?? 0,
-      cyclomatic: callsOut.fanOut + 1,
+      cyclomatic: all.callsOut + 1,
       fanIn: all.fanIn,
       fanOut: all.fanOut,
       coupling: all.fanIn + all.fanOut,

@@ -6,7 +6,7 @@
  * percentile maths.
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { InMemoryCodeGraph } from "../../graph/in-memory.js";
 import type { CodeGraph } from "../../graph/build.js";
 import type { AnchorId, CodeNode, Edge } from "../../types.js";
@@ -41,6 +41,27 @@ function makeGraph(ids: string[], edges: Edge[]): InMemoryCodeGraph {
 }
 
 describe("T26 computeMetrics", () => {
+  it("uses one bulk edge query and preserves parallel-edge degree counts", async () => {
+    const g = makeGraph(["a", "b"], [
+      { from: a("a"), to: a("b"), kind: "calls" },
+      { from: a("a"), to: a("b"), kind: "calls" },
+      { from: a("b"), to: a("a"), kind: "writes" },
+    ]);
+    const bulk = vi.spyOn(g, "edgesMatching");
+    const fan = vi.spyOn(g, "fanCounts");
+    const neighbor = vi.spyOn(g, "neighbors");
+    const result = await computeMetrics(g);
+    expect(result).toEqual([
+      { anchor: a("a"), domainOverlap: 0, sharedStateFanIn: 1, crossDomainDepth: 2,
+        cyclomatic: 3, fanIn: 1, fanOut: 2, coupling: 3 },
+      { anchor: a("b"), domainOverlap: 0, sharedStateFanIn: 0, crossDomainDepth: 1,
+        cyclomatic: 1, fanIn: 2, fanOut: 1, coupling: 3 },
+    ]);
+    expect(bulk).toHaveBeenCalledTimes(1);
+    expect(fan).not.toHaveBeenCalled();
+    expect(neighbor).not.toHaveBeenCalled();
+  });
+
   it("counts shared-state fan-in over reads+writes edges", async () => {
     // f1, f2, f3 all write/read a 'state' node.
     const edges: Edge[] = [

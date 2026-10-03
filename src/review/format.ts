@@ -16,6 +16,23 @@ export function formatReview(r: ReviewReport): string {
       `dup=${s.structuralDup} domainCoupling=${s.domainCoupling} orphans=${s.orphans} specGaps=${s.specGaps}`,
   );
 
+  if (r.quality) {
+    out.push("\n# Code scores (0..100; descriptive graph heuristics)");
+    if (r.quality.scope) out.push(`  Partial analysis only: ${JSON.stringify(r.quality.scope)}`);
+    out.push(`  population=${r.quality.population.functions} function/method nodes including tests; unresolvedCalls=${r.quality.population.unresolvedCalls}`);
+    for (const [name, score] of Object.entries(r.quality.scores)) {
+      out.push(`  ${name}=${score.value ?? "n/a"}: ${score.formula}` +
+        ` [${score.numerator}/${score.denominator}]${score.unavailableReason ? ` (${score.unavailableReason})` : ""}`);
+    }
+    for (const limitation of r.quality.limitations) out.push(`  Note: ${limitation}`);
+    out.push(`\n# Refactoring opportunities (${r.quality.opportunities.items.length}/${r.quality.opportunities.total}; advisory)`);
+    for (const item of r.quality.opportunities.items) {
+      out.push(`  ${item.kind} ${item.domain ?? "project"} (${item.count}): ${item.evidence}`);
+      out.push(`    ${item.action}`);
+      for (const location of item.locations) out.push(`    @ ${loc(location)}`);
+    }
+  }
+
   if (r.violations.length) {
     out.push("\n# Rule violations");
     for (const v of r.violations) {
