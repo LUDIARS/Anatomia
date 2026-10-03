@@ -47,6 +47,7 @@
   ],
   "cardTemplate": "Summarise the \"delivery-surface\" domain: 解析機能を外部に届ける入口。CLI/MCP ハンドラ・web 管理パネル・グラフ HTML エクスポート・ブランチ差分・複数プロジェクト管理。",
   "specRefs": [
+    "spec/feature/request-usage.md",
     "spec/feature/redis-analysis-results.md",
     "spec/feature/code-quality.md",
     "spec/feature/shared-one-shot.md",

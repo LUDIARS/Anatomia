@@ -65,6 +65,7 @@ import { Hono } from "hono";
 import { computeMetrics } from "../../supply/metrics.js";
 import { ProjectManager } from "../../project/manager.js";
 import { initVestigium, installCrashLogging, vgShutdown, vgWrite } from "../../obs/vestigium.js";
+import { mountRequestUsage } from "./request-usage.js";
 import { webContextSourceFrom } from "./context.js";
 import { resolveWebToken, mutationAuth, assertBindAllowed } from "./auth.js";
 import { mountProjectRoutes } from "./routes/projects.js";
@@ -182,6 +183,7 @@ export function createApp(
   const manager = src instanceof ProjectManager ? src : null;
   const trace: TraceSource = traceSource ?? new RecordedTraceSource([]);
   const app = new Hono();
+  mountRequestUsage(app);
 
   // ── Access tracking (warm-server idle shutdown) ──────────────────────────
   // Registered first so it wraps every route; notifies startServer of activity

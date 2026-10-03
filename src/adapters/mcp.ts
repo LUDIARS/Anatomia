@@ -25,6 +25,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+import { observeToolHandlers } from "../obs/request-usage.js";
+import { initVestigium, vgShutdown } from "../obs/vestigium.js";
 import {
   buildContextBundle,
   buildVerdict,
@@ -317,7 +319,7 @@ export class AnatomiaServer {
     providers?: Providers,
     obs?: CacheObservability,
   ) {
-    this.handlers = createHandlers(src, providers, obs);
+    this.handlers = observeToolHandlers(createHandlers(src, providers, obs));
     this.hasManager = src instanceof ProjectManager;
     this.server = new McpServer({ name: "anatomia", version: "0.1.0" });
     this._registerTools();
@@ -567,8 +569,11 @@ export async function main(repoPath = process.cwd()): Promise<void> {
     ? { transcript: obs.transcript, session: obs.session, model: providers.llmModelId }
     : undefined;
   const srv = createServer(mgr, providers, cacheObs);
+  initVestigium({ captureConsole: false });
+  srv.server.server.onclose = () => { void vgShutdown(); };
   const transport = new StdioServerTransport();
-  await srv.connect(transport);
+  try { await srv.connect(transport); }
+  catch (error) { await vgShutdown(); throw error; }
 }
 
 function projectNameFromPath(repoPath: string): string {

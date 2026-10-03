@@ -40,6 +40,7 @@
 
 import { readFile, writeFile } from "node:fs/promises";
 import { basename, resolve as resolvePath } from "node:path";
+import { observeRequest } from "../obs/request-usage.js";
 import {
   analyze,
   buildContextBundle,
@@ -1965,7 +1966,9 @@ export async function main(): Promise<void> {
   vgWrite("info", "anatomia cli start", obsCtx);
   let result: { exitCode: number; output: string };
   try {
-    result = await withVgSpan(`cli.${args.subcommand}`, obsCtx, () => runCli(args));
+    result = await observeRequest("cli", args.subcommand + (args.projectAction ? `.${args.projectAction}` : ""),
+      () => withVgSpan(`cli.${args.subcommand}`, obsCtx, () => runCli(args)),
+      process.env.ANATOMIA_CALLER, (r) => r.exitCode === 0 ? 200 : 500);
   } catch (err) {
     await vgShutdown();
     throw err;

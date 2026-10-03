@@ -1,6 +1,9 @@
 {
   "version": 1,
   "implementations": [
+    { "source": "src/obs/request-usage.ts", "tests": ["src/obs/request-usage.test.ts"] },
+    { "source": "src/obs/request-usage-report.ts", "tests": ["src/obs/request-usage.test.ts"] },
+    { "source": "src/adapters/web/request-usage.ts", "tests": ["src/adapters/web/__tests__/request-usage.test.ts"] },
     { "source": "scripts/measure-result-cache.mjs", "tests": ["src/project/__tests__/redis-artifacts.test.ts"] },
     { "source": "src/cache/redis-text-store.ts", "tests": ["src/cache/__tests__/redis-text-store.test.ts"] },
     { "source": "src/project/cache.ts", "tests": ["src/project/__tests__/redis-artifacts.test.ts", "src/project/__tests__/cache-version.test.ts"] },
@@ -16,7 +19,7 @@
     { "source": "src/adapters/web/routes/analysis.ts", "tests": ["src/adapters/web/__tests__/quality-review-route.test.ts", "src/adapters/__tests__/web-artifact-cache.test.ts"] },
     { "source": "vitest.config.ts", "tests": ["src/map/__tests__/project-roots.test.ts", "src/providers/__tests__/providers.test.ts", "src/providers/__tests__/one-shot-defaults.test.ts"] },
     { "source": "src/providers/types.ts", "tests": ["src/providers/__tests__/providers.test.ts"] },
-    { "source": "src/adapters/web/server.ts", "tests": ["src/adapters/web/__tests__/server-start.test.ts"] },
+    { "source": "src/adapters/web/server.ts", "tests": ["src/adapters/web/__tests__/server-start.test.ts", "src/adapters/web/__tests__/request-usage.test.ts"] },
     { "source": "src/knowledge/domain/relation-llm.ts", "tests": ["src/knowledge/domain/relations.test.ts"] },
     { "source": "src/supply/plan/decompose-llm.ts", "tests": ["src/supply/plan/__tests__/decompose.test.ts"] },
     { "source": "src/providers/claude-cli-llm.ts", "tests": ["src/providers/__tests__/claude-cli-llm.test.ts", "src/providers/__tests__/one-shot-defaults.test.ts"] },
@@ -25,9 +28,9 @@
     { "source": "src/web-cache/domain-locator-store.ts", "tests": ["src/web-cache/domain-locator.test.ts"] },
     { "source": "src/web-cache/domain-locator-comments.ts", "tests": ["src/web-cache/domain-locator-comments.test.ts"] },
     { "source": "src/adapters/web/routes/web-cache.ts", "tests": ["src/adapters/__tests__/web-cache-routes.test.ts", "src/web-cache/domain-locator.test.ts"] },
-    { "source": "src/adapters/cli.ts", "tests": ["src/adapters/__tests__/cli.test.ts"] },
+    { "source": "src/adapters/cli.ts", "tests": ["src/adapters/__tests__/cli.test.ts", "src/obs/request-usage.test.ts"] },
     { "source": "src/adapters/map-cli.ts", "tests": ["src/adapters/__tests__/cli.test.ts", "src/web-cache/domain-locator.test.ts"] },
-    { "source": "src/adapters/mcp.ts", "tests": ["src/adapters/__tests__/mcp-project.test.ts", "src/web-cache/domain-locator.test.ts"] },
+    { "source": "src/adapters/mcp.ts", "tests": ["src/adapters/__tests__/mcp-project.test.ts", "src/web-cache/domain-locator.test.ts", "src/obs/request-usage.test.ts"] },
     { "source": "src/fs/walk.ts", "tests": ["src/fs/__tests__/walk.test.ts"] }
   ]
 }
