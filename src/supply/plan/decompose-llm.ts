@@ -20,13 +20,14 @@
  * @spec パイプライン（`src/supply/plan/`）
  */
 
+import { resolveModel } from "@ludiars/one-shot";
 import { createClaudeCliLlm } from "../../providers/claude-cli-llm.js";
 import type { LLMClient } from "../../domains/card.js";
 import type { DecomposedItem, Decomposition } from "./decompose-fallback.js";
 import type { PlanDomainCandidate, PlanUnresolved } from "./types.js";
 
 /** Model the decomposition is pinned to (never inferred from the environment). */
-export const PLAN_MODEL = "claude-opus-5";
+export const PLAN_MODEL = resolveModel("opus", "claude");
 
 /** Default wall-clock budget for one decomposition call. */
 export const PLAN_LLM_TIMEOUT_MS = 60_000;

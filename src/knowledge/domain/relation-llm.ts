@@ -20,6 +20,7 @@
  * @spec コアドメイン間の関係辺（コンテキストマップ、A-8）
  */
 
+import { resolveModel } from "@ludiars/one-shot";
 import { createClaudeCliLlm } from "../../providers/claude-cli-llm.js";
 import type { LLMClient } from "../../domains/card.js";
 import {
@@ -29,7 +30,7 @@ import {
 } from "./relation-types.js";
 
 /** Model the relation draft is pinned to (never inferred from the environment). */
-export const RELATION_MODEL = "claude-opus-5";
+export const RELATION_MODEL = resolveModel("opus", "claude");
 
 /** Default wall-clock budget for one draft call. */
 export const RELATION_LLM_TIMEOUT_MS = 60_000;

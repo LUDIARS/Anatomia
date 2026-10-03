@@ -1551,7 +1551,7 @@ async function runIntegralCli(args: CliArgs): Promise<{ exitCode: number; output
   // The judge runs the Sonnet agent inside Anatomia; only wired when --judge.
   let llm; let modelId;
   if (args.judge) {
-    const judgeModel = process.env["ANATOMIA_INTEGRAL_JUDGE_MODEL"] || "claude-sonnet-4-6";
+    const judgeModel = process.env["ANATOMIA_INTEGRAL_JUDGE_MODEL"] || "sonnet";
     const providers = resolveProviders({ ...envConfig(), llmModel: judgeModel });
     llm = providers.llm;
     modelId = providers.llmModelId;

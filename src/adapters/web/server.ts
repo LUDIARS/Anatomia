@@ -460,7 +460,7 @@ function isAddressInUseError(error: unknown): boolean {
  * defaults to Sonnet (cheaper than the Opus card distiller) and is overridable.
  */
 function resolveIntegralDeps(): IntegralRouteDeps {
-  const judgeModel = process.env["ANATOMIA_INTEGRAL_JUDGE_MODEL"] || "claude-sonnet-4-6";
+  const judgeModel = process.env["ANATOMIA_INTEGRAL_JUDGE_MODEL"] || "sonnet";
   const providers = resolveProviders({ ...envConfig(), llmModel: judgeModel });
   const pathCache = resolveCacheStore<CachedIntegral>();
   return {
@@ -481,9 +481,9 @@ function resolveAuxDeps(): {
   draftLlm: ReturnType<typeof resolveProviders>["llm"];
   draftModelId: string;
 } {
-  const searchModel = process.env["ANATOMIA_SEARCH_MODEL"] || "claude-haiku-4-5";
+  const searchModel = process.env["ANATOMIA_SEARCH_MODEL"] || "haiku";
   const searchP = resolveProviders({ ...envConfig(), llmModel: searchModel });
-  const draftModel = process.env["ANATOMIA_RETUNE_MODEL"] || "claude-sonnet-4-6";
+  const draftModel = process.env["ANATOMIA_RETUNE_MODEL"] || "sonnet";
   const draftP = resolveProviders({ ...envConfig(), llmModel: draftModel });
   return {
     searchLlm: searchP.llm,

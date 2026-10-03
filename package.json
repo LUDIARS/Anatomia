@@ -10,6 +10,7 @@
     "retune": "node scripts/retune.mjs"
   },
   "dependencies": {
+    "@ludiars/one-shot": "file:./lib/lapilli/packages/one-shot",
     "@anthropic-ai/sdk": "^0.104.1",
     "@hono/node-server": "^2.0.4",
     "@ludiars/vestigium": "file:./lib/vestigium",

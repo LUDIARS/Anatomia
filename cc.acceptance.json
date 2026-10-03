@@ -1,6 +1,13 @@
 {
   "version": 1,
   "implementations": [
+    { "source": "vitest.config.ts", "tests": ["src/providers/__tests__/providers.test.ts", "src/providers/__tests__/one-shot-defaults.test.ts"] },
+    { "source": "src/providers/types.ts", "tests": ["src/providers/__tests__/providers.test.ts"] },
+    { "source": "src/adapters/web/server.ts", "tests": ["src/adapters/web/__tests__/server-start.test.ts"] },
+    { "source": "src/knowledge/domain/relation-llm.ts", "tests": ["src/knowledge/domain/relations.test.ts"] },
+    { "source": "src/supply/plan/decompose-llm.ts", "tests": ["src/supply/plan/__tests__/decompose.test.ts"] },
+    { "source": "src/providers/claude-cli-llm.ts", "tests": ["src/providers/__tests__/claude-cli-llm.test.ts", "src/providers/__tests__/one-shot-defaults.test.ts"] },
+    { "source": "src/providers/index.ts", "tests": ["src/providers/__tests__/providers.test.ts", "src/providers/__tests__/one-shot-defaults.test.ts"] },
     { "source": "src/web-cache/domain-locator.ts", "tests": ["src/web-cache/domain-locator.test.ts"] },
     { "source": "src/web-cache/domain-locator-store.ts", "tests": ["src/web-cache/domain-locator.test.ts"] },
     { "source": "src/web-cache/domain-locator-comments.ts", "tests": ["src/web-cache/domain-locator-comments.test.ts"] },

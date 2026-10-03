@@ -20,17 +20,16 @@
  * child's error/close events (RULE_CODE §13).
  */
 
-import { spawn } from "node:child_process";
+import { spawnOneShot as spawn, resolveModel } from "@ludiars/one-shot";
 import type { LLMClient } from "../domains/card.js";
 import type { LlmUsage } from "../cache/transcript.js";
 import { CARD_DISTILLER_SYSTEM_PROMPT } from "./anthropic-llm.js";
 import { reportConcordiaCostOneShot } from "./concordia-cost.js";
 
-const DEFAULT_MODEL = "claude-opus-4-8";
 const DEFAULT_BIN = "claude";
 
 export interface ClaudeCliLlmConfig {
-  /** Model id passed to `--model`. Default claude-opus-4-8. */
+  /** Model role or explicit id; defaults to Lapilli's Opus role. */
   model?: string;
   /** CLI executable. Default `claude` (resolved on PATH). */
   bin?: string;
@@ -59,7 +58,7 @@ export interface ClaudeCliLlmConfig {
 
 /** Build an LLMClient backed by the `claude -p` CLI. */
 export function createClaudeCliLlm(config: ClaudeCliLlmConfig = {}): LLMClient {
-  const model = config.model ?? DEFAULT_MODEL;
+  const model = resolveModel(config.model ?? "opus", "claude");
   const bin = config.bin ?? DEFAULT_BIN;
   const binArgs = config.binArgs ?? [];
   const systemPrompt = config.systemPrompt ?? CARD_DISTILLER_SYSTEM_PROMPT;

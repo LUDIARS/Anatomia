@@ -54,7 +54,7 @@ export interface ProviderConfig {
   llmBackend?: "anthropic" | "claude-cli" | "stub";
   /** Anthropic API key. Required only when the backend resolves to "anthropic". */
   anthropicApiKey?: string;
-  /** Model id for card distillation (Anthropic SDK or claude CLI). Default claude-opus-4-8. */
+  /** Model role/id for card distillation; defaults to the shared Lapilli Opus role. */
   llmModel?: string;
   /** `claude` CLI executable for the "claude-cli" backend. Default resolves on PATH. */
   claudeBin?: string;

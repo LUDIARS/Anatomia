@@ -16,7 +16,7 @@
  * Environment variables (secrets read from env, never committed):
  *   ANATOMIA_LLM_BACKEND       anthropic | claude-cli | stub (omit -> inferred)
  *   ANTHROPIC_API_KEY          Anthropic key (enables/selects the SDK backend)
- *   ANATOMIA_LLM_MODEL         model id (default claude-opus-4-8)
+ *   ANATOMIA_LLM_MODEL         model role/id (default Lapilli Opus role)
  *   ANATOMIA_CLAUDE_BIN        `claude` CLI path for the claude-cli backend
  *   ANATOMIA_EMBED_BASE_URL    OpenAI-compatible base URL incl. /v1
  *   ANATOMIA_EMBED_API_KEY     bearer key for the embeddings endpoint
@@ -26,6 +26,7 @@
  * SRP: configuration -> Providers. No analysis logic here.
  */
 
+import { resolveModel } from "@ludiars/one-shot";
 import { createAnthropicLlm } from "./anthropic-llm.js";
 import { createClaudeCliLlm } from "./claude-cli-llm.js";
 import { createOpenAiEmbedder } from "./openai-embedder.js";
@@ -49,7 +50,6 @@ export { createHashEmbedder } from "./hash-embedder.js";
 /** Resolved LLM backend kind. */
 export type LlmBackend = "anthropic" | "claude-cli" | "stub";
 
-const DEFAULT_LLM_MODEL = "claude-opus-4-8";
 const DEFAULT_EMBED_MODEL = "text-embedding-3-small";
 const DEFAULT_EMBED_DIM = 256;
 
@@ -122,7 +122,7 @@ function buildLlm(
             "ANATOMIA_LLM_BACKEND=claude-cli (subscription CLI) / =stub (offline tests).",
         );
       }
-      return createAnthropicLlm({ apiKey: config.anthropicApiKey, model: config.llmModel, onUsage: hooks?.onUsage });
+      return createAnthropicLlm({ apiKey: config.anthropicApiKey, model, onUsage: hooks?.onUsage });
     case "claude-cli":
       return createClaudeCliLlm({ model, bin: config.claudeBin, onUsage: hooks?.onUsage });
     case "stub":
@@ -136,7 +136,7 @@ export function resolveProviders(
   hooks?: ProviderHooks,
 ): Providers {
   const backend = chooseBackend(config);
-  const llmModel = config.llmModel ?? DEFAULT_LLM_MODEL;
+  const llmModel = resolveModel(config.llmModel ?? "opus", "claude");
   const llm = buildLlm(backend, config, hooks, llmModel);
   const llmModelId = backend === "stub" ? "stub-llm" : llmModel;
 
