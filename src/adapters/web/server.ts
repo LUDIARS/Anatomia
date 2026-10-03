@@ -281,7 +281,7 @@ export function createApp(
   });
 
   // ── Global LLM-cache stats route (A-3 measurement) ───────────────────────
-  mountCacheRoute(app);
+  mountCacheRoute(app, manager?.cache);
 
   // ── Cross-service cost-feed routes (other services PUSH cost summaries) ────
   mountCostRoute(app);

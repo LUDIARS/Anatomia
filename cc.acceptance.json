@@ -1,6 +1,10 @@
 {
   "version": 1,
   "implementations": [
+    { "source": "scripts/measure-result-cache.mjs", "tests": ["src/project/__tests__/redis-artifacts.test.ts"] },
+    { "source": "src/cache/redis-text-store.ts", "tests": ["src/cache/__tests__/redis-text-store.test.ts"] },
+    { "source": "src/project/cache.ts", "tests": ["src/project/__tests__/redis-artifacts.test.ts", "src/project/__tests__/cache-version.test.ts"] },
+    { "source": "src/adapters/web/routes/cache.ts", "tests": ["src/adapters/web/__tests__/analysis-cache-status.test.ts"] },
     { "source": "src/supply/metrics.ts", "tests": ["src/supply/__tests__/metrics.test.ts"] },
     { "source": "src/review/quality-scores.ts", "tests": ["src/review/__tests__/quality.test.ts"] },
     { "source": "src/review/refactoring-opportunities.ts", "tests": ["src/review/__tests__/quality.test.ts"] },
@@ -10,7 +14,7 @@
     { "source": "src/project/pending-work.ts", "tests": ["src/project/__tests__/pending-work.test.ts"] },
     { "source": "src/project/manager.ts", "tests": ["src/project/__tests__/manager-concurrency.test.ts", "src/project/__tests__/partial-scope.test.ts"] },
     { "source": "src/adapters/web/routes/analysis.ts", "tests": ["src/adapters/web/__tests__/quality-review-route.test.ts", "src/adapters/__tests__/web-artifact-cache.test.ts"] },
-    { "source": "vitest.config.ts", "tests": ["src/providers/__tests__/providers.test.ts", "src/providers/__tests__/one-shot-defaults.test.ts"] },
+    { "source": "vitest.config.ts", "tests": ["src/map/__tests__/project-roots.test.ts", "src/providers/__tests__/providers.test.ts", "src/providers/__tests__/one-shot-defaults.test.ts"] },
     { "source": "src/providers/types.ts", "tests": ["src/providers/__tests__/providers.test.ts"] },
     { "source": "src/adapters/web/server.ts", "tests": ["src/adapters/web/__tests__/server-start.test.ts"] },
     { "source": "src/knowledge/domain/relation-llm.ts", "tests": ["src/knowledge/domain/relations.test.ts"] },

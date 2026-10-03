@@ -25,6 +25,7 @@
   ],
   "cardTemplate": "Summarise the \"deterministic-cache\" domain: 決定的キャッシュ基盤。content-addressed な LLM 蒸留カードを Redis/File/memory に置き、LLM/embedder プロバイダとコスト計測を束ねる。",
   "specRefs": [
+    "spec/feature/redis-analysis-results.md",
     "spec/feature/shared-one-shot.md",
     "spec/ux/product.md",
     "spec/data/llm-cache.md",

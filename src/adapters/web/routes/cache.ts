@@ -17,6 +17,7 @@ import type { Hono } from "hono";
 import { readEvents } from "../../../cache/transcript.js";
 import { aggregate } from "../../../cache/stats.js";
 import { estimateCost } from "../../../cache/cost-estimate.js";
+import type { AnalysisCache } from "../../../project/cache.js";
 
 /** Mount the global cache-stats route on `app`.
  *
@@ -24,7 +25,11 @@ import { estimateCost } from "../../../cache/cost-estimate.js";
  * caller — e.g. the Concordia status card — can show "this session's" hit rate
  * and estimated USD without re-reading the transcript itself. `cost` is the
  * global cost estimate; both are null when there are no events for that slice. */
-export function mountCacheRoute(app: Hono): void {
+export function mountCacheRoute(app: Hono, analysisCache?: Pick<AnalysisCache, "resultCacheStatus">): void {
+  // @spec Redis analysis result cache
+  app.get("/api/analysis-cache", (c) => c.json(
+    analysisCache?.resultCacheStatus() ?? { backend: "unavailable" },
+  ));
   app.get("/api/cache-stats", async (c) => {
     const logPath = process.env["ANATOMIA_CACHE_LOG"];
     if (!logPath) {

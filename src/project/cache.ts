@@ -30,7 +30,9 @@
  */
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { createHash } from "node:crypto";
+import { resolveResultRedis, type ResultTextStore } from "../cache/redis-text-store.js";
 import { buildRepoNode } from "../dag/merkle.js";
 import { cacheRoot } from "./store.js";
 import type { AnalysisContext } from "../core.js";
@@ -167,11 +169,20 @@ export class AnalysisCache {
   /** Same, for the derived render-artifact cache (vis-data etc). */
   artifactHits = 0;
   artifactMisses = 0;
+  private readonly resultRedis?: ResultTextStore;
+  private readonly redisCounts = { hits: 0, misses: 0, writes: 0, errors: 0 };
 
-  constructor(homeDir?: string, obs?: { transcript: CacheTranscript; session: string }) {
+  /** @spec Redis analysis result cache */
+  resultCacheStatus() {
+    return { backend: this.resultRedis ? "redis+disk" : "disk", redis: { ...this.redisCounts },
+      artifactHits: this.artifactHits, artifactMisses: this.artifactMisses };
+  }
+
+  constructor(homeDir?: string, obs?: { transcript: CacheTranscript; session: string }, redis = resolveResultRedis()) {
     this.home = homeDir;
     this.transcript = obs?.transcript ?? createNullTranscript();
     this.session = obs?.session ?? "";
+    this.resultRedis = redis;
   }
 
   /** Return a cached context iff its stored fingerprint equals `fingerprint`. */
@@ -275,6 +286,19 @@ export class AnalysisCache {
     name: string,
     fingerprint: string,
   ): Promise<T | null> {
+    const key = this.resultKey(projectId, name, fingerprint);
+    if (this.resultRedis) {
+      try {
+        const raw = await this.resultRedis.get(key);
+        const env = raw === null ? null : JSON.parse(raw) as ArtifactEnvelope<T>;
+        if (env && env.version === ARTIFACT_CACHE_SCHEMA_VERSION && env.fingerprint === fingerprint && "data" in env) {
+          this.redisCounts.hits++;
+          this.artifactHits++;
+          return env.data;
+        }
+        this.redisCounts.misses++;
+      } catch { this.redisFailure(); }
+    }
     try {
       const raw = await readFile(this.artifactPath(projectId, name), "utf8");
       const env = JSON.parse(raw) as ArtifactEnvelope<T>;
@@ -284,6 +308,7 @@ export class AnalysisCache {
         env.fingerprint === fingerprint
       ) {
         this.artifactHits++;
+        await this.writeRedis(key, raw);
         return env.data;
       }
     } catch {
@@ -307,6 +332,24 @@ export class AnalysisCache {
       data,
     };
     await this.persistCacheFile(this.artifactPath(projectId, name), JSON.stringify(env));
+    await this.writeRedis(this.resultKey(projectId, name, fingerprint), JSON.stringify(env));
+  }
+
+  /** @spec Redis analysis result cache */
+  private resultKey(projectId: string, name: string, fingerprint: string): string {
+    const identity = [resolve(cacheRoot(this.home)), projectId, name, fingerprint, ARTIFACT_CACHE_SCHEMA_VERSION];
+    return `anatomia:result:v1:${createHash("sha256").update(JSON.stringify(identity)).digest("hex")}`;
+  }
+
+  private async writeRedis(key: string, raw: string): Promise<void> {
+    if (!this.resultRedis) return;
+    try { await this.resultRedis.set(key, raw); this.redisCounts.writes++; }
+    catch { this.redisFailure(); }
+  }
+
+  private redisFailure(): void {
+    this.redisCounts.errors++;
+    if (this.redisCounts.errors === 1) console.warn("[anatomia/cache] Redis result cache unavailable; using disk fallback (see /api/analysis-cache)");
   }
 
   /**
