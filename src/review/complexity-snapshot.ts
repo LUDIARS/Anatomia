@@ -13,7 +13,9 @@ import { relative } from "node:path";
 import type { FunctionNode } from "../types.js";
 import type { NodeMetrics } from "../supply/metrics.js";
 
-/** @spec Function complexity comparison */
+/**
+ * @spec Function complexity comparison
+ */
 export interface FunctionComplexitySnapshot {
   version: 1;
   metric: "call-out-degree-plus-one";
@@ -23,7 +25,8 @@ export interface FunctionComplexitySnapshot {
 /**
  * Body-independent identities; never expose workstation paths or source text.
  *
- * Identity folds repo-relative path + enclosing type + name + signature shape,
+ * Identity folds repo-relative path + enclosing type + name + signature shape
+ * and stable lexical declaration/registration context,
  * excluding the body and line numbers, so a function keeps its key across a body
  * edit, a line shift and a different checkout root. Duplicate identities (true
  * overloads) are retained rather than deduplicated — consumers are told by the
@@ -56,13 +59,15 @@ export function buildComplexitySnapshot(
           `Missing function complexity metric for "${fn.name}" (${path}:${fn.sourceRange.start.line})`,
         );
       }
-      const identity = [path, fn.enclosingType ?? "", fn.name, fn.signatureShape ?? fn.signature];
+      const identity = [path, fn.enclosingType ?? "", fn.name, fn.signatureShape ?? fn.signature,
+        ...(fn.lexicalContext?.length ? [fn.lexicalContext] : [])];
       return {
         key: createHash("sha256").update(JSON.stringify(identity)).digest("hex"),
         structuralHash: fn.structuralHash ?? null,
         value,
       };
     });
-  rows.sort((a, b) => a.key.localeCompare(b.key) || a.value - b.value);
+  rows.sort((a, b) => a.key.localeCompare(b.key) || a.value - b.value
+    || (a.structuralHash ?? "").localeCompare(b.structuralHash ?? ""));
   return { version: 1, metric: "call-out-degree-plus-one", functions: rows };
 }

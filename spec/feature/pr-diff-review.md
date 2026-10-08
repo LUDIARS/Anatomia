@@ -51,6 +51,11 @@ buildComplexitySnapshot            … 関数ごとの複雑度スナップシ�
 `100 / (1 + (averageCyclomatic - 1) / 4)` を計算し、四捨五入して 0..100 に clamp する
 （avg=1 → 100、avg=5 → 50、関数 0 件 → 100）。単調減少・決定的。
 
+PR reportではsnapshotの関数出現行を入力として集計し、`complexity.functions` と
+`functionComplexity.functions.length` は必ず一致する。anchorが同じ複数出現も保持する。
+`quality.referenceEvidence` は orphan 判定を補う正確な字句/import参照の証拠を返す
+（→ [source-reference-evidence.md](./source-reference-evidence.md)）。
+
 しきい値は Anatomia の関心事ではない：呼び出し側が「PR worktree のスコア」と
 「別途解析した merge-base worktree のスコア」を比較して判断する（= ワークフロー方針）。
 

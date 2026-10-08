@@ -20,6 +20,7 @@ import { assignAnchorId } from "./dag/hash.js";
 import { buildFileNode } from "./dag/merkle.js";
 import { toRepoRelative } from "./fs/repo-path.js";
 import { buildGraph, extractEdgeInfo, extractFunctionEdgeInfo, augmentGraph } from "./graph/build.js";
+import { extractReferenceSyntax } from "./graph/reference-syntax.js";
 import type { CodeGraph } from "./graph/build.js";
 import { graphCacheKey, filesContentKey, localizeCachedGraph } from "./graph/cache.js";
 import { InMemoryCodeGraph } from "./graph/in-memory.js";
@@ -638,6 +639,7 @@ export async function analyze(
     const prior = options.priorFiles?.get(filePath);
     const priorReusable =
       prior != null && prior.contentHash === contentHash
+      && prior.referenceSyntax?.version === 2
       && (releaseAst
         ? coversTemplates(prior) && coversEdgeInfo(prior)
         : prior.functions.every((fn) => fn.bodyAst !== undefined));
@@ -651,6 +653,7 @@ export async function analyze(
         diskFile
         && (
           diskFile.contentHash !== contentHash
+          || diskFile.referenceSyntax?.version !== 2
           || !coversTemplates(diskFile)
           || !coversEdgeInfo(diskFile)
         )
@@ -679,6 +682,7 @@ export async function analyze(
     const lang = langFor(filePath);
     let fns: FunctionNode[];
     let typeDecls: TypeDecl[] = [];
+    let referenceSyntax: FileNode["referenceSyntax"];
     let tree: Tree | null = null;
     try {
       tree = await parse(src, lang);
@@ -690,6 +694,9 @@ export async function analyze(
       // Anchors fold the REPO-RELATIVE path, so the same commit yields the same
       // anchor in the repo and in any worktree of it.
       for (const fn of fns) assignAnchorId(fn, normalize(fn.bodyAst!), toRepoRelative(filePath, repoPath));
+      referenceSyntax = lang === "typescript" || lang === "tsx"
+        ? extractReferenceSyntax(tree, fns)
+        : { version: 2, scopes: [], bindings: [], exports: [], references: [] };
     } catch (err) {
       // Parse / extract / normalize failure on one file must not abort the run.
       warn(filePath, `parse/extract failed (${String(err)})`);
@@ -726,6 +733,7 @@ export async function analyze(
       }
     }
     const fileNode = buildFileNode(filePath, fns, typeDecls);
+    fileNode.referenceSyntax = referenceSyntax;
     fileNode.contentHash = contentHash;
     if (releaseAst) {
       await consumeAndReleaseAsts(fileNode);

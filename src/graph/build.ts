@@ -78,6 +78,8 @@ import type {
 } from "../types.js";
 import { findDeclaratorName, simpleTypeName, templateElementName } from "../dag/extract.js";
 import { TypeRegistry } from "./type-resolve.js";
+import { resolveReferenceEvidence } from "./reference-evidence.js";
+import type { SourceReferenceEvidence } from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Edge-info: plain data extracted from AST before tree deletion
@@ -93,6 +95,8 @@ export type { CallSite, CallLocal, RangeFor, FunctionEdgeInfo } from "../types.j
 // ---------------------------------------------------------------------------
 
 export interface CodeGraph {
+  /** Resolved source references, deliberately separate from call edges. */
+  referenceEvidence?: SourceReferenceEvidence[];
   /** All nodes keyed by AnchorId. */
   nodes: Map<AnchorId, CodeNode>;
   /**
@@ -547,6 +551,7 @@ export function buildGraph(
     reverseAdjacency: new Map(),
     edges: [],
     typeRegistry: TypeRegistry.build(files),
+    referenceEvidence: resolveReferenceEvidence(files),
     unresolved: [],
   };
 
@@ -935,6 +940,7 @@ export function augmentGraph(
     reverseAdjacency: new Map([...base.reverseAdjacency].map(([k, v]) => [k, [...v]])),
     edges: [...base.edges],
     typeRegistry,
+    referenceEvidence: [...(base.referenceEvidence ?? []), ...resolveReferenceEvidence(diffFiles)],
     // Copy so the diff's drops never leak into the (cached, shared) base graph.
     unresolved: [...(base.unresolved ?? [])],
   };

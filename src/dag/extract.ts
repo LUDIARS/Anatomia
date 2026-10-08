@@ -494,6 +494,7 @@ function collect(node: Node, source: string, filePath: string, out: FunctionNode
         id: null,
         name: extractName(node),
         signature: extractSignature(node, body),
+        lexicalContext: declarationContext(node),
         ...(enclosingType ? { enclosingType } : {}),
         ...(params.length > 0 ? { params } : {}),
         ...(returnType ? { returnType } : {}),
@@ -508,6 +509,59 @@ function collect(node: Node, source: string, filePath: string, out: FunctionNode
   for (const child of node.namedChildren) {
     if (child) collect(child, source, filePath, out);
   }
+}
+
+/** Stable lexical owners and registration slots; repeated identical slots stay ambiguous.
+ * @spec Function complexity comparison
+ */
+function declarationContext(node: Node): string[] {
+  const context: string[] = [];
+  for (let current: Node | null = node; current; current = current.parent) {
+    if (FUNCTION_DEFINITION_TYPES.has(current.type)) {
+      const name = extractName(current);
+      if (name !== "<anonymous>") context.push(`function:${name}`);
+    }
+    if (["variable_declarator", "class_declaration", "class_expression", "namespace_definition", "internal_module"].includes(current.type)) {
+      const owner = current.childForFieldName("name");
+      if (owner) context.push(`${current.type}:${owner.text}`);
+    }
+    if (["pair", "public_field_definition", "field_definition"].includes(current.type)) {
+      const property = current.childForFieldName("key") ?? current.childForFieldName("name");
+      if (property && ["property_identifier", "identifier", "string", "number"].includes(property.type)) {
+        context.push(`property:${property.text}`);
+      }
+    }
+    if (current.type === "arguments") {
+      const call = current.parent;
+      const callee = call?.childForFieldName("function") ?? call?.childForFieldName("constructor");
+      const args = current.namedChildren.filter((arg): arg is Node => arg !== null);
+      const slot = args.findIndex((arg) => arg.startIndex <= node.startIndex
+        && arg.endIndex >= node.endIndex);
+      if (callee && slot >= 0) {
+        const stableCallee = `${call?.type === "new_expression" ? "new " : ""}${calleeContext(callee)}`;
+        const labels = args.filter((arg) => arg.type === "string").map((arg) => arg.text);
+        context.push(JSON.stringify(["callback", stableCallee, slot, labels]));
+      }
+    }
+  }
+  return context.reverse();
+}
+
+/** Callable declaration structure without arguments, literals or callback bodies.
+ * @spec Function complexity comparison
+ */
+function calleeContext(node: Node): string {
+  if (["identifier", "property_identifier", "type_identifier"].includes(node.type)) return node.text;
+  if (node.type === "member_expression") {
+    const object = node.childForFieldName("object");
+    const property = node.childForFieldName("property");
+    if (object && property) return `${calleeContext(object)}.${calleeContext(property)}`;
+  }
+  if (node.type === "call_expression") {
+    const callee = node.childForFieldName("function");
+    if (callee) return `${calleeContext(callee)}()`;
+  }
+  return node.type;
 }
 
 /**

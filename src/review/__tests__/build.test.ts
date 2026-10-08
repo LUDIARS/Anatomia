@@ -49,6 +49,37 @@ afterAll(async () => {
 });
 
 describe("buildReview", () => {
+  it("uses resolved reference evidence without changing fan-in or inventing callback calls", async () => {
+    const referenceRepo = await mkdtemp(join(tmpdir(), "anatomia-review-references-"));
+    try {
+      await writeFile(join(referenceRepo, "contracts.ts"), `
+export class DiagnosticError { constructor() { this.name = "diagnostic"; } }
+export function reference(value: unknown) { return value; }
+export function startDiscordGateway() { return 1; }
+export function unused() { return 2; }
+`);
+      await writeFile(join(referenceRepo, "index.ts"), `
+import { DiagnosticError as aliasedMechanicsCheckError, reference, startDiscordGateway } from "./contracts.js";
+new aliasedMechanicsCheckError(); [].map(reference); startDiscordGateway();
+`);
+      const referenceCtx = await analyze(referenceRepo, { quiet: true });
+      const report = await buildReview(referenceCtx);
+      expect(report.orphans.map((orphan) => orphan.name)).toContain("unused");
+      expect(report.orphans.map((orphan) => orphan.name)).not.toContain("constructor");
+      expect(report.orphans.map((orphan) => orphan.name)).not.toContain("reference");
+      expect(report.orphans.map((orphan) => orphan.name)).not.toContain("startDiscordGateway");
+      expect(report.referenceEvidence?.map((evidence) => evidence.kind)).toEqual([
+        "constructor", "callback-reference", "call",
+      ]);
+      expect(referenceCtx.graph.raw.edges).toEqual([]);
+      expect(referenceCtx.functions.every((fn) => fn.bodyAst === undefined)).toBe(true);
+      const repeated = await analyze(referenceRepo, { quiet: true, priorFiles: new Map(referenceCtx.files.map((file) => [file.path, file])) });
+      expect((await buildReview(repeated)).referenceEvidence).toEqual(report.referenceEvidence);
+      const legacy = new Map(referenceCtx.files.map((file) => [file.path, { ...file, referenceSyntax: undefined }]));
+      const reparsed = await analyze(referenceRepo, { quiet: true, priorFiles: legacy });
+      expect((await buildReview(reparsed)).referenceEvidence).toEqual(report.referenceEvidence);
+    } finally { await rm(referenceRepo, { recursive: true, force: true }); }
+  });
   it("reports the rule violation with source locations", async () => {
     expect(ctx.domains?.some((domain) => domain.domain === "no-skill-to-render")).toBe(false);
     expect(ctx.policyResults?.some((policy) => policy.domain === "no-skill-to-render")).toBe(true);

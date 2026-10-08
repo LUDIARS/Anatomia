@@ -24,8 +24,8 @@
 | `orphans` | static caller が無い（`fanIn === 0`）関数。`main` と、Unityプロジェクト内の `MonoBehaviour` ライフサイクル関数は除外 |
 
 既知の限界（waiver）: static call graph はインスタンス経由のメソッド呼び出し
-（`store.put(...)` 等のディスパッチ）や `new` によるコンストラクタ起動を caller として
-解決しないため、クラスメソッド・コンストラクタは実際に使われていても `fanIn === 0` で
+（`store.put(...)` 等のディスパッチ）や間接的な `new` によるコンストラクタ起動を caller として
+解決しないため、未解決のクラスメソッド・コンストラクタは実際に使われていても `fanIn === 0` で
 orphan に載ることがある（例: `project/cache.ts` の CacheStore メソッド群）。orphan は
 「静的に到達を証明できない」印であって dead code の断定ではない。
 
@@ -56,6 +56,11 @@ baseline の fingerprint、load/save、filter 契約は
 [`src/review/baseline.ts`](../../src/review/baseline.ts) が実装する。
 
 ## 制約
+
+- TypeScript/JavaScriptの字句/import bindingで一意に解決したconstructor・callback参照・
+  module-level呼び出しは`referenceEvidence`に出し、対象をorphanから除く。
+  参照はcall辺・fan-inとして捏造しない。shadowed/ambiguous/unresolvedは除外しない
+  （→ [source-reference-evidence.md](./source-reference-evidence.md)）。
 
 - `specGaps` は file-level linkage の欠落であり、機能仕様が意味的に十分かまでは保証しない。
 - fan-in 0 は外部 entrypoint や dynamic dispatch も含み得るため、dead code と同義ではない。

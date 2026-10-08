@@ -94,6 +94,9 @@ export interface ReviewReport {
   structuralDup: ReviewDup[];
   domainCoupling: ReviewDomainCoupling[];
   orphans: ReviewLocation[];
+  /** Exact lexical/import-resolved usages; callback references are not call edges. */
+  referenceEvidence?: { target: ReviewLocation; kind: "call" | "constructor" | "callback-reference";
+    source: { file: string; line: number; column: number }; owner: AnchorId | null }[];
   /** Source files tied to no spec clause (file-granular). Empty when no spec. */
   specGaps: string[];
 }
@@ -166,6 +169,12 @@ export async function buildReview(
   for (const d of ctx.domains ?? []) membershipMap.set(d.domain, d.implementors);
   const metrics = prepared.metrics ?? await computeMetrics(ctx.graph, membershipMap);
   const unityLifecycle = resolveUnityLifecycleFunctions(ctx);
+  const referenceEvidence = (ctx.graph.raw.referenceEvidence ?? []).map((evidence) => ({
+    target: locOf(evidence.target), kind: evidence.kind,
+    source: { file: rel(evidence.file), line: evidence.line + 1, column: evidence.column + 1 },
+    owner: evidence.owner,
+  }));
+  const referenced = new Set(referenceEvidence.map((evidence) => evidence.target.anchor));
 
   const hotspots: ReviewHotspot[] = [...metrics]
     .filter((m) => m.coupling > 0)
@@ -174,7 +183,7 @@ export async function buildReview(
     .map((m) => ({ ...locOf(m.anchor), fanIn: m.fanIn, fanOut: m.fanOut, coupling: m.coupling, cyclomatic: m.cyclomatic }));
 
   const orphansAll = metrics
-    .filter((m) => m.fanIn === 0 && !unityLifecycle.has(m.anchor))
+    .filter((m) => m.fanIn === 0 && !unityLifecycle.has(m.anchor) && !referenced.has(m.anchor))
     .map((m) => locOf(m.anchor))
     .filter((l) => l.name !== "main")
     .sort(sortLocs);
@@ -295,6 +304,7 @@ export async function buildReview(
     structuralDup,
     domainCoupling,
     orphans: orphansAll.slice(0, maxList),
+    referenceEvidence,
     specGaps: specGapsAll.slice(0, maxList),
   };
 }

@@ -25,8 +25,8 @@ import type { FileAnalysisCache } from "../core.js";
  * graph/detection path depends on). Folded into the entry key, so a bump
  * simply orphans old entries rather than mis-reading them.
  */
-// 2: invalidate edgeInfo extracted before TypeScript member calls were recorded.
-const FORMAT_VERSION = 2;
+// 4: lexical scope uncertainty replaces file-wide parser recovery suppression.
+const FORMAT_VERSION = 4;
 const MAX_COMPRESSED_ENTRY_BYTES = 64 * 1024 * 1024;
 const MAX_DECOMPRESSED_ENTRY_BYTES = 256 * 1024 * 1024;
 
@@ -47,6 +47,31 @@ function isStringRecord(value: unknown): boolean {
   return isRecord(value) && Object.values(value).every((entry) => typeof entry === "string");
 }
 
+/** Corrupt lexical records must cause a cache miss, never fabricated usages.
+ * @spec Source reference evidence
+ */
+function isReferenceSyntax(value: unknown): boolean {
+  if (!isRecord(value) || value["version"] !== 2 || !Array.isArray(value["scopes"])) return false;
+  const scopes = value["scopes"];
+  const validScope = (scope: unknown): boolean => Number.isInteger(scope) && typeof scope === "number" && scope >= 0 && scope < scopes.length;
+  if (!scopes.every((scope, index) => isRecord(scope)
+    && (scope["uncertain"] === undefined || typeof scope["uncertain"] === "boolean") && (scope["parent"] === null
+    || (validScope(scope["parent"]) && (scope["parent"] as number) < index)))) return false;
+  if (!Array.isArray(value["bindings"]) || !value["bindings"].every((binding) =>
+    isRecord(binding) && validScope(binding["scope"]) && typeof binding["name"] === "string"
+    && isStringArray(binding["targets"]) && (binding["imported"] === undefined
+      || (isRecord(binding["imported"]) && typeof binding["imported"]["source"] === "string"
+        && typeof binding["imported"]["name"] === "string")))) return false;
+  if (!Array.isArray(value["exports"]) || !value["exports"].every((entry) =>
+    isRecord(entry) && typeof entry["name"] === "string" && typeof entry["binding"] === "string")) return false;
+  return Array.isArray(value["references"]) && value["references"].every((reference) =>
+    isRecord(reference) && validScope(reference["scope"]) && typeof reference["name"] === "string"
+    && ["call", "constructor", "callback-reference"].includes(reference["kind"] as string)
+    && (reference["owner"] === null || typeof reference["owner"] === "string")
+    && Number.isInteger(reference["line"]) && (reference["line"] as number) >= 0
+    && Number.isInteger(reference["column"]) && (reference["column"] as number) >= 0);
+}
+
 /** Validate the cache's executable analysis inputs before exposing parsed JSON. */
 function isStoredFile(value: unknown, filePath: string, contentHash: string): value is FileNode {
   if (!isRecord(value)) return false;
@@ -55,6 +80,7 @@ function isStoredFile(value: unknown, filePath: string, contentHash: string): va
   if (!Array.isArray(value["functions"])) return false;
   if (value["templateKeys"] !== undefined && !isStringArray(value["templateKeys"])) return false;
   if (value["types"] !== undefined && !Array.isArray(value["types"])) return false;
+  if (value["referenceSyntax"] !== undefined && !isReferenceSyntax(value["referenceSyntax"])) return false;
   const templateKeys = value["templateKeys"] as string[] | undefined;
   return value["functions"].every((candidate) => {
     if (!isRecord(candidate) || "bodyAst" in candidate) return false;
@@ -63,6 +89,7 @@ function isStoredFile(value: unknown, filePath: string, contentHash: string): va
     const edgeInfo = candidate["edgeInfo"];
     if (typeof id !== "string" || typeof candidate["name"] !== "string") return false;
     if (typeof candidate["signature"] !== "string" || !isRecord(range)) return false;
+    if (candidate["lexicalContext"] !== undefined && !isStringArray(candidate["lexicalContext"])) return false;
     if (range["filePath"] !== filePath || !isRecord(edgeInfo)) return false;
     if (edgeInfo["anchorId"] !== id) return false;
     if (

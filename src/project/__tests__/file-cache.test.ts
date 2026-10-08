@@ -17,6 +17,9 @@ const sampleFile = (path: string): FileNode => ({
   path,
   hash: null,
   contentHash: "c".repeat(64),
+  referenceSyntax: { version: 2, scopes: [{ parent: null }, { parent: 0, uncertain: true }],
+    bindings: [{ scope: 0, name: "f", targets: ["deadbeefdeadbeef" as AnchorId] }],
+    exports: [{ name: "f", binding: "f" }], references: [] },
   templateKeys: ["cpp\0$SKILL.mutate($STATE)"],
   functions: [
     {
@@ -68,6 +71,7 @@ describe("FileAnalysisDiskCache", () => {
     expect(loaded!.functions[0]!.edgeInfo?.calls[0]?.name).toBe("g");
     expect(loaded!.functions[0]!.templateMatches).toEqual(file.functions[0]!.templateMatches);
     expect(loaded!.templateKeys).toEqual(file.templateKeys);
+    expect(loaded!.referenceSyntax).toEqual(file.referenceSyntax);
   });
 
   it("misses on a different content hash or path", async () => {

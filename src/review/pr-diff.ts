@@ -64,6 +64,7 @@ export interface PrDiffReview {
      * an older report shape stays valid; buildPrDiffReview always emits it.
      */
     functionComplexity?: FunctionComplexitySnapshot;
+    referenceEvidence?: ReviewReport["referenceEvidence"];
     changedFunctions: NodeMetrics[];
     changedOrphans: ReviewLocation[];
   };
@@ -89,7 +90,7 @@ export interface PrDiffReviewOptions {
   dualLayerMode?: DualLayerGateMode;
 }
 
-export function summarizeComplexity(metrics: NodeMetrics[]): PrComplexitySummary {
+export function summarizeComplexity(metrics: readonly Pick<NodeMetrics, "cyclomatic">[]): PrComplexitySummary {
   if (metrics.length === 0) {
     return { functions: 0, averageCyclomatic: 0, maximumCyclomatic: 0, score: 100 };
   }
@@ -169,6 +170,7 @@ export async function buildPrDiffReview(
   // two cannot drift apart.
   const isProductionLocation = (location: ReviewLocation): boolean =>
     location.name !== "<anonymous>" && !isTestFilePath(location.file);
+  const functionComplexity = buildComplexitySnapshot(ctx.repoPath, ctx.functions, metrics);
 
   return {
     temporary: true,
@@ -182,8 +184,9 @@ export async function buildPrDiffReview(
     },
     quality: {
       assessment: review.quality,
-      complexity: summarizeComplexity(metrics),
-      functionComplexity: buildComplexitySnapshot(ctx.repoPath, ctx.functions, metrics),
+      complexity: summarizeComplexity(functionComplexity.functions.map((row) => ({ cyclomatic: row.value }))),
+      functionComplexity,
+      referenceEvidence: review.referenceEvidence,
       changedFunctions: metrics.filter((metric) => changedAnchors.has(metric.anchor)),
       changedOrphans: review.orphans.filter((orphan) =>
         changedAnchors.has(orphan.anchor) && isProductionLocation(orphan)),

@@ -24,12 +24,13 @@
 
 import { createHash } from "node:crypto";
 import { versionedKey, type CacheStore } from "../cache/store.js";
+import { resolveReferenceEvidence } from "./reference-evidence.js";
 import { toRepoRelative } from "../fs/repo-path.js";
 import type { CodeGraph } from "./build.js";
-import type { AnchorId, CodeNode, FileNode, SourceRange } from "../types.js";
+import type { AnchorId, CodeNode, FileNode, SourceRange, SourceReferenceEvidence } from "../types.js";
 
 /** BUMP when CodeGraph's shape or buildGraph's semantics change. */
-export const GRAPH_CACHE_VERSION = "3"; // 3: TypeScript member-call extraction semantics
+export const GRAPH_CACHE_VERSION = "5"; // 5: lexical scope parser-recovery uncertainty
 
 /**
  * Code identity for graph/detection reuse: each file's path + raw source hash
@@ -66,12 +67,25 @@ function sameSourceRange(left: SourceRange, right: SourceRange): boolean {
 }
 
 /**
+ * @spec Source reference evidence
+ */
+function sameReferenceEvidence(left: readonly SourceReferenceEvidence[], right: readonly SourceReferenceEvidence[]): boolean {
+  return left.length === right.length && left.every((entry, index) => {
+    const current = right[index]!;
+    return entry.target === current.target && entry.kind === current.kind
+      && entry.file === current.file && entry.line === current.line
+      && entry.column === current.column && entry.owner === current.owner;
+  });
+}
+
+/**
  * Project a cached graph's diagnostic locations onto the current FileNodes.
  *
  * The cache key deliberately ignores checkout roots. Edges remain reusable
  * across roots, but CodeNode.sourceRange does not: returning it unchanged leaks
  * a different worktree's absolute paths. Clone only the node map when a location
- * differs; the immutable edge containers remain shared.
+ * differs; the immutable edge containers remain shared. Retain the raw graph
+ * object when both node locations and source reference evidence are unchanged.
  */
 export function localizeCachedGraph(graph: CodeGraph, files: FileNode[]): CodeGraph {
   const currentRanges = new Map<AnchorId, SourceRange>();
@@ -89,7 +103,11 @@ export function localizeCachedGraph(graph: CodeGraph, files: FileNode[]): CodeGr
     localizedNodes.set(id, { ...node, sourceRange: current });
   }
 
-  return localizedNodes ? { ...graph, nodes: localizedNodes } : graph;
+  const currentEvidence = resolveReferenceEvidence(files);
+  const unchangedEvidence = sameReferenceEvidence(graph.referenceEvidence ?? [], currentEvidence);
+  if (!localizedNodes && unchangedEvidence) return graph;
+  return { ...graph, nodes: localizedNodes ?? graph.nodes,
+    referenceEvidence: unchangedEvidence ? graph.referenceEvidence : currentEvidence };
 }
 
 /** Content-addressed store for built code graphs (in-process). */

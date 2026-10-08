@@ -66,7 +66,7 @@ export interface SummaryCounts {
  * Snapshot freshness cannot rely on the project fingerprint alone: analyzer
  * semantics may change while the source/config content remains identical.
  */
-export const SNAPSHOT_CACHE_SCHEMA_VERSION = 4 as const;
+export const SNAPSHOT_CACHE_SCHEMA_VERSION = 6 as const;
 
 /** Persisted, serializable cache snapshot for a project. */
 export interface CacheSnapshot {
@@ -100,7 +100,7 @@ export interface CacheEntry {
  * Analyzer semantic or payload changes invalidate persisted output here instead
  * of pretending the project's source changed.
  */
-export const ARTIFACT_CACHE_SCHEMA_VERSION = 4 as const;
+export const ARTIFACT_CACHE_SCHEMA_VERSION = 6 as const;
 
 /**
  * Persisted envelope for a derived render artifact (e.g. the vis-network graph

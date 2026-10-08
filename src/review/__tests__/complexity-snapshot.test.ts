@@ -1,7 +1,15 @@
+/**
+ * @spec Function complexity comparison
+ */
 import { describe, expect, it } from "vitest";
 import { buildComplexitySnapshot } from "../complexity-snapshot.js";
 import type { NodeMetrics } from "../../supply/metrics.js";
 import type { AnchorId, FunctionNode } from "../../types.js";
+import { summarizeComplexity } from "../pr-diff.js";
+import { parse } from "../../dag/parser.js";
+import { extractFunctions } from "../../dag/extract.js";
+import { assignAnchorId } from "../../dag/hash.js";
+import { normalize } from "../../dag/normalize.js";
 
 function fn(
   root: string,
@@ -38,6 +46,39 @@ function metric(anchor: string, cyclomatic: number): NodeMetrics {
 }
 
 describe("buildComplexitySnapshot", () => {
+  it("weights distinct occurrences of one anchor in the summary population", () => {
+    const snapshot = buildComplexitySnapshot("/r", [fn("/r", "a", 1), fn("/r", "a", 2),
+      fn("/r", "b", 3)], [metric("a", 5), metric("b", 2)]);
+    const summary = summarizeComplexity(snapshot.functions.map((row) => ({ cyclomatic: row.value })));
+    expect(summary.functions).toBe(snapshot.functions.length);
+    expect(summary.averageCyclomatic).toBe(4);
+    expect(summary.maximumCyclomatic).toBe(5);
+  });
+
+  it("keeps lexical declarations and registered callback slots stable across body and line edits", async () => {
+    const snapshotOf = async (root: string, source: string) => {
+      const tree = await parse(source, "typescript");
+      try {
+        const functions = extractFunctions(tree, source, `${root}/src/a.ts`);
+        for (const fn of functions) assignAnchorId(fn, normalize(fn.bodyAst!), "src/a.ts");
+        return buildComplexitySnapshot(root, functions, functions.map((fn) => metric(fn.id!, 1)));
+      } finally { tree.delete(); }
+    };
+    const source = `
+function first() { function run() { return 1; } }
+function second() { function run() { return 1; } }
+describe("first", () => { it("works", () => { return 1; }); });
+describe("second", () => { it("works", () => { return 1; }); });
+const left = { run() { return 1; }, onStart: () => { return 1; }, onStop: () => { return 1; } };
+const right = { run() { return 1; } };
+`;
+    const base = await snapshotOf("/base", source);
+    const head = await snapshotOf("/head", "\n\n" + source.replaceAll("return 1", "return 2"));
+    expect(base.functions.map((row) => row.key)).toEqual(head.functions.map((row) => row.key));
+    expect(new Set(base.functions.map((row) => row.key)).size).toBe(base.functions.length);
+    const ambiguous = await snapshotOf("/head", `it("same", () => { return 1; }); it("same", () => { return 2; });`);
+    expect(ambiguous.functions[0]!.key).toBe(ambiguous.functions[1]!.key);
+  });
   it("keys survive checkout changes, body edits and line shifts", () => {
     // Different checkout root, different anchor (the body changed) and a moved
     // line: the identity must still match so the two are compared, not reported

@@ -89,5 +89,8 @@ JS 系は TypeScript 文法で読む（TS は JS の上位互換なので同一�
 
 ## 関連
 
+- TS/JSのconstructor・callback・module-level呼び出しは、call edgeとは別の
+  [source reference evidence](./source-reference-evidence.md)として抽出する。
+
 - データ: [data/merkle-dag.md](../data/merkle-dag.md)、[data/project-cache.md](../data/project-cache.md)
 - 影響半径クエリ: `getImpactRadius(ctx, anchor)` = グラフの BFS 到達集合（MCP `anatomia.impact`）。

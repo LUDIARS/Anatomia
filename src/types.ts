@@ -180,6 +180,8 @@ export interface FunctionNode {
    * shape. Filled with the Anchor ID and suitable for durable symbol ownership.
    */
   signatureShape?: string;
+  /** Declaration/callback context, independent of body and source coordinates. */
+  lexicalContext?: string[];
   name: string;
   /** Full signature text (return type + params). */
   signature: string;
@@ -263,6 +265,8 @@ export interface FieldInfo {
 
 /** A source file modelled as a Merkle node over its function set. */
 export interface FileNode {
+  /** Plain lexical reference records; versioned separately from body hashes. */
+  referenceSyntax?: SourceReferenceSyntax;
   /** Absolute path. */
   path: string;
   /** Merkle hash of this file (hash of sorted child function hashes). Filled by T07. */
@@ -290,6 +294,24 @@ export interface FileNode {
    * otherwise the file is re-parsed so no template silently stops matching.
    */
   templateKeys?: string[];
+}
+
+export interface SourceReferenceSyntax {
+  version: 2;
+  scopes: { parent: number | null; uncertain?: boolean }[];
+  bindings: { scope: number; name: string; targets: AnchorId[]; imported?: { source: string; name: string } }[];
+  exports: { name: string; binding: string }[];
+  references: { scope: number; name: string; kind: "call" | "constructor" | "callback-reference"; line: number; column: number; owner: AnchorId | null }[];
+}
+
+export interface SourceReferenceEvidence {
+  target: AnchorId;
+  kind: "call" | "constructor" | "callback-reference";
+  /** Source path, localized when a graph is reused in another worktree. */
+  file: string;
+  line: number;
+  column: number;
+  owner: AnchorId | null;
 }
 
 // ---------------------------------------------------------------------------

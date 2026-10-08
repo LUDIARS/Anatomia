@@ -46,6 +46,8 @@
   ],
   "cardTemplate": "Summarise the \"supply-verify\" domain: 重心となる supply→verify ループ。生成前に着地点・適用ルール・手本・影響半径・重複回避を供給し、生成後に 5 ゲートで検証してレビューを出す。",
   "specRefs": [
+    "spec/feature/function-complexity-comparison.md",
+    "spec/feature/source-reference-evidence.md",
     "spec/feature/code-quality.md",
     "spec/ux/product.md",
     "spec/feature/context-supply.md",
