@@ -2,6 +2,8 @@
  * T22 — Explicit annotation linker.
  * Scans code files for @implements / @spec annotations and spec text for
  * code file references.  Emits Link[] with evidence "explicit".
+ *
+ * @spec Explicit リンク（`src/spec/explicit.ts`）
  */
 
 import { readFile } from "node:fs/promises";

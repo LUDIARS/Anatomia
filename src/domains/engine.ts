@@ -41,6 +41,8 @@ export interface EvaluateOptions {
   severity?: Violation["severity"];
   /** Resolver for TemplatePredicate kinds. */
   templateResolver?: TemplateResolver;
+  /** Absolute repo root, so `pathPattern` also sees repo-relative paths. */
+  repoRoot?: string;
 }
 
 /** Evaluate a predicate against the graph and return all violations. */
@@ -93,14 +95,14 @@ async function evalEdgeForbidden(
 ): Promise<Violation[]> {
   const nodes = await ctx.graph.allNodes();
   const byId = new Map<AnchorId, CodeNode>(nodes.map((n) => [n.id, n]));
-  const froms = selectNodes(nodes, pred.from);
+  const froms = selectNodes(nodes, pred.from, ctx.options);
 
   const out: Violation[] = [];
   for (const from of froms) {
     const edges = await ctx.graph.edgesFrom(from.id, pred.kind);
     for (const e of edges) {
       const to = byId.get(e.to);
-      if (to && matchesFilter(to, pred.to)) {
+      if (to && matchesFilter(to, pred.to, ctx.options)) {
         out.push({
           ruleId: ctx.ruleId,
           anchors: [from.id, to.id],
@@ -121,7 +123,7 @@ async function evalFanCap(
   dir: "in" | "out",
 ): Promise<Violation[]> {
   const nodes = await ctx.graph.allNodes();
-  const targets = selectNodes(nodes, pred.target);
+  const targets = selectNodes(nodes, pred.target, ctx.options);
   const out: Violation[] = [];
   for (const t of targets) {
     const counts = await ctx.graph.fanCounts(t.id, pred.kind);
@@ -143,7 +145,7 @@ async function evalNoCycle(
   ctx: Ctx,
 ): Promise<Violation[]> {
   const nodes = await ctx.graph.allNodes();
-  const scope = selectNodes(nodes, pred.scope);
+  const scope = selectNodes(nodes, pred.scope, ctx.options);
   const inScope = new Set<AnchorId>(scope.map((n) => n.id));
   const nameOf = new Map<AnchorId, string>(nodes.map((n) => [n.id, n.name]));
 

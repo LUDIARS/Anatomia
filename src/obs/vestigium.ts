@@ -19,6 +19,8 @@ import { createRequire } from "node:module";
 interface Vestigium {
   writer: {
     write(entry: { level: VgLevel; msg: string; ctx?: Record<string, unknown> }): void;
+    /** JSONL の出力先ルート。 書き込み失敗の帰属判定に使う (古い SDK では無いことがある)。 */
+    logsDir?: string;
   };
   shutdown(): Promise<void>;
 }
@@ -133,6 +135,13 @@ export function installCrashLogging(): void {
   if (process.env.NODE_ENV === "test" || process.env.VITEST === "true") return;
 
   process.on("uncaughtException", (err) => {
+    if (isVgLogWriteFailure(err, vg?.writer.logsDir)) {
+      // Vg の WriteStream は error listener を持たないので、 並行プロセスが同じ日付ファイルへ
+      // 追記して EPERM になると uncaughtException として届く。 ログだけ諦めて解析は続ける。
+      vg = null;
+      console.error(vestigiumDisabledNotice(err));
+      return;
+    }
     vgCrash("uncaughtException", err);
     console.error("[anatomia-crash] uncaughtException", err);
     scheduleCrashExit(1);
@@ -154,6 +163,31 @@ export function installCrashLogging(): void {
       vgWrite("fatal", `[anatomia-crash] process exit code ${code}`, { kind: "exit", code });
     }
   });
+}
+
+const LOG_WRITE_ERROR_CODES = new Set(["EPERM", "EACCES", "EBUSY", "EMFILE", "ENFILE", "ENOSPC", "EROFS"]);
+
+/**
+ * Vg の JSONL 書き込みに由来するファイルシステムエラーか。
+ * @spec interface: CLI（bin/anatomia.mjs）
+ *
+ * 帰属はエラーの `path` が Vg の logsDir 配下にあることで決める。 logsDir が分からない
+ * (未初期化・古い SDK) ときや path を持たないエラーは Vg 由来と断定せず false を返し、
+ * 本物の障害を握りつぶさない。
+ */
+export function isVgLogWriteFailure(err: unknown, logsDir: string | undefined): boolean {
+  if (!logsDir || typeof err !== "object" || err === null) return false;
+  const { code, path } = err as { code?: unknown; path?: unknown };
+  if (typeof code !== "string" || !LOG_WRITE_ERROR_CODES.has(code)) return false;
+  if (typeof path !== "string" || path.length === 0) return false;
+  const root = normalizeFsPath(logsDir).replace(/\/+$/, "");
+  const target = normalizeFsPath(path);
+  return target === root || target.startsWith(`${root}/`);
+}
+
+function normalizeFsPath(p: string): string {
+  const slashed = p.replace(/\\/g, "/");
+  return process.platform === "win32" ? slashed.toLowerCase() : slashed;
 }
 
 export function vgEnabled(): boolean {

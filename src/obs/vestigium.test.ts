@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { vestigiumDisabledNotice } from "./vestigium.js";
+import { isVgLogWriteFailure, vestigiumDisabledNotice } from "./vestigium.js";
 
 /**
  * Anatomia CLI を子プロセスで叩く委託エージェントは stderr を見て実行可否を判断する。
@@ -46,5 +46,33 @@ describe("vestigiumDisabledNotice", () => {
 
     expect(vestigiumDisabledNotice(value))
       .toBe("[anatomia/vestigium] Vg ログ無効 (解析は継続): unknown error");
+  });
+});
+
+/**
+ * 並行する委託が同じ日付の JSONL へ追記すると、 Vg の WriteStream (error listener 無し) の
+ * EPERM が uncaughtException として届き、 解析ごと exit 1 になっていた (Actio 0317cf25)。
+ * Vg 由来と言えるものだけをログ無効化に回し、 それ以外の障害は従来どおり crash させる。
+ */
+describe("isVgLogWriteFailure", () => {
+  const logsDir = "C:/work/logs";
+  const fsError = (code: string, path?: string) => Object.assign(new Error(code), { code, path });
+
+  it("logsDir 配下への書き込み失敗は Vg 由来とみなす", () => {
+    expect(isVgLogWriteFailure(fsError("EPERM", "C:/work/logs/anatomia/2026-09-04.jsonl"), logsDir)).toBe(true);
+    expect(isVgLogWriteFailure(fsError("EBUSY", "C:\\work\\logs\\anatomia\\2026-09-04.jsonl"), logsDir)).toBe(true);
+  });
+
+  it("logsDir の外・同じ接頭辞の別ディレクトリは Vg 由来としない", () => {
+    expect(isVgLogWriteFailure(fsError("EPERM", "C:/work/cache/graph.bin"), logsDir)).toBe(false);
+    expect(isVgLogWriteFailure(fsError("EPERM", "C:/work/logs-old/anatomia.jsonl"), logsDir)).toBe(false);
+  });
+
+  it("ファイルシステム以外のエラー・path 無し・logsDir 不明は握りつぶさない", () => {
+    expect(isVgLogWriteFailure(new TypeError("boom"), logsDir)).toBe(false);
+    expect(isVgLogWriteFailure(fsError("EPERM"), logsDir)).toBe(false);
+    expect(isVgLogWriteFailure(fsError("ENOENT", "C:/work/logs/anatomia/x.jsonl"), logsDir)).toBe(false);
+    expect(isVgLogWriteFailure(fsError("EPERM", "C:/work/logs/anatomia/x.jsonl"), undefined)).toBe(false);
+    expect(isVgLogWriteFailure("EPERM", logsDir)).toBe(false);
   });
 });

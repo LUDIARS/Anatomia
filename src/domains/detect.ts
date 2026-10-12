@@ -28,7 +28,7 @@ import type { CodeGraphQuery } from "../graph/query.js";
 import { evaluatePredicate } from "./engine.js";
 import { buildPresetPredicate } from "./presets.js";
 import { evaluateTemplate, makeTemplateResolver } from "./template.js";
-import { matchesFilter } from "./predicate.js";
+import { matchesFilter, type FilterContext } from "./predicate.js";
 import { invalidRegexParams } from "./regex-source.js";
 import type { DomainDef, DomainOntology, DomainRole } from "./ontology.js";
 import { assertDomainDefinitionName } from "./assignment.js";
@@ -104,6 +104,7 @@ export async function detectDomain(
   def: DomainDef,
   graph: CodeGraphQuery,
   functions: FunctionNode[],
+  context: FilterContext = {},
 ): Promise<DetectionResult> {
   assertDomainDefinitionName(def.name);
   const presetPreds = compilePresetPredicates(def);
@@ -117,6 +118,7 @@ export async function detectDomain(
       ruleId,
       severity: "error",
       templateResolver,
+      repoRoot: context.repoRoot,
     });
     violations.push(...v);
   }
@@ -156,7 +158,7 @@ export async function detectDomain(
     if (
       filters.some(
         (filter) =>
-          isMeaningfulFilter(filter) && matchesFilter(filterNode, filter),
+          isMeaningfulFilter(filter) && matchesFilter(filterNode, filter, context),
       )
     ) {
       implementorSet.add(node.id);
@@ -220,10 +222,11 @@ export async function detectDomains(
   ontology: DomainOntology,
   graph: CodeGraphQuery,
   functions: FunctionNode[],
+  context: FilterContext = {},
 ): Promise<DetectionResult[]> {
   const results: DetectionResult[] = [];
   for (const def of ontology.domains.values()) {
-    results.push(await detectDomain(def, graph, functions));
+    results.push(await detectDomain(def, graph, functions, context));
   }
   return results;
 }

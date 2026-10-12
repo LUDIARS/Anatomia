@@ -40,6 +40,13 @@
     { "source": "src/adapters/cli.ts", "tests": ["src/adapters/__tests__/cli.test.ts", "src/obs/request-usage.test.ts"] },
     { "source": "src/adapters/map-cli.ts", "tests": ["src/adapters/__tests__/cli.test.ts", "src/web-cache/domain-locator.test.ts"] },
     { "source": "src/adapters/mcp.ts", "tests": ["src/adapters/__tests__/mcp-project.test.ts", "src/web-cache/domain-locator.test.ts", "src/obs/request-usage.test.ts"] },
-    { "source": "src/fs/walk.ts", "tests": ["src/fs/__tests__/walk.test.ts"] }
+    { "source": "src/fs/walk.ts", "tests": ["src/fs/__tests__/walk.test.ts"] },
+    { "source": "src/obs/vestigium.ts", "tests": ["src/obs/vestigium.test.ts"] },
+    { "source": "src/domains/predicate.ts", "tests": ["src/domains/predicate.test.ts"] },
+    { "source": "src/domains/detect.ts", "tests": ["src/domains/predicate.test.ts"] },
+    { "source": "src/domains/engine.ts", "tests": ["src/domains/predicate.test.ts"] },
+    { "source": "src/supply/plan/exemplar.ts", "tests": ["src/supply/plan/__tests__/quality.test.ts"] },
+    { "source": "src/supply/plan/public-api.ts", "tests": ["src/supply/plan/__tests__/quality.test.ts"] },
+    { "source": "src/spec/explicit.ts", "tests": ["src/spec/explicit.test.ts"] }
   ]
 }

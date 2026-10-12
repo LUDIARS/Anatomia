@@ -15,6 +15,8 @@
  * a name-shape guess would quietly drop real API like `getSnapshot`.
  *
  * SRP: the accessor/operator predicate, shared by data-defs.ts and exemplar.ts.
+ *
+ * @spec パイプライン（`src/supply/plan/`）
  */
 
 /**

@@ -11,11 +11,15 @@
  * exactly because it says nothing.
  *
  * The plan therefore prefers, in order:
- *   1. a non-accessor (public-api.ts) — an accessor is never a design to copy
- *   2. a sibling whose name shares a token with the TASK — the closest thing to
+ *   1. production code — a test helper is heavily referenced (every case calls
+ *      it) and a domain whose membership includes its tests can even get `test`
+ *      as its majority layer, so without this the exemplar drifted into
+ *      `test/…test.mjs:createWorld` while the task named production code
+ *   2. a non-accessor (public-api.ts) — an accessor is never a design to copy
+ *   3. a sibling whose name shares a token with the TASK — the closest thing to
  *      "an implementation of this kind of thing already exists"
- *   3. a sibling in the domain's own majority layer — not a vendored copy
- *   4. reference count, then `pickPrecedent`'s deterministic tie-break
+ *   4. a sibling in the domain's own majority layer — not a vendored copy
+ *   5. reference count, then `pickPrecedent`'s deterministic tie-break
  *
  * SRP: sibling lookup → one exemplar per domain.
  *
@@ -24,6 +28,7 @@
 
 import { contextLayerRules, contextSiblingLookup } from "../detectors.js";
 import { pickPrecedent, type Sibling } from "../landing.js";
+import { isTestFilePath } from "../gates/types.js";
 import { tokenizeRelevanceText } from "../relevance.js";
 import { repoRelative, type PlanRepo } from "./collect.js";
 import { isAccessorName } from "./public-api.js";
@@ -35,6 +40,9 @@ export interface ExemplarOptions {
   task?: string;
 }
 
+/** Repo-relative path of a sibling's anchor; undefined when it cannot be resolved. */
+export type SiblingPathOf = (sibling: Sibling) => string | undefined;
+
 /** The exemplar for `domain`, or null when the domain has no implementor yet. */
 export async function findExemplar(
   repo: PlanRepo,
@@ -43,7 +51,12 @@ export async function findExemplar(
 ): Promise<PlanExemplar | null> {
   const layer = contextLayerRules(repo.ctx).layerFor(domain);
   const siblings = await contextSiblingLookup(repo.ctx)(domain, layer);
-  const precedent = pickExemplarSibling(siblings, layer, options.task ?? "");
+  const pathByAnchor = new Map(
+    repo.ctx.functions.map((f) => [f.id, repoRelative(repo.repoPath, f.sourceRange.filePath)]),
+  );
+  const precedent = pickExemplarSibling(siblings, layer, options.task ?? "", (sibling) =>
+    pathByAnchor.get(sibling.anchor),
+  );
   if (!precedent) return null;
   const fn = repo.ctx.functions.find((f) => f.id === precedent.anchor);
   return {
@@ -67,9 +80,11 @@ export function pickExemplarSibling(
   siblings: Sibling[],
   domainLayer: string | null,
   task: string,
+  pathOf: SiblingPathOf = () => undefined,
 ): Sibling | undefined {
   if (siblings.length === 0) return undefined;
-  let candidates = narrow(siblings, (sibling) => !isAccessorName(sibling.name));
+  let candidates = narrow(siblings, (sibling) => !isTestSibling(sibling, pathOf));
+  candidates = narrow(candidates, (sibling) => !isAccessorName(sibling.name));
 
   const taskTokens = new Set(tokenizeRelevanceText(task).filter((token) => token.length >= 3));
   if (taskTokens.size > 0) {
@@ -86,6 +101,13 @@ export function pickExemplarSibling(
   }
 
   return pickPrecedent(candidates);
+}
+
+/** Test code by path (`__tests__/`, `*.test.*`, `*.spec.*`) or by its classified layer. */
+function isTestSibling(sibling: Sibling, pathOf: SiblingPathOf): boolean {
+  if (sibling.layer === "test") return true;
+  const path = pathOf(sibling);
+  return path !== undefined && isTestFilePath(path);
 }
 
 /** How many distinct task tokens a sibling's name carries. */

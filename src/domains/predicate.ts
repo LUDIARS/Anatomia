@@ -16,9 +16,24 @@
  * forward slashes (so ontology patterns like `/enemy/` are OS-independent). It
  * is what lets directory-structured codebases (e.g. a game's enemy/ combat/
  * render/ layout) express layer rules by location rather than by name.
+ *
+ * When the caller knows the repo root, the pattern is ALSO tested against the
+ * repo-relative path. The node's path is absolute whenever the repo was given as
+ * an absolute path (`pr-review --repo E:/…/Actio`), so a `^src/…` membership
+ * pattern matched nothing there and the PR came back "target domain missing",
+ * while the same review with `--repo .` passed. Either form matching is enough:
+ * existing segment patterns (`/enemy/`, `(^|/)src/`) keep matching the absolute
+ * path, and `^`-anchored ones now match the repo-relative one.
  */
 
+import { toRepoRelative } from "../fs/repo-path.js";
 import type { CodeNode, NodeFilter } from "../types.js";
+
+/** Where the matched nodes live; lets `pathPattern` see repo-relative paths. */
+export interface FilterContext {
+  /** Absolute repo root the node paths were parsed under. */
+  repoRoot?: string;
+}
 
 /** Cache compiled regexes so repeated evaluation does not recompile. */
 const regexCache = new Map<string, RegExp>();
@@ -32,7 +47,7 @@ function compileRegex(src: string): RegExp {
 }
 
 /** Does a single node satisfy the filter? */
-export function matchesFilter(node: CodeNode, filter: NodeFilter): boolean {
+export function matchesFilter(node: CodeNode, filter: NodeFilter, context: FilterContext = {}): boolean {
   if (filter.kind !== undefined && node.kind !== filter.kind) return false;
 
   if (filter.namePattern !== undefined) {
@@ -48,8 +63,7 @@ export function matchesFilter(node: CodeNode, filter: NodeFilter): boolean {
 
   if (filter.pathPattern !== undefined) {
     const re = compileRegex(filter.pathPattern);
-    const path = node.sourceRange.filePath.replace(/\\/g, "/");
-    if (!re.test(path)) return false;
+    if (!filterPaths(node.sourceRange.filePath, context).some((path) => re.test(path))) return false;
   }
 
   if (filter.tags !== undefined && filter.tags.length > 0) {
@@ -63,6 +77,14 @@ export function matchesFilter(node: CodeNode, filter: NodeFilter): boolean {
 }
 
 /** Return the subset of `nodes` that match the filter. */
-export function selectNodes(nodes: CodeNode[], filter: NodeFilter): CodeNode[] {
-  return nodes.filter((node) => matchesFilter(node, filter));
+export function selectNodes(nodes: CodeNode[], filter: NodeFilter, context: FilterContext = {}): CodeNode[] {
+  return nodes.filter((node) => matchesFilter(node, filter, context));
+}
+
+/** The forward-slashed path, plus its repo-relative form when that differs. */
+function filterPaths(filePath: string, context: FilterContext): string[] {
+  const path = filePath.replace(/\\/g, "/");
+  if (!context.repoRoot) return [path];
+  const relative = toRepoRelative(path, context.repoRoot);
+  return relative === path ? [path] : [path, relative];
 }

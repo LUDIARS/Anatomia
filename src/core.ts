@@ -794,12 +794,12 @@ export async function analyze(
         detected = hit;
       } else {
         vgWrite("debug", "anatomia domain detection cache miss", { repo: repoName, files: files.length });
-        detected = await detectDomains(ontology, graph, allFunctions);
+        detected = await detectDomains(ontology, graph, allFunctions, { repoRoot: repoPath });
         await detectionCache.set(key, detected);
       }
     } else {
       vgWrite("debug", "anatomia domain detection start", { repo: repoName, files: files.length });
-      detected = await detectDomains(ontology, graph, allFunctions);
+      detected = await detectDomains(ontology, graph, allFunctions, { repoRoot: repoPath });
     }
     ({ domains, policyResults } = partitionDetectionResults(detected));
     // Surface the ontology's preset rules so supply can list them and verify

@@ -65,3 +65,34 @@ describe("matchesFilter pathPattern", () => {
     expect(got.map((n) => n.sourceRange.filePath)).toEqual([render.sourceRange.filePath]);
   });
 });
+
+// `pr-review --repo <absolute>` hands absolute node paths to membership patterns
+// written repo-relative (`^src/...`); they matched nothing and the PR came back
+// "target domain missing" while `--repo .` passed (Actio eb08b6f4).
+describe("matchesFilter pathPattern with a repo root", () => {
+  const absolute = node("handle", "E:/Document/Ars/Actio/src/routes/tasks.ts");
+  const windows = node("handle", "E:\\Document\\Ars\\Actio\\src\\routes\\tasks.ts");
+  const relative = node("handle", "src/routes/tasks.ts");
+  const repoRoot = "E:/Document/Ars/Actio";
+
+  it("matches a ^-anchored pattern against the repo-relative path", () => {
+    expect(matchesFilter(absolute, { pathPattern: "^src/routes/" })).toBe(false);
+    expect(matchesFilter(absolute, { pathPattern: "^src/routes/" }, { repoRoot })).toBe(true);
+    expect(matchesFilter(windows, { pathPattern: "^src/routes/" }, { repoRoot: "e:\\document\\ars\\actio" })).toBe(true);
+  });
+
+  it("gives the same answer for an absolute and a relative checkout", () => {
+    expect(matchesFilter(relative, { pathPattern: "^src/routes/" }, { repoRoot: "." })).toBe(true);
+    expect(matchesFilter(absolute, { pathPattern: "^src/routes/" }, { repoRoot })).toBe(true);
+  });
+
+  it("keeps segment patterns working against the absolute path", () => {
+    expect(matchesFilter(absolute, { pathPattern: "/Actio/src/" }, { repoRoot })).toBe(true);
+    expect(matchesFilter(absolute, { pathPattern: "(^|/)src/routes/" }, { repoRoot })).toBe(true);
+  });
+
+  it("does not match files outside the pattern even when relativised", () => {
+    expect(matchesFilter(absolute, { pathPattern: "^src/db/" }, { repoRoot })).toBe(false);
+    expect(selectNodes([absolute], { pathPattern: "^src/routes/" }, { repoRoot })).toEqual([absolute]);
+  });
+});

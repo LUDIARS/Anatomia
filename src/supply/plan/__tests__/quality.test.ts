@@ -120,4 +120,49 @@ describe("pickExemplarSibling", () => {
     );
     expect(picked?.name).toBe("size");
   });
+
+  // 2026-09-05 実測: uni-jump-trampoline の主 layer が test に倒れ、被参照の多い
+  // テストヘルパ createWorld が手本になった。プロダクションの startMissionRun を選ぶ。
+  it("prefers production code over a heavily-referenced test helper in a test-majority domain", () => {
+    const paths: Record<string, string> = {
+      [anchor("helper")]: "test/uni-jump-pile-world.test.mjs",
+      [anchor("mission")]: "renderer/lib/jump/missions.js",
+    };
+    const picked = pickExemplarSibling(
+      [
+        { anchor: anchor("helper"), name: "createWorld", layer: "test", references: 15 },
+        { anchor: anchor("mission"), name: "startMissionRun", layer: "renderer", references: 2 },
+      ],
+      "test",
+      "トランポリンカウンターのミッション表示を直す",
+      (sibling) => paths[sibling.anchor],
+    );
+    expect(picked?.name).toBe("startMissionRun");
+  });
+
+  it("excludes test files by path even when their layer is not classified as test", () => {
+    const paths: Record<string, string> = {
+      [anchor("spec")]: "src/__tests__/fixtures.ts",
+      [anchor("impl")]: "src/cache/evict.ts",
+    };
+    const picked = pickExemplarSibling(
+      [
+        { anchor: anchor("spec"), name: "buildFixture", layer: "src", references: 40 },
+        { anchor: anchor("impl"), name: "evictEntry", layer: "src", references: 1 },
+      ],
+      "src",
+      "",
+      (sibling) => paths[sibling.anchor],
+    );
+    expect(picked?.name).toBe("evictEntry");
+  });
+
+  it("still returns a test sibling when the domain has nothing but tests", () => {
+    const picked = pickExemplarSibling(
+      [{ anchor: anchor("only"), name: "createWorld", layer: "test", references: 15 }],
+      "test",
+      "",
+    );
+    expect(picked?.name).toBe("createWorld");
+  });
 });
