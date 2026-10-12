@@ -35,6 +35,8 @@ import type { AnchorId, FileNode, FunctionNode, TypeDecl } from "../types.js";
 export interface FieldType {
   type: string | null;
   elementType?: string | null;
+  /** Script member built by a free factory call; typed from that factory's return. */
+  initCall?: string;
 }
 
 /** A method definition's anchor + its return type info (for call-result typing). */
@@ -53,6 +55,10 @@ export class TypeRegistry {
   private readonly fields = new Map<string, Map<string, FieldType>>();
   /** Every type name seen (declared OR owning a method) — the "known" set. */
   private readonly known = new Set<string>();
+  /** type → (getter name → script `get` accessors on that type). */
+  private readonly getters = new Map<string, Map<string, AnchorId[]>>();
+  /** free function name → distinct declared/derived return types. */
+  private readonly freeReturns = new Map<string, Set<string>>();
 
   /** Build a registry from a set of analyzed files. */
   static build(files: FileNode[]): TypeRegistry {
@@ -72,6 +78,10 @@ export class TypeRegistry {
       reg.fields.set(type, new Map([...byName].map(([n, ft]) => [n, { ...ft }])));
     }
     for (const t of this.known) reg.known.add(t);
+    for (const [type, byName] of this.getters) {
+      reg.getters.set(type, new Map([...byName].map(([n, ids]) => [n, [...ids]])));
+    }
+    for (const [name, types] of this.freeReturns) reg.freeReturns.set(name, new Set(types));
     return reg;
   }
 
@@ -84,7 +94,15 @@ export class TypeRegistry {
   }
 
   private addFunction(fn: FunctionNode): void {
-    if (!fn.id || !fn.enclosingType) return;
+    if (!fn.id) return;
+    if (!fn.enclosingType) {
+      if (fn.returnType) {
+        const types = this.freeReturns.get(fn.name) ?? new Set<string>();
+        types.add(fn.returnType);
+        this.freeReturns.set(fn.name, types);
+      }
+      return;
+    }
     this.known.add(fn.enclosingType);
     // The method name is the terminal name; out-of-line defs carry the `Class::`
     // qualifier in fn.name, so strip it for the method-table key.
@@ -105,6 +123,13 @@ export class TypeRegistry {
     } else {
       byName.set(method, [info]);
     }
+    if (fn.accessor === "get") {
+      const byGetter = this.getters.get(fn.enclosingType) ?? new Map<string, AnchorId[]>();
+      const ids = byGetter.get(method) ?? [];
+      if (!ids.includes(fn.id)) ids.push(fn.id);
+      byGetter.set(method, ids);
+      this.getters.set(fn.enclosingType, byGetter);
+    }
   }
 
   private addType(decl: TypeDecl): void {
@@ -123,7 +148,9 @@ export class TypeRegistry {
       }
       for (const f of decl.fields) {
         // First declaration wins (forward decls / split headers stay stable).
-        if (!byName.has(f.name)) byName.set(f.name, { type: f.type, elementType: f.elementType });
+        if (!byName.has(f.name)) {
+          byName.set(f.name, { type: f.type, elementType: f.elementType, ...(f.initCall ? { initCall: f.initCall } : {}) });
+        }
       }
     }
   }
@@ -140,7 +167,11 @@ export class TypeRegistry {
       if (seen.has(t)) continue;
       seen.add(t);
       const ft = this.fields.get(t)?.get(field);
-      if (ft) return ft;
+      if (ft) {
+        if (ft.type || !ft.initCall) return ft;
+        // `this.d = createDetector()` — the member's type is the factory's return.
+        return { ...ft, type: this.resolveFreeReturn(ft.initCall)?.type ?? null };
+      }
       const bs = this.bases.get(t);
       if (bs) for (const b of bs) if (!seen.has(b)) stack.push(b);
     }
@@ -192,5 +223,63 @@ export class TypeRegistry {
       if (bs) for (const b of bs) if (!seen.has(b)) stack.push(b);
     }
     return null;
+  }
+
+  /**
+   * Return type of a FREE function `name` (`const d = createDetector()`). Only an
+   * unambiguous answer counts: several same-named free functions returning
+   * different types leave the result untyped rather than picking one.
+   */
+  resolveFreeReturn(name: string): { type: string | null; elementType: string | null } | null {
+    const types = this.freeReturns.get(name);
+    if (!types || types.size !== 1) return null;
+    return { type: [...types][0]!, elementType: null };
+  }
+
+  /** Script `get` accessors named `name` on `type` or its bases. */
+  resolveGetter(type: string, name: string): AnchorId[] {
+    const out: AnchorId[] = [];
+    for (const t of this.hierarchy(type)) {
+      for (const id of this.getters.get(t)?.get(name) ?? []) if (!out.includes(id)) out.push(id);
+    }
+    return out;
+  }
+
+  /**
+   * Methods named `method` declared on a STRICT ancestor of `type` — the base
+   * definitions an override in `type` may be dispatched through.
+   */
+  overriddenBy(type: string, method: string): AnchorId[] {
+    const out: AnchorId[] = [];
+    for (const t of this.hierarchy(type)) {
+      if (t === type) continue;
+      for (const m of this.methods.get(t)?.get(method) ?? []) if (!out.includes(m.id)) out.push(m.id);
+    }
+    return out;
+  }
+
+  /** Every (type, method name, definition) with a body, for override discovery. */
+  *methodDefinitions(): Generator<{ type: string; method: string; id: AnchorId }> {
+    for (const [type, byName] of this.methods) {
+      for (const [method, infos] of byName) for (const info of infos) yield { type, method, id: info.id };
+    }
+  }
+
+  /** Is `ancestor` the same as `type` or one of its transitive bases? */
+  isSelfOrAncestor(type: string, ancestor: string): boolean {
+    return this.hierarchy(type).includes(ancestor);
+  }
+
+  /** `type` followed by its transitive bases (each once). */
+  private hierarchy(type: string): string[] {
+    const seen: string[] = [];
+    const stack = [type];
+    while (stack.length > 0) {
+      const t = stack.pop()!;
+      if (seen.includes(t)) continue;
+      seen.push(t);
+      for (const b of this.bases.get(t) ?? []) if (!seen.includes(b)) stack.push(b);
+    }
+    return seen;
   }
 }

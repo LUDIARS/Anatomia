@@ -33,7 +33,16 @@ Unity補正は `Assets/` と `ProjectSettings/ProjectVersion.txt` が揃うプ�
 対象関数のクラスが直接または継承鎖経由で `MonoBehaviour` を継承し、Unity 2021.3 の
 イベント関数名に一致した場合、エンジン所有のライフサイクル接続として解決する。
 静的な疑似 call edge は追加せず、グラフ表示メタデータへ lifecycle ラベルを付与する。
+| `dispatchReachable` | static caller は無いが、基底・interface 越しの呼び出しから配送されうる override（`base-call` / `abstract-call` / `unresolved-call`、→ [static-analysis.md](./static-analysis.md#override-dispatch-evidence)）。orphan から除く |
+| `declaredEntrypoints` | static caller は無いが `.anatomia/entrypoints.json` が公開入口として宣言する関数。orphan から除き、「未使用」ではなく「現在 production 呼び出しが無い公開契約」として出す |
 | `specGaps` | spec が存在するプロジェクトで、どの spec clause にも link されない source file |
+
+### Declared entry points in review
+
+`.anatomia/entrypoints.json` の `include`（`exclude` を除く）に一致する関数は、fan-in 0 でも
+`orphans` ではなく `declaredEntrypoints` に出す（`src/review/declared-entrypoints.ts`）。
+factory を宣言した場合、その factory が直接返すオブジェクトのメソッド（囲み型 `factory()`）も
+同じ公開契約として扱う。架空の call 辺は追加しない。宣言が無ければ従来どおり orphan に残る。
 
 `summary` は cap 前の真の件数を返す。`hotspots` は既定 20 件、`orphans` と `specGaps` の
 表示配列は既定 50 件までだが、件数自体は切り詰めない。

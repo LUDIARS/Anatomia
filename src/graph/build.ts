@@ -284,6 +284,9 @@ export function extractFunctionEdgeInfo(fn: FunctionNode): FunctionEdgeInfo | nu
     }
   }
 
+  // ── script property reads (getter resolution) ───────────────────────────────
+  const propertyReads = collectPropertyReads(body);
+
   // ── symbol types (params + explicitly-typed locals) ─────────────────────────
   // `auto x = call()` locals and range-for loop vars are captured RAW here and
   // typed later in emitEdges, where the cross-file TypeRegistry is available.
@@ -307,7 +310,33 @@ export function extractFunctionEdgeInfo(fn: FunctionNode): FunctionEdgeInfo | nu
     callLocals,
     rangeFors,
     ...(fn.enclosingType ? { selfType: fn.enclosingType } : {}),
+    ...(propertyReads.length > 0 ? { propertyReads } : {}),
   };
+}
+
+/**
+ * Script property reads (`this.game.question`) that are neither a call's callee
+ * nor an assignment target. They become edges only when the receiver is typed
+ * and the property is a getter on that type (emitEdges); untyped reads stay
+ * silent, so a plain data property never fans out to a same-named function.
+ */
+function collectPropertyReads(body: AstNode): CallSite[] {
+  const out: CallSite[] = [];
+  const seen = new Set<string>();
+  for (const node of descendantsIterative(body, new Set(["member_expression"]))) {
+    const property = node.childForFieldName("property");
+    if (!property || property.type !== "property_identifier") continue;
+    const parent = node.parent;
+    if (parent && parent.type === "call_expression" && parent.childForFieldName("function") === node) continue;
+    if (isAssignmentLhs(node)) continue;
+    const receiver = receiverChain(node.childForFieldName("object"));
+    if (!receiver) continue;
+    const key = `${property.text}|${receiver.join(".")}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ name: property.text, receiver });
+  }
+  return out;
 }
 
 /**
@@ -382,7 +411,8 @@ function receiverChain(node: AstNode | null): string[] | null {
 /** Local declaration node types whose declared variables we type. */
 const LOCAL_DECL_TYPES = new Set<string>([
   "declaration", // C++
-  "variable_declaration", // C# (also nested under local_declaration_statement)
+  "variable_declaration", // C# (also nested under local_declaration_statement); JS `var`
+  "lexical_declaration", // JS / TS `const` / `let` (variable_declarator children, like C#)
 ]);
 
 /**
@@ -644,6 +674,19 @@ function emitEdges(
       }
     }
 
+    // script getters — a property read IS a call when the typed receiver
+    // declares a getter for it. Untyped reads add nothing (no by-name fan-out).
+    if (graph.typeRegistry) {
+      for (const read of info.propertyReads ?? []) {
+        const recvType = resolveChainType(read.receiver, symbols, info.selfType, graph.typeRegistry);
+        if (!recvType) continue;
+        const getters = graph.typeRegistry.resolveGetter(recvType, read.name);
+        for (const toId of localityResolve(graph, callerPath, getters)) {
+          addEdge(graph, { from: fromId, to: toId, kind: "calls" });
+        }
+      }
+    }
+
     // writes (emit first to deduplicate reads below)
     for (const fieldName of info.writeFieldNames) {
       const targets = nameIndex.get(fieldName);
@@ -701,9 +744,10 @@ function buildSymbolTable(
       let changed = false;
       for (const cl of info.callLocals) {
         if (cl.name in symbols || cl.name in elems) continue;
-        const recvType = resolveChainType(cl.receiver, symbols, selfType, registry);
-        if (!recvType) continue;
-        const ret = registry.resolveReturn(recvType, cl.method);
+        // `const d = createDetector()` — a free call typed from the factory's return.
+        const ret = cl.receiver === null
+          ? registry.resolveFreeReturn(cl.method)
+          : resolveReturnOn(resolveChainType(cl.receiver, symbols, selfType, registry), cl.method, registry);
         if (!ret) continue;
         if (ret.type) symbols[cl.name] = ret.type;
         if (ret.elementType) elems[cl.name] = ret.elementType;
@@ -733,6 +777,15 @@ function buildSymbolTable(
   }
 
   return symbols;
+}
+
+/** Return-type info of `method` on `recvType`, or null when the receiver is untyped. */
+function resolveReturnOn(
+  recvType: string | undefined,
+  method: string,
+  registry: TypeRegistry,
+): { type: string | null; elementType: string | null } | null {
+  return recvType ? registry.resolveReturn(recvType, method) : null;
 }
 
 /**

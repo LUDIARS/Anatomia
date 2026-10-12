@@ -32,6 +32,8 @@ import { buildQualityScores, type QualityScores } from "./quality-scores.js";
 import { findRefactoringOpportunities, type RefactoringOpportunity } from "./refactoring-opportunities.js";
 import { evaluatePredicate } from "../domains/engine.js";
 import { resolveUnityLifecycleFunctions } from "../frameworks/unity/lifecycle.js";
+import { resolveOverrideDispatch, type DispatchVia } from "../graph/override-dispatch.js";
+import { loadDeclaredEntrypoints } from "./declared-entrypoints.js";
 
 export interface ReviewLocation {
   anchor: AnchorId;
@@ -97,6 +99,17 @@ export interface ReviewReport {
   /** Exact lexical/import-resolved usages; callback references are not call edges. */
   referenceEvidence?: { target: ReviewLocation; kind: "call" | "constructor" | "callback-reference";
     source: { file: string; line: number; column: number }; owner: AnchorId | null }[];
+  /**
+   * Overrides with no static caller that a base/interface call may dispatch to
+   * (graph/override-dispatch.ts). Kept out of `orphans`; the reachability is
+   * inferred, not a resolved call edge.
+   */
+  dispatchReachable?: { target: ReviewLocation; base: ReviewLocation | null; via: DispatchVia; receiverType?: string }[];
+  /**
+   * Functions with no static caller that `.anatomia/entrypoints.json` declares as
+   * public entries — "no production caller yet" rather than "unused".
+   */
+  declaredEntrypoints?: ReviewLocation[];
   /** Source files tied to no spec clause (file-granular). Empty when no spec. */
   specGaps: string[];
 }
@@ -182,10 +195,28 @@ export async function buildReview(
     .slice(0, topHotspots)
     .map((m) => ({ ...locOf(m.anchor), fanIn: m.fanIn, fanOut: m.fanOut, coupling: m.coupling, cyclomatic: m.cyclomatic }));
 
-  const orphansAll = metrics
-    .filter((m) => m.fanIn === 0 && !unityLifecycle.has(m.anchor) && !referenced.has(m.anchor))
+  const dispatch = new Map(resolveOverrideDispatch(ctx.graph.raw).map((evidence) => [evidence.target, evidence]));
+  const declared = await loadDeclaredEntrypoints(ctx.repoPath, ctx.functions);
+  const uncalled = metrics.filter((m) => m.fanIn === 0 && !unityLifecycle.has(m.anchor) && !referenced.has(m.anchor));
+  const orphansAll = uncalled
+    .filter((m) => !dispatch.has(m.anchor) && !declared.has(m.anchor))
     .map((m) => locOf(m.anchor))
     .filter((l) => l.name !== "main")
+    .sort(sortLocs);
+  const dispatchReachable = uncalled
+    .flatMap((m) => {
+      const evidence = dispatch.get(m.anchor);
+      return evidence ? [{
+        target: locOf(m.anchor),
+        base: evidence.base ? locOf(evidence.base) : null,
+        via: evidence.via,
+        ...(evidence.receiverType ? { receiverType: evidence.receiverType } : {}),
+      }] : [];
+    })
+    .sort((a, b) => sortLocs(a.target, b.target));
+  const declaredEntrypoints = uncalled
+    .filter((m) => declared.has(m.anchor) && !dispatch.has(m.anchor))
+    .map((m) => locOf(m.anchor))
     .sort(sortLocs);
 
   // ── cycles (AST graph, reusing the NoCycle predicate) ──────────────────────
@@ -305,6 +336,8 @@ export async function buildReview(
     domainCoupling,
     orphans: orphansAll.slice(0, maxList),
     referenceEvidence,
+    dispatchReachable: dispatchReachable.slice(0, maxList),
+    declaredEntrypoints: declaredEntrypoints.slice(0, maxList),
     specGaps: specGapsAll.slice(0, maxList),
   };
 }

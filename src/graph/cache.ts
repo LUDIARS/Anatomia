@@ -30,7 +30,7 @@ import type { CodeGraph } from "./build.js";
 import type { AnchorId, CodeNode, FileNode, SourceRange, SourceReferenceEvidence } from "../types.js";
 
 /** BUMP when CodeGraph's shape or buildGraph's semantics change. */
-export const GRAPH_CACHE_VERSION = "5"; // 5: lexical scope parser-recovery uncertainty
+export const GRAPH_CACHE_VERSION = "6"; // 6: script receiver typing + getter edges
 
 /**
  * Code identity for graph/detection reuse: each file's path + raw source hash

@@ -15,6 +15,7 @@
 import type { Node, Tree } from "web-tree-sitter";
 import type { AstNode, FieldInfo, FunctionNode, ParamInfo, SourceRange, TypeDecl } from "../types.js";
 import { freezeBody } from "./freeze.js";
+import { accessorKind, factoryMethodOwner, factoryReturnType, scriptBases, scriptFields, scriptParam } from "./script-types.js";
 
 /** Node types that introduce a function-like definition, by language family. */
 const FUNCTION_DEFINITION_TYPES = new Set<string>([
@@ -244,6 +245,9 @@ const TYPE_CONTAINER_TYPES = new Set<string>([
   "interface_declaration",
   "record_declaration",
   "record_struct_declaration",
+  // JavaScript / TypeScript (class_declaration above is shared with C#)
+  "class",
+  "abstract_class_declaration",
 ]);
 
 /** Simple name of a type-container node (the class name). */
@@ -270,6 +274,8 @@ function typeContainerName(node: Node): string | null {
 function extractEnclosingType(node: Node): string | undefined {
   const qualifier = qualifiedDefinitionScope(node);
   if (qualifier) return qualifier;
+  const factoryOwner = factoryMethodOwner(node);
+  if (factoryOwner) return factoryOwner;
   let cur: Node | null = node.parent;
   while (cur) {
     if (TYPE_CONTAINER_TYPES.has(cur.type)) {
@@ -360,6 +366,10 @@ function extractParams(node: Node): ParamInfo[] {
       if (nameNode) {
         out.push({ name: nameNode.text, type: simpleTypeName(typeNode), elementType: templateElementName(typeNode) });
       }
+    } else {
+      // TypeScript: `p: T` / `p?: T` / `private readonly p: T`.
+      const param = scriptParam(p);
+      if (param) out.push(param);
     }
   }
   return out;
@@ -450,6 +460,11 @@ function extractFields(container: Node): FieldInfo[] {
   return out;
 }
 
+/** A JavaScript / TypeScript class (its members live in a `class_body`). */
+function isScriptClass(node: Node): boolean {
+  return node.namedChildren.some((child) => child?.type === "class_body");
+}
+
 /** Extract every class/struct/interface declaration (name + bases + fields). */
 export function extractTypeDecls(tree: Tree, filePath = "<memory>"): TypeDecl[] {
   const out: TypeDecl[] = [];
@@ -457,10 +472,11 @@ export function extractTypeDecls(tree: Tree, filePath = "<memory>"): TypeDecl[] 
     if (TYPE_CONTAINER_TYPES.has(node.type)) {
       const name = typeContainerName(node);
       if (name) {
-        const fields = extractFields(node);
+        const script = isScriptClass(node);
+        const fields = script ? scriptFields(node) : extractFields(node);
         out.push({
           name,
-          bases: extractBases(node),
+          bases: script ? scriptBases(node) : extractBases(node),
           filePath,
           sourceRange: toRange(node, filePath),
           ...(fields.length > 0 ? { fields } : {}),
@@ -488,8 +504,9 @@ function collect(node: Node, source: string, filePath: string, out: FunctionNode
       // field is the declared return type for both C++ and C# definitions;
       // const/&/* live outside it, so simpleType/templateElement see the core type.
       const retNode = node.childForFieldName("type");
-      const returnType = simpleTypeName(retNode);
+      const returnType = simpleTypeName(retNode) ?? factoryReturnType(node);
       const returnElementType = templateElementName(retNode);
+      const accessor = accessorKind(node);
       out.push({
         id: null,
         name: extractName(node),
@@ -499,6 +516,7 @@ function collect(node: Node, source: string, filePath: string, out: FunctionNode
         ...(params.length > 0 ? { params } : {}),
         ...(returnType ? { returnType } : {}),
         ...(returnElementType ? { returnElementType } : {}),
+        ...(accessor ? { accessor } : {}),
         sourceRange: toRange(node, filePath),
         // Detach the body from the native tree-sitter tree immediately so the
         // caller can delete the parsed Tree per-file (bounds the WASM heap).

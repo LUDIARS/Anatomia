@@ -66,6 +66,50 @@ CLI `export-graph` の出力（HTML 内 DATA + 件数サマリ）に含まれる
 （`TypeDecl` は Merkle 非対象）。落とした辺は `CodeGraph.unresolved` に理由付きで残るため監査可能。
 動的トレースの観測事実で復活させる設計は [dynamic-edge-recovery.md](./dynamic-edge-recovery.md) を参照。
 
+### Script receiver typing
+
+JavaScript / TypeScript は型を宣言より **構築** で述べることが多い。C++/C# と同じ
+type-aware 解決に載せるため、抽出時に次の事実を記録する
+（`src/dag/script-types.ts`、消費は `src/graph/type-resolve.ts`）。
+
+| 書き方 | 記録する事実 |
+|---|---|
+| `class A extends B implements I` | `TypeDecl.bases = [B, I]`（`class_heritage`） |
+| `this.x = new C()` / `x = new C()` フィールド | フィールド `x : C` |
+| `this.x = factory()` / `x: T` 注釈 | フィールド `x`（`initCall = factory` は戻り型で後から型付け / 注釈は `T`） |
+| `function f(p: T)` / `constructor(private p: T)` | 引数 `p : T`（parameter property はフィールドにもなる） |
+| factory `f` がオブジェクトリテラル（または `Object.freeze` で包んだもの）を直接返す | `f` の戻り型と、そのリテラル内メソッドの囲み型を合成型 `f()` にする |
+| `get name() {}` | getter（`accessor = "get"`） |
+| `const d = factory()` | 自由関数の戻り型から `d` を型付け（同名で戻り型が割れる場合は型付けしない） |
+
+不変条件:
+
+- 合成型 `f()` は括弧を含むため宣言型と衝突しない。`return { … }` / `return Object.freeze({ … })`
+  の **直接返却** だけを対象にし、変数経由で返すオブジェクトは追わない（推測しない）。
+- 同じフィールドに異なる型が代入される場合はそのフィールドを記録しない。受け手の型が
+  本当に不明なのに片方を選ぶと、別クラスへ辺を張るため。
+- プロパティ参照（`this.game.question`）は、受け手の型が決まり、その型（または基底）が同名の
+  getter を持つときだけ calls 辺にする。型不明の参照から同名関数へは辺を張らない。
+
+### Override dispatch evidence
+
+基底型越しの呼び出し（`this.active.onBody(…)`）は、見えている基底メソッドへ解決し、
+サブクラスの override へは fan-out しない（上記トレードオフ）。その結果、scene manager が
+配送するライフサイクル（`init` / `enter` / `frame` / `onBody` …）の override が「静的呼び出し元
+なし」になっていた。
+
+`src/graph/override-dispatch.ts` は **call 辺を追加せず**、override ごとに実行時に到達しうる根拠を
+記録する（`DispatchEvidence`）。強い順に:
+
+1. `base-call` — 解決済みの calls 辺が、override している基底メソッドへ届いている。
+2. `abstract-call` — 受け手の静的型（そのクラス自身を除く祖先・実装 interface）に本体が無く
+   `abstract-no-impl` で落とした呼び出しがある（依存逆転・DI 越しの呼び出し）。
+3. `unresolved-call` — 同名のメンバ呼び出しがあるが受け手の型が決まらない。基底の契約を実装する
+   override に限って採用する、最も弱い根拠。
+
+何も override しないメソッドは根拠を得ないため、本当に使われていない補助関数は orphan に残る。
+根拠は推定であり、call 辺・fan-in としては数えない。
+
 ## 言語判定
 
 拡張子マップ（`langFor`, `src/core.ts`）：`.cs → c_sharp`、`.tsx / .jsx → tsx`、

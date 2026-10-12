@@ -162,6 +162,11 @@ export interface FunctionEdgeInfo {
   rangeFors: RangeFor[];
   /** Simple name of the class this function is a method of (types `this`). */
   selfType?: string;
+  /**
+   * Script property reads that are neither calls nor assignment targets
+   * (`this.game.question`), resolved to getters when the receiver is typed.
+   */
+  propertyReads?: CallSite[];
 }
 
 /** A function or method extracted from source. */
@@ -201,6 +206,8 @@ export interface FunctionNode {
   returnType?: string | null;
   /** Element type when the return is a single-arg container template. */
   returnElementType?: string | null;
+  /** Script accessor kind (`get x()` / `set x(v)`); property reads resolve to getters. */
+  accessor?: "get" | "set";
   sourceRange: SourceRange;
   /**
    * Raw AST subtree for this function body (a detached plain-JS mirror; see
@@ -261,6 +268,11 @@ export interface FieldInfo {
   type: string | null;
   /** Element type when the field is a single-arg container template. */
   elementType?: string | null;
+  /**
+   * Script members built by a free factory call (`this.d = createDetector()`):
+   * the callee name, typed later from that factory's return (graph/type-resolve).
+   */
+  initCall?: string;
 }
 
 /** A source file modelled as a Merkle node over its function set. */
