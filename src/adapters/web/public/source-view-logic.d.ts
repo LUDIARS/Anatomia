@@ -18,6 +18,9 @@ export interface SourceViewOutcome {
 }
 
 export function candidateLabel(candidate: SourceViewCandidateLike): string;
+export function viewerChoices(
+  status: { configured?: boolean; local?: boolean; message?: string } | null | undefined,
+): { tela: boolean; note: string | null };
 export function launchBody(
   candidate: Pick<SourceViewCandidateLike, "file" | "line">,
   acceptStale?: boolean,

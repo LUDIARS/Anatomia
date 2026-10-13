@@ -22,7 +22,7 @@ import { loadSourceViewerConfig, sourceViewerArgs, type SpawnLike } from "../sou
 import { classifyLaunchRequest } from "../source-view-request.js";
 import { countLines, resolveSourceTarget } from "../source-view-target.js";
 import {
-  actionLabel, candidateLabel, codeRows, contentQuery, launchBody, launchOutcome, pageLine,
+  actionLabel, candidateLabel, codeRows, contentQuery, launchBody, launchOutcome, pageLine, viewerChoices,
 } from "../public/source-view-logic.js";
 
 let root: string;
@@ -232,6 +232,16 @@ describe("source-view panel logic", () => {
   it("labels candidates and builds the launch body", () => {
     expect(candidateLabel({ name: "run", enclosingType: "Scene", file: "a.ts", line: 3 })).toBe("a.ts:3  Scene.run");
     expect(launchBody({ file: "a.ts", line: 3 }, true)).toEqual({ file: "a.ts", line: 3, acceptStale: true });
+  });
+
+  it("offers Tela only on a machine where it is installed, and never asks to set it up", () => {
+    const missing = viewerChoices({ configured: false, local: true, message: "Tela ソースビューアが未構成です。" });
+    expect(missing).toEqual({ tela: false, note: null });
+    expect(viewerChoices(undefined)).toEqual({ tela: false, note: null });
+    expect(viewerChoices({ configured: true, local: true })).toEqual({ tela: true, note: null });
+    // Installed, but this browser is not on the server PC: say why Tela will not open here.
+    expect(viewerChoices({ configured: true, local: false, message: "別の端末からは開けません。" }))
+      .toEqual({ tela: true, note: "別の端末からは開けません。" });
   });
 
   it("offers next steps that match each refusal", () => {

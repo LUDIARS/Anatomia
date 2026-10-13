@@ -51,19 +51,23 @@ function renderSourcePicker(panel, id, candidates, status) {
     o.textContent = SourceViewLogic.candidateLabel(c);
     select.appendChild(o);
   });
+  var choices = SourceViewLogic.viewerChoices(status);
   var actions = document.createElement('div');
   actions.className = 'sv-actions';
-  var tela = document.createElement('button');
-  tela.className = 'btn-sm';
-  tela.textContent = 'Tela で開く';
+  var tela = null;
+  if (choices.tela) {
+    tela = document.createElement('button');
+    tela.className = 'btn-sm';
+    tela.textContent = 'Tela で開く';
+    actions.appendChild(tela);
+  }
   var web = document.createElement('button');
   web.className = 'btn-sm';
   web.textContent = 'Web で表示';
-  actions.appendChild(tela);
   actions.appendChild(web);
   var note = document.createElement('div');
   note.className = 'sv-note';
-  if (status && status.message) note.textContent = status.message;
+  if (choices.note) note.textContent = choices.note;
   var result = document.createElement('div');
   var view = document.createElement('div');
   panel.appendChild(select);
@@ -72,7 +76,7 @@ function renderSourcePicker(panel, id, candidates, status) {
   panel.appendChild(result);
   panel.appendChild(view);
   var chosen = function () { return candidates[Number(select.value)]; };
-  tela.addEventListener('click', function () { launchInTela(id, chosen(), false, result); });
+  if (tela) tela.addEventListener('click', function () { launchInTela(id, chosen(), false, result); });
   web.addEventListener('click', function () { showOnWeb(id, chosen().file, chosen().line, view); });
 }
 

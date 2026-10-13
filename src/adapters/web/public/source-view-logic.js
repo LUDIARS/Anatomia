@@ -18,6 +18,22 @@ export function candidateLabel(candidate) {
   return candidate.file + ":" + candidate.line + "  " + owner + candidate.name;
 }
 
+/**
+ * Which ways to open the code this machine offers, from GET /source-view/status.
+ * Tela is offered only where it is installed (`configured`: viewer and font
+ * exist on the server). Elsewhere the panel shows the Web view alone and says
+ * nothing about setting Tela up (neco 2026-10-13「Telaはインストール済みのマシンのみ有効」).
+ * The note is only for an installed Tela that cannot open for THIS request
+ * (a remote or forwarded browser).
+ *
+ * @returns { tela: boolean, note: string | null }
+ */
+export function viewerChoices(status) {
+  const tela = Boolean(status && status.configured === true);
+  const note = tela && status.local === false && status.message ? status.message : null;
+  return { tela, note };
+}
+
 /** Body of POST /source-view/launch for the chosen candidate. */
 export function launchBody(candidate, acceptStale) {
   return { file: candidate.file, line: candidate.line, ...(acceptStale ? { acceptStale: true } : {}) };
@@ -96,5 +112,5 @@ export function pageLine(content, direction) {
 
 // Publish for the panel's classic inline scripts when loaded in a browser.
 if (typeof window !== "undefined") {
-  window.SourceViewLogic = { candidateLabel, launchBody, launchOutcome, actionLabel, codeRows, contentQuery, pageLine };
+  window.SourceViewLogic = { candidateLabel, viewerChoices, launchBody, launchOutcome, actionLabel, codeRows, contentQuery, pageLine };
 }

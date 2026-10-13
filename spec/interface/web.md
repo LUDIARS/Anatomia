@@ -116,6 +116,11 @@ Tela のソース専用ウインドウで開くか、ブラウザ上で表示す
   `ANATOMIA_TELA_FONT`（任意で `ANATOMIA_TELA_FONT_SIZE` 8..48）だけから取る。未設定・ファイルが
   無い場合は推測せず 503 `not-configured` / `viewer-missing` / `font-missing`。要求からコマンドや
   実行パスを組み立てない。起動は引数配列・`shell: false`・detached。
+- **どのマシンで出すか**: 「Tela で開く」は Tela がインストール済みのマシン（status の
+  `configured: true` = ビューアとフォントが実在）でだけ表示する。未インストールのマシンでは
+  ボタンも設定を促す案内も出さず、Web 表示だけを出す（neco 2026-10-13「Telaはインストール済みの
+  マシンのみ有効」）。インストール済みでも別端末・中継から開いている場合は、ボタンを残して
+  開けない理由を添える。判定は `viewerChoices`（source-view-logic.js）。
 - **パスの検証**: 要求は repo 相対パスと行のみ。登録プロジェクトの root 配下に解決し、symlink を
   辿った後も root 配下であることを確かめる。絶対パス・`..` 越え・NUL は拒否。8 MiB 超は
   `too-large`。行は Tela と同じ規則（CRLF / LF / 単独 CR、空ファイルは 1 行）で数え、範囲外は
