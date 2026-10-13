@@ -5,6 +5,7 @@ import type { GateARequest } from "../../../knowledge/domain/gate-a.js";
 import type { GateBRequest } from "../../../knowledge/domain/gate-b.js";
 import type { GateCRequest } from "../../../knowledge/domain/gate-c.js";
 import type { DomainDriftInput } from "../../../knowledge/domain/drift.js";
+import type { DomainReviewNoteInput } from "../../../knowledge/domain/review-notes.js";
 import { domainOrganizationPage } from "../domain-organization-page.js";
 
 function service(manager: ProjectManager, requestedId: string): KnowledgeApplicationService {
@@ -75,6 +76,15 @@ export function mountDomainOrganizationRoutes(app: Hono, manager: ProjectManager
       const body = await c.req.json() as { inputs?: DomainDriftInput[] };
       if (!Array.isArray(body.inputs)) throw new Error("inputs must be an array");
       return c.json(await service(manager, c.req.param("id")).domains.proposeReconciliation(body.inputs));
+    } catch (error) { return c.json({ error: error instanceof Error ? error.message : String(error) }, errorStatus(error)); }
+  });
+
+  app.post("/api/projects/:id/domain-organization/proposals/review-notes", async (c) => {
+    if (!manager) return c.json({ error: "project management requires manager mode" }, 501);
+    try {
+      const body = await c.req.json() as { notes?: DomainReviewNoteInput[] };
+      if (!Array.isArray(body.notes) || body.notes.length === 0) throw new Error("notes must be a non-empty array");
+      return c.json(await service(manager, c.req.param("id")).domains.proposeFromReviewNotes(body.notes));
     } catch (error) { return c.json({ error: error instanceof Error ? error.message : String(error) }, errorStatus(error)); }
   });
 

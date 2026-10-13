@@ -9,6 +9,7 @@ import { proposeDomainsFromSpec } from "../domain/spec-proposals.js";
 import { analyzeCodeAssignment } from "../domain/assignments.js";
 import { classifyDomainDrift, proposeSemanticDomainChanges, type DomainDriftInput } from "../domain/drift.js";
 import { applyGateA, type GateARequest } from "../domain/gate-a.js";
+import { proposeFromReviewNotes, validateReviewNote, type DomainReviewNoteInput } from "../domain/review-notes.js";
 import { applyGateB, type GateBRequest } from "../domain/gate-b.js";
 import { applyGateC, type GateCRequest } from "../domain/gate-c.js";
 import type { KnowledgeProjectPort } from "./port.js";
@@ -96,6 +97,25 @@ export class DomainKnowledgeApplication {
     const findings = inputs.flatMap(classifyDomainDrift);
     const proposals = proposeSemanticDomainChanges(findings, { ...revision, expectedHead: state.head });
     return { findings, proposals, ...revision, expectedHead: state.head };
+  }
+
+  /**
+   * Accept free-text review notes and return Gate A review drafts. Notes that
+   * cannot be accepted are returned with their reason instead of being dropped.
+   */
+  async proposeFromReviewNotes(notes: DomainReviewNoteInput[]) {
+    const revision = await this.revisions();
+    const state = await readKnowledgeGraph(this.knowledgeLogPath);
+    const known = new Set([...state.nodes.values()].filter((node) => node.kind === "domain").map((node) => node.id));
+    const accepted: Array<Required<DomainReviewNoteInput>> = [];
+    const rejected: Array<{ index: number; reviewRef: string | null; reason: string }> = [];
+    notes.forEach((note, index) => {
+      const checked = validateReviewNote(note, known);
+      if (checked.ok) accepted.push(checked.input);
+      else rejected.push({ index, reviewRef: typeof note?.reviewRef === "string" ? note.reviewRef : null, reason: checked.reason });
+    });
+    const context = { ...revision, expectedHead: state.head };
+    return { proposals: proposeFromReviewNotes(accepted, context), rejected, ...context };
   }
 
   async gateA(body: Pick<GateARequest, "confirmApply" | "proposals" | "hierarchy" | "expectedHead" | "reviewRef">) {

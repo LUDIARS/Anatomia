@@ -63,6 +63,9 @@
     { "source": "src/adapters/web/public/source-view-logic.d.ts", "tests": ["src/adapters/web/__tests__/source-view.test.ts"] },
     { "source": "src/adapters/web/public/source-view-panel.js", "tests": ["src/adapters/web/__tests__/source-view.test.ts"] },
     { "source": "src/adapters/web/public/index.html", "tests": ["src/adapters/web/__tests__/source-view.test.ts"] },
-    { "source": "src/map/sources.ts", "tests": ["src/map/__tests__/content-naming.test.ts"] }
+    { "source": "src/map/sources.ts", "tests": ["src/map/__tests__/content-naming.test.ts"] },
+    { "source": "src/knowledge/domain/review-notes.ts", "tests": ["src/knowledge/domain/review-notes.test.ts"] },
+    { "source": "src/knowledge/application/domain-application.ts", "tests": ["src/adapters/web/__tests__/domain-review-notes-route.test.ts"] },
+    { "source": "src/adapters/web/routes/domain-organization.ts", "tests": ["src/adapters/web/__tests__/domain-review-notes-route.test.ts"] }
   ]
 }

@@ -141,6 +141,23 @@ spec change は domain semantics / spec edge の proposal を stale にする。
 の evidence を stale にするが、承認済み domain の意味を消さない。補正は必ず新 proposal と diff を
 作り、既存 transaction を直接書き換えない。
 
+### 人の自由文の指摘 (review notes)
+
+ドメインレビュー (Concordia の Discord 投稿など) への返信は「この説明は違う」「これはこっちに紐づけて」
+といった自由文で届く。これを `POST /api/projects/:id/domain-organization/proposals/review-notes`
+(`{ notes: [{ domainId, note, reviewRef, kind? }] }`、kind は `description` / `assignment` / `other`) で受け取り、
+Gate A の承認待ち下書き (`kind: "review-note"`, `requiresGate: "gate-a"`) を返す。
+
+- 指摘の文章は書き換えず、`evidence.human` にそのまま載せる。文章を proposal の項目 (purpose /
+  responsibilities / boundary) へ翻訳するのは判断が要り、呼び出し側が LLM を持たないこともあるため、
+  この口では行わない。承認する人が指摘を読み、必要な proposal を作って Gate A に通す。
+- 知らない domainId、空・4000 文字超の指摘、`reviewRef` の無い指摘は推測で受けず、`rejected` に
+  理由付きで返す (無言で捨てない)。
+- 同じ指摘・同じ解析スナップショットは同じ `proposalId` になり、再送で下書きが増えない。
+- この口はドメイン定義を書き換えない。書き込みは従来どおり Gate A だけが行う。
+- 実装: `src/knowledge/domain/review-notes.ts`、application `proposeFromReviewNotes`、
+  route `src/adapters/web/routes/domain-organization.ts`。
+
 ## Gate と transaction
 
 - propose / inspect / review は repository を書かない。
