@@ -76,6 +76,7 @@ import { mountCostRoute } from "./routes/cost.js";
 import { mountHarnessRoutes } from "./routes/harness.js";
 import { mountBranchRoutes } from "./routes/branch.js";
 import { mountDomainViewRoute } from "./routes/domain-view.js";
+import { mountSourceViewRoutes } from "./routes/source-view.js";
 import { mountIntegralRoutes, type IntegralRouteDeps } from "./routes/integral.js";
 import { mountPatternRoutes } from "./routes/patterns.js";
 import { mountScreenRoutes } from "./routes/screens.js";
@@ -239,6 +240,7 @@ export function createApp(
 
   // ── Domain-view route (per-domain focus + spec-derived JP descriptions) ───
   mountDomainViewRoute(app, source);
+  mountSourceViewRoutes(app, source);
 
   // ── Integral-search + module routes (canonical scene manifest + 機能 eval) ─
   mountIntegralRoutes(app, source, { ...resolveIntegralDeps(), manager });
@@ -372,7 +374,7 @@ export function createApp(
   });
 
   // Pure panel logic, loaded by index.html as ES modules (and unit-tested).
-  for (const asset of ["domain-view-logic.js", "web-views-logic.js", "deeplink-logic.js"]) {
+  for (const asset of ["domain-view-logic.js", "web-views-logic.js", "deeplink-logic.js", "source-view-logic.js", "source-view-panel.js"]) {
     app.get(`/${asset}`, (c) => {
       const js = loadPublicAsset(asset);
       if (js == null) return c.text(`// ${asset} not found`, 404);

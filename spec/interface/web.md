@@ -90,6 +90,57 @@ Discord 添付 mode は `ANATOMIA_DISCORD_BOT_TOKEN` が無ければ `501`。複
 | GET | `/api/trace/active` | `ActiveOverlay` |
 | GET | `/api/trace/where` | `WhereLabel` |
 
+## ドメインのコードを見る（Tela / Web）
+
+ドメイン一覧の各カードの「コードを見る (Tela / Web)」から、そのドメインの実装関数を選んで
+Tela のソース専用ウインドウで開くか、ブラウザ上で表示する。カードの中で完結するので、
+元のドメインへはそのまま戻れる。候補は解析結果の implementor から作り、全件を選択肢にする
+（先頭ファイルを推測で開かない）。
+
+| メソッド | パス | 内容 |
+|---|---|---|
+| GET | `/api/projects/:id/source-view/candidates?domain=` | `{ ok, domain, candidates: [{ anchor, name, enclosingType, file, line }] }`（file は repo 相対、位置順） |
+| GET | `/api/projects/:id/source-view/status` | `{ configured, local, message? }` — 起動できない理由を先に出す |
+| GET | `/api/projects/:id/source-view/content?file=&line=` | Web 表示。`{ ok, file, line, lineCount, stale, start, lines[], enclosing }` |
+| POST | `/api/projects/:id/source-view/launch` | `{ file, line, acceptStale? }` → `{ ok: true, file, line, stale }` または `{ ok: false, reason, message, file, line }` |
+
+### Tela source viewer launch
+
+- **どの端末のファイルをどこで開くか**: Anatomia web サーバが動く PC 上で、その PC のファイルを
+  Tela（`tela_source --font <ttf> --source <file> --line <N>`）で開く。ソケットが loopback で、
+  かつ転送ヘッダ（`Forwarded` / `X-Forwarded-*` / `X-Real-IP` / `CF-Connecting-IP`）が無い直接の
+  要求だけを起動対象にする。別端末・中継（Excubitor viewer、トンネル）からの要求は 403
+  `remote-client` / `forwarded` で断り、ファイルと行を返す。`Origin` がサーバ自身でない要求は
+  `cross-origin` で断る。
+- **何を起動するか**: ビューアとフォントはサーバの設定 `ANATOMIA_TELA_SOURCE_BIN` /
+  `ANATOMIA_TELA_FONT`（任意で `ANATOMIA_TELA_FONT_SIZE` 8..48）だけから取る。未設定・ファイルが
+  無い場合は推測せず 503 `not-configured` / `viewer-missing` / `font-missing`。要求からコマンドや
+  実行パスを組み立てない。起動は引数配列・`shell: false`・detached。
+- **パスの検証**: 要求は repo 相対パスと行のみ。登録プロジェクトの root 配下に解決し、symlink を
+  辿った後も root 配下であることを確かめる。絶対パス・`..` 越え・NUL は拒否。8 MiB 超は
+  `too-large`。行は Tela と同じ規則（CRLF / LF / 単独 CR、空ファイルは 1 行）で数え、範囲外は
+  `line-out-of-range`。
+- **解析後の変更**: ファイルの SHA-256 が解析時の `contentHash` と異なる場合は 409 `stale`。
+  利用者は「現在の内容で開く」（`acceptStale: true`）か再解析を選ぶ。存在しないファイルは
+  `missing-file`（再解析を案内）、範囲外の行は「先頭から開く」を選べる。
+- 実装: `src/adapters/web/source-view-{target,launch,request,candidates}.ts`、
+  `src/adapters/web/routes/source-view.ts`、画面ロジック `src/adapters/web/public/source-view-logic.js`、
+  画面（ドメインカードの候補選択・起動結果・Web 表示）`src/adapters/web/public/source-view-panel.js`（index.html はカードにボタンを置くだけ）。
+  Tela の描画・閲覧状態は Tela が持ち、Anatomia は複製しない。
+
+### Web source view
+
+neco 2026-10-13「Web で指定のコードをビジュアライズする実装も欲しい」。Tela はサーバ PC に
+開くため、どこから開いていても読めるブラウザ表示を併設する。
+
+- 同じパス検証（上記）を通したファイルの、指定行の前 40 行・後 80 行を返す。「前へ / 次へ」で
+  窓を移動する。行番号は元ファイルのまま。
+- 指定行を含む解析済み関数（最内）の範囲を強調し、その関数の呼び出し元・呼び出し先
+  （calls 辺、各 30 件まで、超えたら `truncated`）を表示する。名前を押すとその関数へ移る。
+- 本文は文字列として返し、画面は `textContent` で描く（HTML として解釈しない）。UTF-8 として
+  読めないファイルは `not-utf8` で断る。読み取り専用で、転送経由の閲覧も許可する（起動を
+  伴わないため。サーバ自体の公開範囲は loopback 既定 / `ANATOMIA_WEB_TOKEN` に従う）。
+
 ## 関連
 
 - 機能: [feature/graph-export-and-panel.md](../feature/graph-export-and-panel.md)

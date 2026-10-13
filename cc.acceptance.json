@@ -28,7 +28,7 @@
     { "source": "src/adapters/web/routes/analysis.ts", "tests": ["src/adapters/web/__tests__/quality-review-route.test.ts", "src/adapters/__tests__/web-artifact-cache.test.ts"] },
     { "source": "vitest.config.ts", "tests": ["src/map/__tests__/project-roots.test.ts", "src/providers/__tests__/providers.test.ts", "src/providers/__tests__/one-shot-defaults.test.ts"] },
     { "source": "src/providers/types.ts", "tests": ["src/providers/__tests__/providers.test.ts"] },
-    { "source": "src/adapters/web/server.ts", "tests": ["src/adapters/web/__tests__/server-start.test.ts", "src/adapters/web/__tests__/request-usage.test.ts"] },
+    { "source": "src/adapters/web/server.ts", "tests": ["src/adapters/web/__tests__/server-start.test.ts", "src/adapters/web/__tests__/request-usage.test.ts", "src/adapters/web/__tests__/source-view.test.ts"] },
     { "source": "src/knowledge/domain/relation-llm.ts", "tests": ["src/knowledge/domain/relations.test.ts"] },
     { "source": "src/supply/plan/decompose-llm.ts", "tests": ["src/supply/plan/__tests__/decompose.test.ts"] },
     { "source": "src/providers/claude-cli-llm.ts", "tests": ["src/providers/__tests__/claude-cli-llm.test.ts", "src/providers/__tests__/one-shot-defaults.test.ts"] },
@@ -52,6 +52,16 @@
     { "source": "src/graph/override-dispatch.ts", "tests": ["src/graph/__tests__/script-receiver-typing.test.ts"] },
     { "source": "src/graph/type-resolve.ts", "tests": ["src/graph/__tests__/script-receiver-typing.test.ts", "src/graph/__tests__/type-resolve.test.ts"] },
     { "source": "src/review/declared-entrypoints.ts", "tests": ["src/review/__tests__/declared-entrypoints.test.ts"] },
-    { "source": "src/dag/context-labels.ts", "tests": ["src/review/__tests__/complexity-snapshot.test.ts"] }
+    { "source": "src/dag/context-labels.ts", "tests": ["src/review/__tests__/complexity-snapshot.test.ts"] },
+    { "source": "src/adapters/web/source-view-target.ts", "tests": ["src/adapters/web/__tests__/source-view.test.ts"] },
+    { "source": "src/adapters/web/source-view-launch.ts", "tests": ["src/adapters/web/__tests__/source-view.test.ts"] },
+    { "source": "src/adapters/web/source-view-request.ts", "tests": ["src/adapters/web/__tests__/source-view.test.ts"] },
+    { "source": "src/adapters/web/source-view-candidates.ts", "tests": ["src/adapters/web/__tests__/source-view.test.ts"] },
+    { "source": "src/adapters/web/source-view-content.ts", "tests": ["src/adapters/web/__tests__/source-view.test.ts"] },
+    { "source": "src/adapters/web/routes/source-view.ts", "tests": ["src/adapters/web/__tests__/source-view.test.ts"] },
+    { "source": "src/adapters/web/public/source-view-logic.js", "tests": ["src/adapters/web/__tests__/source-view.test.ts"] },
+    { "source": "src/adapters/web/public/source-view-logic.d.ts", "tests": ["src/adapters/web/__tests__/source-view.test.ts"] },
+    { "source": "src/adapters/web/public/source-view-panel.js", "tests": ["src/adapters/web/__tests__/source-view.test.ts"] },
+    { "source": "src/adapters/web/public/index.html", "tests": ["src/adapters/web/__tests__/source-view.test.ts"] }
   ]
 }

@@ -12,6 +12,8 @@
   <!-- Pure cache-view logic; publishes window.WebViewsLogic for the inline
        scripts below (Scenes / Search / manifest summary). -->
   <script type="module" src="/web-views-logic.js"></script>
+  <!-- "コードを見る (Tela / Web)" panel; publishes window.SourceViewPanel (imports source-view-logic.js). -->
+  <script type="module" src="/source-view-panel.js"></script>
   <!-- Pure deep-link logic; publishes window.DeeplinkLogic so the boot code can
        consume Thaleia's `?project=&focus=` links (parse + entity matching). -->
   <script type="module" src="/deeplink-logic.js"></script>
@@ -215,6 +217,21 @@
     .domain-card-name { font-weight: 600; font-size: 0.88rem; margin-bottom: 6px; }
     .domain-card-stats { display: flex; gap: 12px; font-size: 0.76rem; color: #8b949e; }
     .domain-card-stats strong { color: #c9d1d9; }
+    .sv-toggle { margin-top: 8px; font-size: 0.74rem; }
+    .sv-panel { margin-top: 8px; border-top: 1px solid #30363d; padding-top: 8px; font-size: 0.76rem; }
+    .sv-panel select { max-width: 100%; width: 100%; margin-bottom: 6px; }
+    .sv-actions { display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0; }
+    .sv-note { color: #8b949e; margin: 4px 0; }
+    .sv-msg-ok { color: #3fb950; } .sv-msg-warn { color: #d29922; } .sv-msg-error { color: #f85149; }
+    .sv-code { background: #0d1117; border: 1px solid #30363d; border-radius: 6px; max-height: 420px; overflow: auto;
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.74rem; line-height: 1.45; }
+    .sv-row { display: flex; white-space: pre; }
+    .sv-row .sv-no { flex: 0 0 auto; width: 4.5em; text-align: right; padding-right: 8px; color: #6e7681; user-select: none; }
+    .sv-row.sv-fn { background: rgba(56, 139, 253, 0.08); }
+    .sv-row.sv-target { background: rgba(210, 153, 34, 0.25); }
+    .sv-partners { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 6px; }
+    .sv-partners ul { margin: 2px 0; padding-left: 16px; }
+    .sv-partners a { color: #58a6ff; cursor: pointer; }
 
     /* ── Spec-links panel ───────────────────────────────────── */
     #panel-spec-links { padding: 16px 20px; }
@@ -2515,6 +2532,13 @@
           '<span><strong>' + d.implementorCount + '</strong> implementors</span>' +
           '<span><strong>' + d.violationCount + '</strong> violations</span>' +
         '</div>';
+      var toggle = document.createElement('button');
+      toggle.className = 'btn-sm sv-toggle';
+      toggle.textContent = 'コードを見る (Tela / Web)';
+      var holder = document.createElement('div');
+      toggle.addEventListener('click', function () { SourceViewPanel.toggleSourceView(holder, id, d.domain); });
+      card.appendChild(toggle);
+      card.appendChild(holder);
       listEl.appendChild(card);
     });
   }
