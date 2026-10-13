@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "overview": "overview",
+  "contexts": [
+    { "key": "project.register", "chapter": "register-project", "anchor": "start" },
+    { "key": "supply.plan", "chapter": "before-coding", "anchor": "start" },
+    { "key": "verify.diff", "chapter": "verify-changes", "anchor": "start" },
+    { "key": "review.pr", "chapter": "review-pr", "anchor": "start" },
+    { "key": "panel.domains", "chapter": "browse-panel", "anchor": "start" }
+  ]
+}
