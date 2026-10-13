@@ -24,6 +24,8 @@
 import { createHash } from "node:crypto";
 import { readFile, realpath, stat } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
+import { contract } from './contracts/runtime.js'; /* augur-inject:import:1e035704 */
+import augurContract_2aad18c4 from './contracts/source-target.contract.js'; /* augur-inject:contract-predicate:089e1b8a */
 
 /** Tela `tela_source` input limit (spec/feature/source-view.md in Tela). */
 export const SOURCE_VIEW_MAX_BYTES = 8 * 1024 * 1024;
@@ -31,6 +33,7 @@ export const SOURCE_VIEW_MAX_BYTES = 8 * 1024 * 1024;
 export type SourceTargetFailure =
   | "invalid-request"
   | "outside-repository"
+  | "not-analyzed"
   | "missing-file"
   | "not-a-file"
   | "too-large"
@@ -54,6 +57,8 @@ export type SourceTargetResult =
 
 export interface SourceTargetRequest {
   repoPath: string;
+  /** Absolute paths from the current AnalysisContext.files allowlist. */
+  analyzedFiles: readonly string[];
   file: unknown;
   line: unknown;
   /** SHA-256 of the file's bytes at analysis time, when known. */
@@ -89,6 +94,11 @@ export async function resolveSourceTarget(request: SourceTargetRequest): Promise
   const requested = resolve(root, file);
   if (!isInside(root, requested)) {
     return fail("outside-repository", "登録されたプロジェクトの外のファイルは開けません。");
+  }
+
+  // Match the same repo-relative spelling used by analyzedContentHash, before any I/O.
+  if (!request.analyzedFiles.some((path) => relative(root, path).split(sep).join("/") === file)) {
+    return fail("not-analyzed", "解析結果に含まれないファイルは開けません。再解析してから選び直してください。");
   }
 
   let realRoot: string;
@@ -127,3 +137,5 @@ export async function resolveSourceTarget(request: SourceTargetRequest): Promise
     },
   };
 }
+// @ts-expect-error augur-inject
+resolveSourceTarget = contract(resolveSourceTarget, { ...augurContract_2aad18c4, contractId: 'C-1', mode: 'observe', sample: 1, where: 'src/adapters/web/source-view-target.ts:79', rule: 'contract-wrap', id: '2aad18c4' }); /* augur-inject:contract-wrap:2aad18c4 */

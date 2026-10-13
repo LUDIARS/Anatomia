@@ -28,6 +28,8 @@ import {
 let root: string;
 let repo: string;
 const JP_FILE = "src/日本語 フォルダ/画面.ts";
+const UNANALYZED_FILE = ".dummy-private-config";
+const analyzedFiles = (): string[] => [JP_FILE, "src/crlf.ts", "src/binary.bin", "src/gone.ts"].map((file) => join(repo, file));
 const JP_SOURCE = "export function show() {\n  return helper();\n}\nfunction helper() {\n  return 1;\n}\n";
 
 beforeAll(async () => {
@@ -35,6 +37,7 @@ beforeAll(async () => {
   repo = join(root, "repo");
   await mkdir(join(repo, "src", "日本語 フォルダ"), { recursive: true });
   await writeFile(join(repo, JP_FILE), JP_SOURCE, "utf8");
+  await writeFile(join(repo, UNANALYZED_FILE), "dummy-only", "utf8");
   await writeFile(join(repo, "src", "crlf.ts"), "a\r\nb\r\nc", "utf8");
   await writeFile(join(repo, "src", "binary.bin"), Buffer.from([0xff, 0xfe, 0x00, 0x41]));
   await writeFile(join(root, "secret.txt"), "outside", "utf8");
@@ -61,7 +64,8 @@ function context(contentHash?: string): AnalysisContext {
   const node = (f: FunctionNode): CodeNode => ({ id: f.id!, name: f.name, kind: "function", sourceRange: f.sourceRange });
   return {
     repoPath: repo,
-    files: [{ path: join(repo, JP_FILE), hash: null, functions: [show, helper], ...(contentHash ? { contentHash } : {}) }],
+    files: [{ path: join(repo, JP_FILE), hash: null, functions: [show, helper], ...(contentHash ? { contentHash } : {}) },
+      { path: join(repo, "src/binary.bin"), hash: null, functions: [] }],
     functions: [show, helper],
     domains: [{ domain: "presentation", implementors: ["helper", "show", "show"], violations: [] }],
     graph: {
@@ -75,7 +79,7 @@ const sha = (text: string): string => createHash("sha256").update(text).digest("
 
 describe("resolveSourceTarget", () => {
   it("accepts a repo-relative path with Japanese and spaces and validates the line", async () => {
-    const result = await resolveSourceTarget({ repoPath: repo, file: JP_FILE, line: 2, analyzedContentHash: sha(JP_SOURCE) });
+    const result = await resolveSourceTarget({ repoPath: repo, analyzedFiles: analyzedFiles(), file: JP_FILE, line: 2, analyzedContentHash: sha(JP_SOURCE) });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.target.file).toBe(JP_FILE);
@@ -85,21 +89,21 @@ describe("resolveSourceTarget", () => {
 
   it("refuses paths that escape the repository, absolute paths and malformed input", async () => {
     for (const file of ["../secret.txt", "src/../../secret.txt", join(root, "secret.txt"), "", "a\0b"]) {
-      const result = await resolveSourceTarget({ repoPath: repo, file, line: 1 });
+      const result = await resolveSourceTarget({ repoPath: repo, analyzedFiles: analyzedFiles(), file, line: 1 });
       expect(result.ok).toBe(false);
     }
-    expect(await resolveSourceTarget({ repoPath: repo, file: "../secret.txt", line: 1 }))
+    expect(await resolveSourceTarget({ repoPath: repo, analyzedFiles: analyzedFiles(), file: "../secret.txt", line: 1 }))
       .toMatchObject({ ok: false, reason: "outside-repository" });
-    expect(await resolveSourceTarget({ repoPath: repo, file: JP_FILE, line: 0 }))
+    expect(await resolveSourceTarget({ repoPath: repo, analyzedFiles: analyzedFiles(), file: JP_FILE, line: 0 }))
       .toMatchObject({ ok: false, reason: "invalid-request" });
   });
 
   it("reports a missing file, a line past the end and a file changed after analysis", async () => {
-    expect(await resolveSourceTarget({ repoPath: repo, file: "src/gone.ts", line: 1 }))
+    expect(await resolveSourceTarget({ repoPath: repo, analyzedFiles: analyzedFiles(), file: "src/gone.ts", line: 1 }))
       .toMatchObject({ ok: false, reason: "missing-file" });
-    expect(await resolveSourceTarget({ repoPath: repo, file: JP_FILE, line: 99 }))
+    expect(await resolveSourceTarget({ repoPath: repo, analyzedFiles: analyzedFiles(), file: JP_FILE, line: 99 }))
       .toMatchObject({ ok: false, reason: "line-out-of-range" });
-    const stale = await resolveSourceTarget({ repoPath: repo, file: JP_FILE, line: 1, analyzedContentHash: sha("old") });
+    const stale = await resolveSourceTarget({ repoPath: repo, analyzedFiles: analyzedFiles(), file: JP_FILE, line: 1, analyzedContentHash: sha("old") });
     expect(stale.ok && stale.target.stale).toBe(true);
   });
 
@@ -136,6 +140,19 @@ describe("classifyLaunchRequest", () => {
     expect(classifyLaunchRequest({ remoteAddress: "127.0.0.1", header: headers({ host: "127.0.0.1:4200" }) })).toEqual({ local: true });
     expect(classifyLaunchRequest({ remoteAddress: "::ffff:127.0.0.1", header: headers({ host: "localhost:4200", origin: "http://localhost:4200" }) })).toEqual({ local: true });
   });
+  it("refuses external or missing Hosts, including matching Origins", () => {
+    for (const host of [undefined, "evil.example:4200", "127.evil.example:4200", "localhost.evil.example", "localhost@evil.example", "localhost/path"]) {
+      for (const origin of [undefined, host ? "http://" + host : undefined]) {
+        expect(classifyLaunchRequest({ remoteAddress: "127.0.0.1", header: headers({ ...(host ? { host } : {}), ...(origin ? { origin } : {}) }) }))
+          .toEqual({ local: false, reason: "cross-origin" });
+      }
+    }
+  });
+  it("allows bracketed IPv6 loopback Hosts with and without ports", () => {
+    for (const host of ["[::1]", "[::1]:4200", "localhost", "127.0.0.1"]) {
+      expect(classifyLaunchRequest({ remoteAddress: "::1", header: headers({ host, origin: "http://" + host }) })).toEqual({ local: true });
+    }
+  });
   it("treats another device, a forwarding proxy and a cross-origin page as remote", () => {
     expect(classifyLaunchRequest({ remoteAddress: "203.0.113.10", header: headers({}) })).toMatchObject({ local: false, reason: "remote-client" });
     expect(classifyLaunchRequest({ remoteAddress: "127.0.0.1", header: headers({ "x-forwarded-for": "198.51.100.2" }) })).toMatchObject({ local: false, reason: "forwarded" });
@@ -158,7 +175,31 @@ describe("source-view routes", () => {
     return app;
   }
   const launch = (app: Hono, body: unknown, headers: Record<string, string> = {}) =>
-    app.request("/api/projects/p/source-view/launch", { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body) });
+    app.request("/api/projects/p/source-view/launch", { method: "POST", headers: { "content-type": "application/json", host: "localhost", ...headers }, body: JSON.stringify(body) });
+
+  it("refuses an unanalyzed hidden file in both content and launch", async () => {
+    const app = appWith();
+    const responses = [
+      await app.request("/api/projects/p/source-view/content?" + contentQuery(UNANALYZED_FILE, 1)),
+      await launch(app, { file: UNANALYZED_FILE, line: 1, acceptStale: true }),
+    ];
+    for (const response of responses) {
+      expect(response.status).toBe(422);
+      expect(await response.json()).toEqual({ ok: false, reason: "not-analyzed", message: "解析結果に含まれないファイルは開けません。再解析してから選び直してください。", file: UNANALYZED_FILE, line: 1 });
+    }
+  });
+
+  it("allows analyzed content when no content hash was recorded", async () => {
+    const response = await appWith().request("/api/projects/p/source-view/content?" + contentQuery(JP_FILE, 1));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ ok: true, file: JP_FILE, stale: false });
+  });
+
+  it("refuses a matching external Host and Origin before launching", async () => {
+    const response = await launch(appWith(), { file: JP_FILE, line: 1 }, { host: "evil.example", origin: "http://evil.example" });
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({ reason: "cross-origin" });
+  });
 
   it("lists every implementor once, sorted by location", async () => {
     const res = await appWith().request("/api/projects/p/source-view/candidates?domain=presentation");
@@ -221,7 +262,7 @@ describe("source-view routes", () => {
 
 describe("buildSourceViewContent", () => {
   it("windows a CRLF file without changing line numbers", async () => {
-    const target = await resolveSourceTarget({ repoPath: repo, file: "src/crlf.ts", line: 3 });
+    const target = await resolveSourceTarget({ repoPath: repo, analyzedFiles: analyzedFiles(), file: "src/crlf.ts", line: 3 });
     if (!target.ok) throw new Error(target.message);
     const result = await buildSourceViewContent(context(), target.target);
     expect(result.ok && result.content.lines).toEqual(["a", "b", "c"]);

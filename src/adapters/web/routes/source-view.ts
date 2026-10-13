@@ -81,6 +81,7 @@ export function mountSourceViewRoutes(app: Hono, source: WebContextSource, deps:
     }
     const resolved = await resolveSourceTarget({
       repoPath: ctx.repoPath,
+      analyzedFiles: ctx.files.map((entry) => entry.path),
       file,
       line,
       analyzedContentHash: analyzedContentHash(ctx, file),
@@ -123,6 +124,7 @@ export function mountSourceViewRoutes(app: Hono, source: WebContextSource, deps:
 
     const resolved = await resolveSourceTarget({
       repoPath: ctx.repoPath,
+      analyzedFiles: ctx.files.map((entry) => entry.path),
       file: body.file,
       line: body.line,
       analyzedContentHash: typeof body.file === "string" ? analyzedContentHash(ctx, body.file) : undefined,

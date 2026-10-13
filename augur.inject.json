@@ -1,0 +1,20 @@
+{
+  "service": "anatomia",
+  "include": [
+    "src/adapters/web/source-view-target.ts",
+    "src/adapters/web/source-view-request.ts"
+  ],
+  "exclude": [],
+  "runtime": {
+    "autoImport": false,
+    "entrypoints": []
+  },
+  "rules": {
+    "silent-catch": false,
+    "spawn-watch": false,
+    "interval-guard": false,
+    "listener-guard": false,
+    "contract-wrap": true
+  },
+  "importFrom": "./contracts/runtime.js"
+}

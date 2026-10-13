@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "contractsDir": "src/adapters/web/contracts",
+  "importFrom": "./contracts/runtime.js",
+  "runtimeFile": "src/adapters/web/contracts/runtime.ts",
+  "contracts": [
+    {
+      "id": "C-1",
+      "criterion": "C-1 resolveSourceTarget(request): 解析結果に含まれないファイルを読み取り前に拒否する",
+      "symbol": "resolveSourceTarget",
+      "file": "src/adapters/web/source-view-target.ts",
+      "module": "src/adapters/web/contracts/source-target.contract.ts",
+      "mode": "observe",
+      "sample": 1
+    },
+    {
+      "id": "C-2",
+      "criterion": "C-2 classifyLaunchRequest(input): Host が無い要求と非 loopback Host を local にしない",
+      "symbol": "classifyLaunchRequest",
+      "file": "src/adapters/web/source-view-request.ts",
+      "module": "src/adapters/web/contracts/launch-host.contract.ts",
+      "mode": "observe",
+      "sample": 1
+    }
+  ]
+}

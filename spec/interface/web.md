@@ -106,6 +106,9 @@ Tela のソース専用ウインドウで開くか、ブラウザ上で表示す
 
 ### Tela source viewer launch
 
+- content / launch は `AnalysisContext.files` に含まれるファイルだけを許可し、対象外は 422 `not-analyzed`（日本語 message、file / line 付き）で拒否する。内容ハッシュ未記録の解析済みファイルも許可する。
+- Tela 起動は Host が必須で、ポートを除いたホストが loopback の場合だけ local とする（`[::1]` 対応）。Host 欠落・外部名は `cross-origin` で拒否する。
+
 - **どの端末のファイルをどこで開くか**: Anatomia web サーバが動く PC 上で、その PC のファイルを
   Tela（`tela_source --font <ttf> --source <file> --line <N>`）で開く。ソケットが loopback で、
   かつ転送ヘッダ（`Forwarded` / `X-Forwarded-*` / `X-Real-IP` / `CF-Connecting-IP`）が無い直接の
