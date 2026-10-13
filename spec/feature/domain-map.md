@@ -80,6 +80,17 @@ Figmentum の `spec/feature/*.md` **18 本が全部同じ owner・同じ paths**
 確定できない membership は **パスを主張しない**。
 また、絶対パスや `..` を含むリポジトリ外のパスは採用しない。
 
+### specRefs が名指す文書も持ち主を決める
+
+ドメイン定義の `specRefs` に書かれたリポジトリ内の `.md` パス (例 Pictor
+`pn-reconstruction` の `spec/feature/pn-stage.md`) も、membership が名指す文書と同じく
+そのドメインのコンテンツとして扱う。membership には書かず specRefs にだけ仕様書を
+並べるリポが多く、これを見ないと H1 由来の content レコードの `coreDomain` が全件
+`null` になる (2026-10-13 実測: Ludellus 16 / Ludellus-Server 6 / Pictor 18 件)。
+見出し (`§戦闘`、`DESIGN §4.4`) や `..` を含むパスは文書として採らない。
+表示用の `spec` はドメイン名と同じ名前の文書を優先し、無ければ membership → specRefs の順で先頭を選ぶ。
+どのドメインも名指さない文書は `coreDomain: null` のまま残し、推測で割り当てない。
+
 `dedupeContent` の同一性には **その文書自身** (`spec`) も含める。owner とパスが
 同じでも、別の spec 文書を説明するレコードは別のコンテンツである。
 

@@ -104,7 +104,13 @@ export async function buildProjectDomainMap(
     // A membership may name several spec documents (`kirie(?:-anim|-transform)`).
     // All of them own their content; the record displays the one named after the
     // domain when there is one, so the obvious document is not hidden behind a sibling.
-    const specs = dedupe(hints.filter((hint) => hint.endsWith(".md")));
+    // A domain also names its documents in `specRefs` without claiming them in
+    // membership (Pictor `pn-reconstruction` lists five). Those documents are its
+    // content too; membership-named documents still come first for display.
+    const specs = dedupe([
+      ...hints.filter((hint) => hint.endsWith(".md")),
+      ...specDocumentRefs(def.specRefs ?? []),
+    ]);
     const spec = specs.find((path) => specStem(path) === def.name) ?? specs[0] ?? null;
     coreByPath.push({ domain: def.name, paths, specs, spec });
     records.push({
@@ -537,6 +543,17 @@ function firstParagraph(markdown: string): string {
 
 function dedupe(values: string[]): string[] {
   return [...new Set(values.filter((value) => value !== ""))];
+}
+
+/**
+ * The `specRefs` that name a repository document (`spec/feature/pn-stage.md`).
+ * Headings (`§戦闘`, `DESIGN §4.4`) and paths that would leave the repository are
+ * not documents this map can own, so they are dropped rather than guessed at.
+ */
+function specDocumentRefs(refs: readonly string[]): string[] {
+  return refs
+    .map((ref) => ref.trim().replace(/\\/g, "/").replace(/^\.\//, ""))
+    .filter((ref) => /^[^\s#]+\.md$/i.test(ref) && isSafePathHint(ref));
 }
 
 /** `spec/feature/kirie-transform.md` → `kirie-transform`. */

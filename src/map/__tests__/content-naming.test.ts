@@ -240,3 +240,40 @@ describe("content records under one spec/feature directory", () => {
     }
   });
 });
+
+describe("documents a domain names in specRefs", () => {
+  it("owns them as its content, ignoring headings and paths outside the repository", async () => {
+    const root = await mkdtemp(join(tmpdir(), "anatomia-content-specrefs-"));
+    try {
+      await mkdir(join(root, "spec", "domains"), { recursive: true });
+      await mkdir(join(root, "spec", "feature"), { recursive: true });
+      await mkdir(join(root, "demo", "pn_surface"), { recursive: true });
+      await writeFile(join(root, "spec", "domains", "pn-reconstruction.domain.json"), JSON.stringify({
+        name: "pn-reconstruction",
+        description: "曲面の再構成。",
+        role: "semantic",
+        presetRules: [],
+        templateRules: [],
+        membership: [{ pathPattern: "(^|/)demo/pn_surface/" }],
+        specRefs: ["spec/feature/pn-stage.md", "§曲面", "../outside.md"],
+      }), "utf8");
+      await writeFile(join(root, "spec", "domains", "content-sources.json"), JSON.stringify([
+        { glob: "spec/feature/*.md", nameFrom: "h1" },
+      ]), "utf8");
+      await writeFile(join(root, "spec", "feature", "pn-stage.md"), "# PN stage presentation\n\n舞台を見せる。\n", "utf8");
+      await writeFile(join(root, "spec", "feature", "unrelated.md"), "# 誰も名指ししない仕様\n", "utf8");
+
+      const map = await buildProjectDomainMap({ id: "fixture", rootPath: root }, { roster: [] });
+      const stage = contents(map).find((record) => record.spec === "spec/feature/pn-stage.md");
+      expect(stage?.coreDomain).toBe("pn-reconstruction");
+      expect(stage?.paths).toContain("demo/pn_surface");
+      // A document no domain names stays unowned instead of being guessed.
+      const unrelated = contents(map).find((record) => record.spec === "spec/feature/unrelated.md");
+      expect(unrelated?.coreDomain).toBeNull();
+      const core = map.records.find((record) => record.kind === "core-domain" && record.name === "pn-reconstruction");
+      expect(core?.spec).toBe("spec/feature/pn-stage.md");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});

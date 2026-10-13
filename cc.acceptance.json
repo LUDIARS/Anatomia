@@ -62,6 +62,7 @@
     { "source": "src/adapters/web/public/source-view-logic.js", "tests": ["src/adapters/web/__tests__/source-view.test.ts"] },
     { "source": "src/adapters/web/public/source-view-logic.d.ts", "tests": ["src/adapters/web/__tests__/source-view.test.ts"] },
     { "source": "src/adapters/web/public/source-view-panel.js", "tests": ["src/adapters/web/__tests__/source-view.test.ts"] },
-    { "source": "src/adapters/web/public/index.html", "tests": ["src/adapters/web/__tests__/source-view.test.ts"] }
+    { "source": "src/adapters/web/public/index.html", "tests": ["src/adapters/web/__tests__/source-view.test.ts"] },
+    { "source": "src/map/sources.ts", "tests": ["src/map/__tests__/content-naming.test.ts"] }
   ]
 }
