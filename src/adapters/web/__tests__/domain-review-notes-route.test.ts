@@ -79,6 +79,17 @@ describe("domain review notes route", () => {
     expect(await readFile(logPath, "utf8")).toBe(before);
   });
 
+  it("accepts a note without a domain as a project-wide draft", async () => {
+    await seedDomain(root, "domain:combat");
+    const app = new Hono();
+    mountDomainOrganizationRoutes(app, fakeManager(root));
+    const res = await post(app, { notes: [{ note: "全体の分け方が粗い", reviewRef: "cc:answer/9" }] });
+    expect(res.status).toBe(200);
+    const body = await res.json() as { proposals: Array<{ affectedDomainIds: string[] }>; rejected: unknown[] };
+    expect(body.rejected).toEqual([]);
+    expect(body.proposals.map((p) => p.affectedDomainIds)).toEqual([[]]);
+  });
+
   it("refuses a request without notes", async () => {
     await seedDomain(root, "domain:combat");
     const app = new Hono();

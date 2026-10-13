@@ -151,8 +151,12 @@ Gate A の承認待ち下書き (`kind: "review-note"`, `requiresGate: "gate-a"`
 - 指摘の文章は書き換えず、`evidence.human` にそのまま載せる。文章を proposal の項目 (purpose /
   responsibilities / boundary) へ翻訳するのは判断が要り、呼び出し側が LLM を持たないこともあるため、
   この口では行わない。承認する人が指摘を読み、必要な proposal を作って Gate A に通す。
-- 知らない domainId、空・4000 文字超の指摘、`reviewRef` の無い指摘は推測で受けず、`rejected` に
-  理由付きで返す (無言で捨てない)。
+- `domainId` は省略できる (neco 2026-10-13 案 B)。返信がドメインを名指さず、呼び出し側の選択
+  ダイアログでも選ばれなかった指摘は、プロジェクト全体の下書き (`affectedDomainIds: []`) になり、
+  「どのドメインの話か」を承認する人への問いとして `unresolvedQuestions` の先頭に置く。
+  呼び出し側は、選べる場合はドメインを選ばせてから送る (Concordia の選択ダイアログ)。
+- 名指された domainId が知らないものなら推測で受けない。空・4000 文字超の指摘、`reviewRef` の
+  無い指摘も同じく受けず、`rejected` に理由付きで返す (無言で捨てない)。
 - 同じ指摘・同じ解析スナップショットは同じ `proposalId` になり、再送で下書きが増えない。
 - この口はドメイン定義を書き換えない。書き込みは従来どおり Gate A だけが行う。
 - 実装: `src/knowledge/domain/review-notes.ts`、application `proposeFromReviewNotes`、

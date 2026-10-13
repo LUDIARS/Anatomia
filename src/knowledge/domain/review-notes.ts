@@ -17,7 +17,12 @@ import type { SemanticProposalContext } from "./drift.js";
 export type DomainReviewNoteKind = "description" | "assignment" | "other";
 
 export interface DomainReviewNoteInput {
-  domainId: string;
+  /**
+   * The domain the note is about. Omitted (or null) when the reviewer did not name
+   * one and could not pick one: the note then becomes a project-wide draft and the
+   * Gate A reviewer decides which domain, if any, it concerns.
+   */
+  domainId?: string | null;
   /** The reviewer's own words; kept as written. */
   note: string;
   /** Where the note came from (e.g. a Concordia review answer id), for tracing. */
@@ -37,6 +42,14 @@ export interface DomainReviewNoteProposal extends SemanticProposalContext {
   requiresGate: "gate-a";
 }
 
+/** A note after validation: trimmed, kind filled in, domain null when project-wide. */
+export interface AcceptedReviewNote {
+  domainId: string | null;
+  note: string;
+  reviewRef: string;
+  kind: DomainReviewNoteKind;
+}
+
 /** Longest note accepted; longer text is refused rather than cut. */
 export const REVIEW_NOTE_MAX_LENGTH = 4000;
 
@@ -48,18 +61,25 @@ const QUESTION: Record<DomainReviewNoteKind, string> = {
   other: "What change to the domain definition, if any, does this note ask for?",
 };
 
+const PROJECT_WIDE_QUESTION = "Which domain, if any, does this note concern? It was sent without naming one.";
+
 export type ReviewNoteValidation =
-  | { ok: true; input: Required<DomainReviewNoteInput> }
+  | { ok: true; input: AcceptedReviewNote }
   | { ok: false; reason: string };
 
-/** Check one note against the known domains. Unknown domains are refused, not guessed. */
+/**
+ * Check one note against the known domains. A named domain must exist (an unknown
+ * one is refused, not guessed); no domain at all is accepted as project-wide.
+ */
 export function validateReviewNote(input: DomainReviewNoteInput, knownDomainIds: ReadonlySet<string>): ReviewNoteValidation {
-  const domainId = typeof input.domainId === "string" ? input.domainId.trim() : "";
+  if (input.domainId !== undefined && input.domainId !== null && typeof input.domainId !== "string") {
+    return { ok: false, reason: "domainId must be a string or null" };
+  }
+  const domainId = typeof input.domainId === "string" && input.domainId.trim() ? input.domainId.trim() : null;
   const note = typeof input.note === "string" ? input.note.trim() : "";
   const reviewRef = typeof input.reviewRef === "string" ? input.reviewRef.trim() : "";
   const kind = input.kind ?? "other";
-  if (!domainId) return { ok: false, reason: "domainId is required" };
-  if (!knownDomainIds.has(domainId)) return { ok: false, reason: `unknown domain ${domainId}` };
+  if (domainId !== null && !knownDomainIds.has(domainId)) return { ok: false, reason: `unknown domain ${domainId}` };
   if (!note) return { ok: false, reason: "note is required" };
   if (note.length > REVIEW_NOTE_MAX_LENGTH) return { ok: false, reason: `note exceeds ${REVIEW_NOTE_MAX_LENGTH} characters` };
   if (!reviewRef) return { ok: false, reason: "reviewRef is required" };
@@ -72,7 +92,7 @@ export function validateReviewNote(input: DomainReviewNoteInput, knownDomainIds:
  * the same analysis snapshot, so re-sending a note does not create a second draft.
  */
 export function proposeFromReviewNotes(
-  notes: ReadonlyArray<Required<DomainReviewNoteInput>>,
+  notes: ReadonlyArray<AcceptedReviewNote>,
   context: SemanticProposalContext,
 ): DomainReviewNoteProposal[] {
   return notes
@@ -85,11 +105,11 @@ export function proposeFromReviewNotes(
         proposalId: `proposal:domain-review-note/${digest}`,
         kind: "review-note" as const,
         noteKind: note.kind,
-        affectedDomainIds: [note.domainId],
+        affectedDomainIds: note.domainId === null ? [] : [note.domainId],
         note: note.note,
         reviewRef: note.reviewRef,
         evidence: { human: [{ field: "note" as const, value: note.note, reviewRef: note.reviewRef }] },
-        unresolvedQuestions: [QUESTION[note.kind]],
+        unresolvedQuestions: note.domainId === null ? [PROJECT_WIDE_QUESTION, QUESTION[note.kind]] : [QUESTION[note.kind]],
         ...context,
         requiresGate: "gate-a" as const,
       };

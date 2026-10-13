@@ -16,6 +16,13 @@ describe("validateReviewNote", () => {
       .toEqual({ ok: false, reason: "unknown domain domain:magic" });
   });
 
+  it("accepts a note without a domain as project-wide", () => {
+    expect(validateReviewNote({ note: "全体の分け方が粗い", reviewRef: "cc:answer/9" }, KNOWN))
+      .toEqual({ ok: true, input: { domainId: null, note: "全体の分け方が粗い", reviewRef: "cc:answer/9", kind: "other" } });
+    expect(validateReviewNote({ domainId: "  ", note: "x", reviewRef: "r" }, KNOWN)).toMatchObject({ ok: true, input: { domainId: null } });
+    expect(validateReviewNote({ domainId: 3 as never, note: "x", reviewRef: "r" }, KNOWN).ok).toBe(false);
+  });
+
   it("refuses empty, oversized, untraceable or wrongly kinded notes", () => {
     expect(validateReviewNote({ domainId: "domain:combat", note: "   ", reviewRef: "r" }, KNOWN).ok).toBe(false);
     expect(validateReviewNote({ domainId: "domain:combat", note: "a".repeat(REVIEW_NOTE_MAX_LENGTH + 1), reviewRef: "r" }, KNOWN).ok).toBe(false);
@@ -40,6 +47,16 @@ describe("proposeFromReviewNotes", () => {
     });
     expect(draft!.unresolvedQuestions).toHaveLength(1);
     expect(draft!.proposalId).toMatch(/^proposal:domain-review-note\/[0-9a-f]{20}$/);
+  });
+
+  it("drafts a project-wide note with no domain and asks the reviewer which domain it concerns", () => {
+    const [draft] = proposeFromReviewNotes([
+      { domainId: null, note: "全体の分け方が粗い", reviewRef: "cc:answer/9", kind: "other" },
+    ], CONTEXT);
+    expect(draft!.affectedDomainIds).toEqual([]);
+    expect(draft!.unresolvedQuestions).toHaveLength(2);
+    expect(draft!.unresolvedQuestions[0]).toMatch(/Which domain/);
+    expect(draft!.requiresGate).toBe("gate-a");
   });
 
   it("gives the same note on the same snapshot the same id, and a new snapshot a new id", () => {
