@@ -16,6 +16,7 @@ import type { Node, Tree } from "web-tree-sitter";
 import type { AstNode, FieldInfo, FunctionNode, ParamInfo, SourceRange, TypeDecl } from "../types.js";
 import { freezeBody } from "./freeze.js";
 import { accessorKind, factoryMethodOwner, factoryReturnType, scriptBases, scriptFields, scriptParam } from "./script-types.js";
+import { argumentLabels, flatDirectiveLabel, nestedPreprocessorLabel } from "./context-labels.js";
 
 /** Node types that introduce a function-like definition, by language family. */
 const FUNCTION_DEFINITION_TYPES = new Set<string>([
@@ -529,6 +530,12 @@ function collect(node: Node, source: string, filePath: string, out: FunctionNode
   }
 }
 
+/** Declarations a C# `#if` can wrap besides functions (the branch is a preceding sibling). */
+const DIRECTIVE_SCOPED_TYPES = new Set<string>([
+  "class_declaration", "struct_declaration", "interface_declaration", "record_declaration",
+  "namespace_declaration", "file_scoped_namespace_declaration",
+]);
+
 /** Stable lexical owners and registration slots; repeated identical slots stay ambiguous.
  * @spec Function complexity comparison
  */
@@ -543,6 +550,10 @@ function declarationContext(node: Node): string[] {
       const owner = current.childForFieldName("name");
       if (owner) context.push(`${current.type}:${owner.text}`);
     }
+    const preprocessor = nestedPreprocessorLabel(current)
+      ?? (FUNCTION_DEFINITION_TYPES.has(current.type) || DIRECTIVE_SCOPED_TYPES.has(current.type)
+        ? flatDirectiveLabel(current) : null);
+    if (preprocessor) context.push(preprocessor);
     if (["pair", "public_field_definition", "field_definition"].includes(current.type)) {
       const property = current.childForFieldName("key") ?? current.childForFieldName("name");
       if (property && ["property_identifier", "identifier", "string", "number"].includes(property.type)) {
@@ -557,7 +568,7 @@ function declarationContext(node: Node): string[] {
         && arg.endIndex >= node.endIndex);
       if (callee && slot >= 0) {
         const stableCallee = `${call?.type === "new_expression" ? "new " : ""}${calleeContext(callee)}`;
-        const labels = args.filter((arg) => arg.type === "string").map((arg) => arg.text);
+        const labels = argumentLabels(args, slot);
         context.push(JSON.stringify(["callback", stableCallee, slot, labels]));
       }
     }

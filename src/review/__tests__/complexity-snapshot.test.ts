@@ -79,6 +79,45 @@ const right = { run() { return 1; } };
     const ambiguous = await snapshotOf("/head", `it("same", () => { return 1; }); it("same", () => { return 2; });`);
     expect(ambiguous.functions[0]!.key).toBe(ambiguous.functions[1]!.key);
   });
+  // Excubitor 実測: 同じ component 内の `useEffect(() => …, [deps])` が同一 key になり、
+  // 1 組の重複だけで PR の比較全体が旧集計へ落ちていた (Actio b02cbd38 / d73260a9)。
+  it("tells callbacks apart by an identifier-only dependency array, but not by numbers", async () => {
+    const keysOf = async (source: string, lang: "typescript" | "c_sharp" | "cpp" = "typescript", file = "src/a.ts") => {
+      const tree = await parse(source, lang);
+      try {
+        const functions = extractFunctions(tree, source, `/r/${file}`);
+        for (const fn of functions) assignAnchorId(fn, normalize(fn.bodyAst!), file);
+        return buildComplexitySnapshot("/r", functions, functions.map((fn) => metric(fn.id!, 1))).functions.map((row) => row.key);
+      } finally { tree.delete(); }
+    };
+    const effects = await keysOf(`function View() { useEffect(() => { load(a); }, [a]); useEffect(() => { load(b); }, [b, props.c]); }`);
+    expect(new Set(effects).size).toBe(effects.length);
+    // Same dependency list: the source does not distinguish them, so they stay ambiguous.
+    const same = await keysOf(`function View() { useEffect(() => { load(1); }, []); useEffect(() => { load(2); }, []); }`);
+    expect(same.filter((key, index) => same.indexOf(key) !== index)).toHaveLength(1);
+    // A changed delay is a body-level edit, not a different registration.
+    const [slow] = await keysOf(`setTimeout(() => { tick(); }, 100);`);
+    const [fast] = await keysOf(`setTimeout(() => { tick(); }, 200);`);
+    expect(slow).toBe(fast);
+  });
+
+  it("tells preprocessor branches apart (C# flat directives and C++ nested blocks)", async () => {
+    const keysOf = async (source: string, lang: "c_sharp" | "cpp", file: string) => {
+      const tree = await parse(source, lang);
+      try {
+        const functions = extractFunctions(tree, source, `/r/${file}`);
+        for (const fn of functions) assignAnchorId(fn, normalize(fn.bodyAst!), file);
+        return buildComplexitySnapshot("/r", functions, functions.map((fn) => metric(fn.id!, 1))).functions.map((row) => row.key);
+      } finally { tree.delete(); }
+    };
+    const csharp = await keysOf(`#if TRACE\nnamespace A { static class T { static int Now() { return 1; } } }\n#else\nnamespace A { static class T { static int Now() { return 0; } } }\n#endif`, "c_sharp", "src/T.cs");
+    expect(csharp).toHaveLength(2);
+    expect(new Set(csharp).size).toBe(2);
+    const cpp = await keysOf(`#ifdef FAST\nint run() { return 1; }\n#else\nint run() { return 0; }\n#endif`, "cpp", "src/a.cpp");
+    expect(cpp).toHaveLength(2);
+    expect(new Set(cpp).size).toBe(2);
+  });
+
   it("keys survive checkout changes, body edits and line shifts", () => {
     // Different checkout root, different anchor (the body changed) and a moved
     // line: the identity must still match so the two are compared, not reported

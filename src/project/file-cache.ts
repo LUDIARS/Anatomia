@@ -27,7 +27,8 @@ import type { FileAnalysisCache } from "../core.js";
  */
 // 4: lexical scope uncertainty replaces file-wide parser recovery suppression.
 // 5: script receiver typing (class heritage/fields, factory members, getters, property reads).
-const FORMAT_VERSION = 5;
+// 6: lexicalContext gains dependency-array and preprocessor-branch labels.
+const FORMAT_VERSION = 6;
 const MAX_COMPRESSED_ENTRY_BYTES = 64 * 1024 * 1024;
 const MAX_DECOMPRESSED_ENTRY_BYTES = 256 * 1024 * 1024;
 

@@ -24,6 +24,14 @@ key は次を連結して SHA-256 で畳む：
 - 正規化した signature shape
 - 宣言の字句文脈（囲み関数・型・namespace・変数宣言・object property名、callback の callee宣言構造・引数位置・同 call の文字列登録名）
 
+字句文脈には、ソースが区別している繰り返しを見分けるラベルも含める（`src/dag/context-labels.ts`）。
+
+- callback の登録ラベルは、同じ call の文字列引数に加えて **識別子だけの配列引数**（React の
+  `useEffect(() => …, [a, props.b])` の依存配列）。数値・関数・オブジェクト・呼び出しは含めない
+  （`setTimeout(fn, 100)` → `200` は登録の違いではなく本体の編集なので key を変えない）。
+- プリプロセッサ分岐。C++ は入れ子の `#if` / `#ifdef` / `#elif` / `#else` 祖先、C# は平坦な
+  `#if` / `#elif` / `#else` を直前の兄弟から探す（関数と、それを包む型・namespace に適用）。
+
 body と行番号は含めない。したがって body 編集・行ずれ・別 worktree をまたいでも key は一致する。
 `structuralHash` も併記するので、消費側は「移動しただけで中身が変わっていない関数」を
 一意に特定できる。
@@ -41,6 +49,19 @@ value をそのまま集計するので件数・平均・最大・scoreが同じ
 欠測は既存どおり例外、曖昧keyは削除・ordinal付与で隠さない。新しいlexicalContextが
 抽出されない手組みのFunctionNodeには従来のkeyを使用する。実解析のbase/headは同じ
 analyzer versionを使用し、消費側の件数確認・曖昧identity fallbackは引き続き必須。
+
+### 残る曖昧さと消費側への契約
+
+ラベルを足しても、ソースが区別しない繰り返し（同じ component 内の `useEffect(…, [])` を 2 回、
+同じ関数内の同じ callee・同じ引数の callback、if/else の両方にある同名の入れ子関数）は同一 key の
+まま残る。2026-10-13 の実測で、Excubitor は 4700 関数中 66 行→54 行（24 組）、Anatomia は
+20 行→6 行（3 組、C# `#if` 分の 7 組が解消）。
+
+出現順の番号は付けない。同じ組の兄弟を並べ替えただけで別の関数どうしが対になり、悪化を
+打ち消しうるため。消費側（Revisor `complexity-comparison.mjs`）は、曖昧な key の組を
+**比較対象外として数えて残りを比較する** ことを推奨する（現状は 1 組でもあると全体を集計比較へ
+落とす）。この変更と version の扱いは Revisor の既存タスク `activate-function-complexity-comparison`
+へ引き継いだ。
 
 ## 制約
 

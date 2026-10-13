@@ -3,7 +3,7 @@
   "implementations": [
     { "source": "src/types.ts", "tests": ["src/graph/__tests__/reference-evidence.test.ts", "src/graph/__tests__/script-receiver-typing.test.ts"] },
     { "source": "src/core.ts", "tests": ["src/review/__tests__/build.test.ts"] },
-    { "source": "src/project/file-cache.ts", "tests": ["src/project/__tests__/file-cache.test.ts"] },
+    { "source": "src/project/file-cache.ts", "tests": ["src/project/__tests__/file-cache.test.ts", "src/review/__tests__/complexity-snapshot.test.ts"] },
     { "source": "src/graph/reference-syntax.ts", "tests": ["src/graph/__tests__/reference-evidence.test.ts"] },
     { "source": "src/graph/reference-evidence.ts", "tests": ["src/graph/__tests__/reference-evidence.test.ts"] },
     { "source": "src/graph/build.ts", "tests": ["src/graph/__tests__/reference-evidence.test.ts", "src/graph/__tests__/build.test.ts", "src/graph/__tests__/script-receiver-typing.test.ts"] },
@@ -51,6 +51,7 @@
     { "source": "src/dag/script-types.ts", "tests": ["src/graph/__tests__/script-receiver-typing.test.ts"] },
     { "source": "src/graph/override-dispatch.ts", "tests": ["src/graph/__tests__/script-receiver-typing.test.ts"] },
     { "source": "src/graph/type-resolve.ts", "tests": ["src/graph/__tests__/script-receiver-typing.test.ts", "src/graph/__tests__/type-resolve.test.ts"] },
-    { "source": "src/review/declared-entrypoints.ts", "tests": ["src/review/__tests__/declared-entrypoints.test.ts"] }
+    { "source": "src/review/declared-entrypoints.ts", "tests": ["src/review/__tests__/declared-entrypoints.test.ts"] },
+    { "source": "src/dag/context-labels.ts", "tests": ["src/review/__tests__/complexity-snapshot.test.ts"] }
   ]
 }
