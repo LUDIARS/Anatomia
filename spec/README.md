@@ -10,11 +10,16 @@ Anatomia の永続仕様は AIFormat の分類に従って `spec/` に置く。�
 
 | 分類 | 内容 |
 |---|---|
+| [`architecture/`](./architecture/) | 採用設計と責務・ドメインの境界 |
+| [`domains/`](./domains/) | コード所属と関連仕様の宣言 |
 | [`data/`](./data/) | Merkle DAG、プロジェクトキャッシュ、domain knowledge log、LLM キャッシュ、cost feed |
 | [`feature/`](./feature/) | 静的・動的解析、OKF、domain organization、context supply、レビュー、Web view |
 | [`interface/`](./interface/) | CLI、MCP、Web HTTP API |
 | [`setup/`](./setup/) | 必要環境、依存、環境変数、起動経路 |
 | [`test/`](./test/) | テスト種別、hermetic 原則、実行方法 |
+| [`plan/`](./plan/) | 改善提案・移行計画 |
+| [`tasks/`](./tasks/) | 作業要件・実施記録 |
+| [`ux/`](./ux/) | 利用者の価値・シナリオの正本 |
 
 ## 現行の中核フロー
 

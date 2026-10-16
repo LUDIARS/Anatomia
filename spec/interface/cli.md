@@ -9,7 +9,7 @@
 ```
 anatomia <verify|context|where|plan|find|callers|callees|review|spec-review|domain-review|
           pr-review|project|export-graph|web|cache-stats|integral|domains|trace|screens|scenes|
-          links> [flags]
+          entrypoints|knowledge|links|map> [flags]
 ```
 
 | サブコマンド | 何をする | 出力 / 終了コード |
@@ -34,6 +34,9 @@ anatomia <verify|context|where|plan|find|callers|callees|review|spec-review|doma
 | `trace <plan\|ingest>` | 動的トレース準備 / 取り込み（→ feature/trace-recording.md）。`plan --lang cpp\|csharp` でランタイム + patch 出力（既定 cpp、正本は `runtime/`） | 下記 |
 | `screens` | 静的画面構成の検出（→ feature/screen-composition.md） | 一覧 / 0 |
 | `scenes` | シーン導出 + シーンキャッシュ（→ feature/scene-derivation.md） | 一覧 / 0 |
+| `entrypoints` | エントリポイントと到達関係を調べる | 詳細は src/adapters/entrypoints-cli.ts |
+| `knowledge` | 正本 knowledge の状態確認・移行計画 | 詳細は src/adapters/cli.ts の knowledge 分岐 |
+| `map` | 準備済みドメイン・関数マップを読む | 詳細は src/adapters/cli.ts の map 分岐 |
 | `links <list\|ratify\|candidates>` | コード↔仕様リンクの硬化（→ feature/spec-linkage.md） | 下記 |
 
 ### plan のフラグ

@@ -57,8 +57,10 @@ npm test           # vitest run
 
 ### spec/ の構成
 
-`spec/` は AIFormat の分類フォルダに揃える（`data` / `feature` / `interface` /
-`setup` / `test`）。`usage/` 等の独自フォルダは作らない（CI の構造チェックで落ちる）。
+`spec/` は用途別に整理する。現行の分類は `architecture` / `data` / `domains` /
+`feature` / `interface` / `plan` / `setup` / `tasks` / `test` / `ux`。
+`spec/README.md` を入口とし、既存分類で表せる資料のために独自フォルダを増やさない。
+この一覧は現在の構成説明であり、CI が全分類を自動強制しているという意味ではない。
 
 ## 参照
 
