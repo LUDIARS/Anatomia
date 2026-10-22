@@ -17,8 +17,8 @@ services:
     command: node bin/anatomia.mjs web --port 4200 --home ${ARS_ROOT}/.anatomia
     port: 4200
     frontend_url: http://127.0.0.1:4200
-    autostart: false
-    restart_policy: "no"
+    autostart: true
+    restart_policy: on-failure
     provides:
       ANATOMIA_URL: http://127.0.0.1:${port}
     health:
