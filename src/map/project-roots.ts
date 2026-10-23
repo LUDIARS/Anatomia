@@ -26,7 +26,7 @@
  */
 // @implements SPEC-domain-map
 
-import { readdir, stat } from "node:fs/promises";
+import { readdir, realpath, stat } from "node:fs/promises";
 import { platform } from "node:os";
 import { relative, resolve } from "node:path";
 import { resolveRepoRoots, type RepoRoots } from "../branch/git.js";
@@ -193,9 +193,13 @@ async function memoizedProbe(
  * is not the liveness test — "there is something left to index" is.
  */
 export async function probeProjectRoot(rootPath: string): Promise<ProjectRootProbe> {
-  const path = resolve(rootPath);
-  const dead = await deadReason(path);
-  if (dead !== null) return { dead, key: identityKey(path, null), isMainCheckout: true };
+  const resolved = resolve(rootPath);
+  const dead = await deadReason(resolved);
+  if (dead !== null) return { dead, key: identityKey(resolved, null), isMainCheckout: true };
+  // git answers with the long, link-resolved spelling; an 8.3 short alias
+  // (C:/Users/RUNNER~1/...) or a symlinked root would otherwise never sit inside
+  // the worktree git reports, and the identity key would not match.
+  const path = await realpath(resolved);
   const roots = await resolveRepoRoots(path);
   return {
     dead: null,

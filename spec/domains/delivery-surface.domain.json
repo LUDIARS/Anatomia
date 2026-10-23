@@ -10,6 +10,9 @@
       "pathPattern": "^vitest\\.config\\.ts$"
     },
     {
+      "pathPattern": "^vitest\\.setup\\.ts$"
+    },
+    {
       "pathPattern": "(^|/)src/adapters/web/public/[^/]+$"
     },
     {

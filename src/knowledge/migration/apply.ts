@@ -55,11 +55,32 @@ async function validateAnnotations(writes: LegacyAnnotationWrite[], targets: str
   }
 }
 
-async function prepareWriteTargets(targets: string[]): Promise<void> {
+/** Windows paths are case-insensitive; POSIX paths are not necessarily so. */
+function samePath(a: string, b: string): boolean {
+  return process.platform === "win32" ? a.toLowerCase() === b.toLowerCase() : a === b;
+}
+
+/**
+ * Create each target's directory and refuse one reached through a link.
+ *
+ * The expected location is the write root's real path plus the target's path
+ * inside it, not `resolve(dir)`: realpath also expands an 8.3 short alias
+ * (C:/Users/RUNNER~1/...) and links above the write root, so comparing it with
+ * the caller's spelling flagged a plain directory as a link.
+ */
+async function prepareWriteTargets(writeRoot: string, targets: string[]): Promise<void> {
+  const root = resolve(writeRoot);
+  await mkdir(root, { recursive: true });
+  const realRoot = await realpath(root);
   for (const target of targets) {
     await rejectSymbolicLink(target);
-    await mkdir(dirname(target), { recursive: true });
-    if (await realpath(dirname(target)) !== resolve(dirname(target))) {
+    const dir = dirname(target);
+    const child = relative(root, dir);
+    if (child.startsWith("..") || isAbsolute(child)) {
+      throw new Error("legacy migration target escapes knowledge write root");
+    }
+    await mkdir(dir, { recursive: true });
+    if (!samePath(await realpath(dir), resolve(realRoot, child))) {
       throw new Error("legacy migration refuses symbolic link directory");
     }
   }
@@ -98,7 +119,7 @@ export async function applyLegacyKnowledgeMigration(input: {
   const annotationTargets = plan.annotationWrites.map((write) => resolveWritePath(writeRoot, write.path));
   await validateAnnotations(plan.annotationWrites, annotationTargets);
   const targets = [knowledgeLogPath, ...annotationTargets];
-  await prepareWriteTargets(targets);
+  await prepareWriteTargets(writeRoot, targets);
   return withFileRollback(targets, async () => {
     await writeAnnotations(plan.annotationWrites, annotationTargets);
     const transaction = await writeKnowledgeTransaction(

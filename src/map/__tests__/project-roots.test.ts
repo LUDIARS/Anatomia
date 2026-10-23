@@ -17,6 +17,7 @@ import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 import { clearDomainMapMemo, loadDomainMapBundle } from "../bundle.js";
 import { searchDomainMap } from "../search.js";
+import { withShortTemp } from "../../fs/__tests__/short-temp.js";
 import {
   isGeneratedProjectId,
   normalizeMapSources,
@@ -68,43 +69,11 @@ describe("normalizeMapSources", () => {
   });
 
   it("folds a linked worktree into the main checkout when both are registered", async () => {
-    const root = await mkdtemp(join(tmpdir(), "anatomia-map-worktree-"));
-    try {
-      const main = join(root, "pictor");
-      const linked = join(root, "pictor-feat-kirie");
-      await mkdir(join(main, "src"), { recursive: true });
-      await writeFile(join(main, "README.md"), "# pictor\n", "utf8");
-      await writeFile(join(main, "src", "index.ts"), "export {};\n", "utf8");
-      await git(main, ["init", "-q", "-b", "main"]);
-      await git(main, ["add", "-A"]);
-      await git(main, [
-        "-c", "user.email=test@example.com", "-c", "user.name=test",
-        "commit", "-q", "-m", "init",
-      ]);
-      await git(main, ["worktree", "add", "-q", "-b", "feat/kirie", linked]);
+    await expectLinkedWorktreeFolded();
+  });
 
-      const result = await normalizeMapSources(
-        [
-          { id: "pictor-5bfd9645e639", rootPath: linked },
-          { id: "pictor", rootPath: main },
-        ],
-        { probeCacheMs: 0 },
-      );
-
-      expect(result.sources.map((source) => source.id)).toEqual(["pictor"]);
-      expect(result.notes.join(" ")).toContain("pictor-5bfd9645e639 → pictor");
-
-      const scoped = await normalizeMapSources(
-        [
-          { id: "pictor-src-5bfd9645e639", rootPath: join(linked, "src") },
-          { id: "pictor-src", rootPath: join(main, "src") },
-        ],
-        { probeCacheMs: 0 },
-      );
-      expect(scoped.sources.map((source) => source.id)).toEqual(["pictor-src"]);
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
+  it("folds a linked worktree when TEMP is spelled as an 8.3 short alias", async (ctx) => {
+    if (!(await withShortTemp(expectLinkedWorktreeFolded))) ctx.skip();
   });
 
   it("keeps a worktree when the repository it came from is not registered", async () => {
@@ -200,6 +169,47 @@ describe("loadDomainMapBundle", () => {
     expect(bundle.notes.join(" ")).toContain("pictor-5bfd9645e639 → pictor");
   });
 });
+
+/** Register a repo and its linked worktree under tmpdir(); only the main checkout survives. */
+async function expectLinkedWorktreeFolded(): Promise<void> {
+  const root = await mkdtemp(join(tmpdir(), "anatomia-map-worktree-"));
+  try {
+    const main = join(root, "pictor");
+    const linked = join(root, "pictor-feat-kirie");
+    await mkdir(join(main, "src"), { recursive: true });
+    await writeFile(join(main, "README.md"), "# pictor\n", "utf8");
+    await writeFile(join(main, "src", "index.ts"), "export {};\n", "utf8");
+    await git(main, ["init", "-q", "-b", "main"]);
+    await git(main, ["add", "-A"]);
+    await git(main, [
+      "-c", "user.email=test@example.com", "-c", "user.name=test",
+      "commit", "-q", "-m", "init",
+    ]);
+    await git(main, ["worktree", "add", "-q", "-b", "feat/kirie", linked]);
+
+    const result = await normalizeMapSources(
+      [
+        { id: "pictor-5bfd9645e639", rootPath: linked },
+        { id: "pictor", rootPath: main },
+      ],
+      { probeCacheMs: 0 },
+    );
+
+    expect(result.sources.map((source) => source.id)).toEqual(["pictor"]);
+    expect(result.notes.join(" ")).toContain("pictor-5bfd9645e639 → pictor");
+
+    const scoped = await normalizeMapSources(
+      [
+        { id: "pictor-src-5bfd9645e639", rootPath: join(linked, "src") },
+        { id: "pictor-src", rootPath: join(main, "src") },
+      ],
+      { probeCacheMs: 0 },
+    );
+    expect(scoped.sources.map((source) => source.id)).toEqual(["pictor-src"]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
 
 async function git(cwd: string, args: string[]): Promise<void> {
   await execFileAsync("git", args, { cwd, windowsHide: true });

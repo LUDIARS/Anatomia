@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { tmpdir } from "node:os";
+import { withShortTemp } from "../../fs/__tests__/short-temp.js";
 import type { Project } from "../../project/types.js";
 import { replayKnowledgeLog } from "../log.js";
 import { domainEntityId } from "../identity.js";
@@ -105,6 +106,32 @@ describe("legacy knowledge migration", () => {
       code: "stale-scene-manifest",
       path: "data/generated/anatomia/scene-manifest.json",
     }));
+  });
+
+  it("applies when TEMP is spelled as an 8.3 short alias", async (ctx) => {
+    const ran = await withShortTemp(async () => {
+      const { root, project, manifest } = await fixture();
+      const plan = await planLegacyKnowledgeMigration({ project, state: replayKnowledgeLog(""), sceneManifest: manifest, writeRoot: root });
+      const knowledgeLogPath = join(root, "data", "domain-map", "fixture.knowledge.jsonl");
+      const result = await applyLegacyKnowledgeMigration({ project, knowledgeLogPath, sceneManifest: manifest, writeRoot: root,
+        request: { confirmApply: true, expectedSourceFingerprint: plan.sourceFingerprint, expectedHead: plan.expectedHead } });
+      expect(replayKnowledgeLog(await readFile(knowledgeLogPath, "utf8")).head).toBe(result.transaction.transactionHash);
+    });
+    if (!ran) ctx.skip();
+  });
+
+  it("still refuses a write directory reached through a link", async () => {
+    const { root, project, manifest } = await fixture();
+    const outside = await mkdtemp(join(tmpdir(), "anatomia-migration-outside-"));
+    roots.push(outside);
+    await mkdir(join(root, "data"), { recursive: true });
+    await symlink(outside, join(root, "data", "domain-map"), "junction");
+    const plan = await planLegacyKnowledgeMigration({ project, state: replayKnowledgeLog(""), sceneManifest: manifest, writeRoot: root });
+    const knowledgeLogPath = join(root, "data", "domain-map", "fixture.knowledge.jsonl");
+    await expect(applyLegacyKnowledgeMigration({ project, knowledgeLogPath, sceneManifest: manifest, writeRoot: root,
+      request: { confirmApply: true, expectedSourceFingerprint: plan.sourceFingerprint, expectedHead: plan.expectedHead } }))
+      .rejects.toThrow("symbolic link directory");
+    await expect(readFile(join(outside, "fixture.knowledge.jsonl"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("rejects project names that escape the legacy data directory", async () => {

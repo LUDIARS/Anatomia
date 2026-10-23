@@ -13,6 +13,15 @@ Anatomia は決定的キャッシュ + 解析オラクルなので、**API 鍵�
 graceful fallback する。よって duplication ゲートはプロバイダ無しで always-pass、解析は
 パース失敗ファイルを skip して crash しない。テストはこの「未設定経路」を hermetic に検証する。
 
+実行ホストの差でも結果を変えない:
+
+- テストが作る使い捨て git リポは、呼び出し元セッションが `GIT_CONFIG_COUNT` 等で注入した
+  `core.hooksPath` を引き継がない（hook が commit / worktree add ごとに走り timeout を超える）。
+  `vitest.setup.ts` が全テストの git に存在しない hooksPath を設定する。
+- 審査ホストの TEMP は `C:/Users/RUNNER~1/...` のような 8.3 短縮名になる。`os.tmpdir()` は短縮名、
+  realpath と git は長い名前を返すので、パス比較は実装側で realpath 済みの基準に揃える
+  （テストの期待値を緩めない）。再現は `src/fs/__tests__/short-temp.ts` の `withShortTemp`。
+
 ## 種別と担保内容
 
 | 種別 | 対象 | 何を担保 |
