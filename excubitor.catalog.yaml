@@ -11,10 +11,11 @@ services:
     repo: LUDIARS/Anatomia
     runtime: node
     cwd: ${ARS_ROOT}/Anatomia
-    # --home is explicit: the registry (projects.json) + cache live in the Ars
-    # root, not in this repo. Without it resolveHome() would fall back to
-    # <os.homedir()>/.anatomia and the panel would start with an empty registry.
-    command: node bin/anatomia.mjs web --port 4200 --home ${ARS_ROOT}/.anatomia
+    # No --home: the registry (projects.json) + cache are the user's single home
+    # <os.homedir()>/.anatomia, the same one the CLI resolves from any cwd, so the
+    # panel, the hooks and `anatomia` commands never see different registries.
+    # This repo keeps no .anatomia/projects.json, or resolveHome() would pick it first.
+    command: node bin/anatomia.mjs web --port 4200
     port: 4200
     frontend_url: http://127.0.0.1:4200
     autostart: true

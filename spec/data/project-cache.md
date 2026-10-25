@@ -8,7 +8,13 @@
 
 1. 明示 `homeDir` 引数（`web --home <dir>`）
 2. 環境変数 `ANATOMIA_HOME`
-3. `<cwd>/.anatomia`
+3. `<cwd>/.anatomia`（そこに `projects.json` が既にあるときだけ）
+4. `<os.homedir()>/.anatomia`
+
+運用の既定は 4 のホーム 1 か所。Excubitor の `anatomia` サービスも `--home` を付けずにホームを使う。
+リポジトリや Castra に `.anatomia/projects.json` を置くと、そこを cwd にしたコマンドだけ別の登録簿を見て、
+同じ ID が別のフォルダを指すずれが起きる（2026-10-25 に 3 か所へ分かれていたのをホームへ統合した）。
+レジストリを分けたい検証は `ANATOMIA_HOME` か `--home` で明示する。
 
 home 下のレイアウト：
 
