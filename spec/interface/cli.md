@@ -9,7 +9,7 @@
 ```
 anatomia <verify|context|where|plan|find|callers|callees|review|spec-review|domain-review|
           pr-review|project|export-graph|web|cache-stats|integral|domains|trace|screens|scenes|
-          entrypoints|knowledge|links|map> [flags]
+          entrypoints|knowledge|links|map|code-check> [flags]
 ```
 
 | サブコマンド | 何をする | 出力 / 終了コード |
@@ -28,6 +28,7 @@ anatomia <verify|context|where|plan|find|callers|callees|review|spec-review|doma
 | `web --port <n>` | 複数プロジェクト管理パネル（HTTP 常駐） | サーバ（exit しない） |
 | `project <add\|list\|remove\|analyze\|spec>` | レジストリ管理（→ data/project-cache.md）。`spec` は spec 正本パスの表示/設定/クリア（→ feature/spec-source-config.md） | 下記 |
 | `cache-stats` | A-3 cache transcript を hit 率レポートに集計 | レポート / JSON |
+| `code-check [<path>...]` | C++ のコードレベル静的検査（メモリ / 難読化 / 再配置 / 変数宣言 / 複雑度 / コメント。→ feature/code-checks.md）。`--files-from <file\|->` で対象一覧、`--fail-on error\|warning\|info\|none`（既定 error） | テキスト / `--json` で `CodeCheckReport`。`--fail-on` 以上の指摘で **exit 1**、引数・設定不正は **exit 2** |
 | `integral --entry <ref>` | 3 層スコープド検索（→ feature/integral-search.md） | レポート / 0 |
 | `domains <draft\|list\|reconstruct\|suggest>` | ドメイン authoring（→ feature/domain-authoring.md） | 下記 |
 | `domains program [--project <id> \| --repo <path>] [--json] [--unclassified]` | プログラムドメイン（二層）診断: layer 別集計 + `.anatomia/layers.json` が覆わない unclassified module 一覧（→ feature/domain-dual-layer.md）。gate ではなく lens（常に exit 0） | レポート / JSON |

@@ -91,6 +91,7 @@ import { exportGraphHtml } from "./web/export.js";
 import { runEntryPoints } from "./entrypoints-cli.js";
 import { runPlan } from "./plan-cli.js";
 import { runMap, type MapAction } from "./map-cli.js";
+import { runCodeCheckCli } from "./code-check-cli.js";
 import { PLAN_DIR_REL, latestPlanFile, loadPlan } from "../supply/plan/index.js";
 import type { Plan } from "../supply/plan/index.js";
 import { startServer } from "./web/server.js";
@@ -1933,6 +1934,15 @@ async function writeThenExit(
 }
 
 export async function main(): Promise<void> {
+  // `code-check` judges files it is handed and needs none of the project/graph
+  // arguments below, so it owns its argv (spec/feature/code-checks.md).
+  const argv = process.argv.slice(2);
+  if (argv[0] === "code-check") {
+    const result = await runCodeCheckCli(argv.slice(1));
+    await writeThenExit(result.exitCode === 2 ? process.stderr : process.stdout, `${result.output}\n`, result.exitCode);
+    return;
+  }
+
   let args: CliArgs;
   try {
     args = parseArgs(process.argv.slice(2));

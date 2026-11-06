@@ -1,0 +1,22 @@
+{
+  "name": "code-checks",
+  "description": "C++ ソースを構文木だけで判定するコードレベル静的検査 (メモリの Rust 準拠・難読化・再配置・変数宣言・人間向け複雑度・コメント)。LLM 非依存で決定的。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    {
+      "pathPattern": "(^|/)src/code-checks/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/code-checks/rules/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/code-checks/__tests__/[^/]+$"
+    }
+  ],
+  "cardTemplate": "Summarise the \"code-checks\" domain: C++ ソースを構文木だけで判定するコードレベル静的検査 (メモリの Rust 準拠・難読化・再配置・変数宣言・人間向け複雑度・コメント)。LLM 非依存で決定的。",
+  "specRefs": [
+    "spec/feature/code-checks.md",
+    "spec/interface/cli.md"
+  ]
+}

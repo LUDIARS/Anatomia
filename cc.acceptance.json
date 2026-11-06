@@ -75,6 +75,21 @@
     { "source": "src/cache/store.ts", "tests": ["src/cache/__tests__/store.test.ts"] },
     { "source": "src/cost/aggregate.ts", "tests": ["src/cost/__tests__/aggregate.test.ts"] },
     { "source": "src/dynamic/phase/fsm.ts", "tests": ["src/dynamic/phase/fsm.test.ts"] },
-    { "source": "src/screens/detect.ts", "tests": ["src/screens/detect.test.ts"] }
+    { "source": "src/screens/detect.ts", "tests": ["src/screens/detect.test.ts"] },
+    { "source": "src/code-checks/types.ts", "tests": ["src/code-checks/__tests__/config-and-run.test.ts"] },
+    { "source": "src/code-checks/config.ts", "tests": ["src/code-checks/__tests__/config-and-run.test.ts"] },
+    { "source": "src/code-checks/syntax.ts", "tests": ["src/code-checks/__tests__/memory.test.ts", "src/code-checks/__tests__/obfuscation.test.ts", "src/code-checks/__tests__/placement.test.ts", "src/code-checks/__tests__/declaration.test.ts", "src/code-checks/__tests__/complexity.test.ts", "src/code-checks/__tests__/comment.test.ts", "src/code-checks/__tests__/config-and-run.test.ts"] },
+    { "source": "src/code-checks/locals.ts", "tests": ["src/code-checks/__tests__/memory.test.ts", "src/code-checks/__tests__/placement.test.ts", "src/code-checks/__tests__/declaration.test.ts"] },
+    { "source": "src/code-checks/cognitive-complexity.ts", "tests": ["src/code-checks/__tests__/complexity.test.ts", "src/code-checks/__tests__/comment.test.ts"] },
+    { "source": "src/code-checks/families.ts", "tests": ["src/code-checks/__tests__/config-and-run.test.ts"] },
+    { "source": "src/code-checks/run.ts", "tests": ["src/code-checks/__tests__/memory.test.ts", "src/code-checks/__tests__/obfuscation.test.ts", "src/code-checks/__tests__/placement.test.ts", "src/code-checks/__tests__/declaration.test.ts", "src/code-checks/__tests__/complexity.test.ts", "src/code-checks/__tests__/comment.test.ts", "src/code-checks/__tests__/config-and-run.test.ts"] },
+    { "source": "src/code-checks/format.ts", "tests": ["src/code-checks/__tests__/config-and-run.test.ts"] },
+    { "source": "src/code-checks/rules/memory.ts", "tests": ["src/code-checks/__tests__/memory.test.ts"] },
+    { "source": "src/code-checks/rules/obfuscation.ts", "tests": ["src/code-checks/__tests__/obfuscation.test.ts"] },
+    { "source": "src/code-checks/rules/placement.ts", "tests": ["src/code-checks/__tests__/placement.test.ts"] },
+    { "source": "src/code-checks/rules/declaration.ts", "tests": ["src/code-checks/__tests__/declaration.test.ts"] },
+    { "source": "src/code-checks/rules/complexity.ts", "tests": ["src/code-checks/__tests__/complexity.test.ts"] },
+    { "source": "src/code-checks/rules/comment.ts", "tests": ["src/code-checks/__tests__/comment.test.ts"] },
+    { "source": "src/adapters/code-check-cli.ts", "tests": ["src/adapters/__tests__/code-check-cli.test.ts"] }
   ]
 }
