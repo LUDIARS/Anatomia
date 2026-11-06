@@ -1,6 +1,7 @@
 {
   "version": 1,
   "implementations": [
+    { "source": "scripts/qs-lock/verify.ts", "tests": ["scripts/qs-lock/tests/verify.ts"] },
     { "source": "src/types.ts", "tests": ["src/graph/__tests__/reference-evidence.test.ts", "src/graph/__tests__/script-receiver-typing.test.ts"] },
     { "source": "src/core.ts", "tests": ["src/review/__tests__/build.test.ts"] },
     { "source": "src/project/file-cache.ts", "tests": ["src/project/__tests__/file-cache.test.ts", "src/review/__tests__/complexity-snapshot.test.ts"] },
@@ -70,6 +71,10 @@
     { "source": "src/map/project-roots.ts", "tests": ["src/map/__tests__/project-roots.test.ts"] },
     { "source": "src/knowledge/migration/apply.ts", "tests": ["src/knowledge/migration/migration.test.ts", "src/adapters/web/__tests__/domain-organization-route.test.ts"] },
     { "source": "src/fs/__tests__/short-temp.ts", "tests": ["src/knowledge/migration/migration.test.ts", "src/map/__tests__/project-roots.test.ts"] },
-    { "source": "vitest.setup.ts", "tests": ["src/branch/__tests__/hermetic-git.test.ts"] }
+    { "source": "vitest.setup.ts", "tests": ["src/branch/__tests__/hermetic-git.test.ts"] },
+    { "source": "src/cache/store.ts", "tests": ["src/cache/__tests__/store.test.ts"] },
+    { "source": "src/cost/aggregate.ts", "tests": ["src/cost/__tests__/aggregate.test.ts"] },
+    { "source": "src/dynamic/phase/fsm.ts", "tests": ["src/dynamic/phase/fsm.test.ts"] },
+    { "source": "src/screens/detect.ts", "tests": ["src/screens/detect.test.ts"] }
   ]
 }

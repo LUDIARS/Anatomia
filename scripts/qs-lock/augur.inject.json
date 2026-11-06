@@ -1,0 +1,8 @@
+{
+  "service": "anatomia-qs-lock",
+  "include": ["verify.ts"],
+  "exclude": [],
+  "runtime": { "autoImport": false, "entrypoints": [] },
+  "rules": { "contract-wrap": true },
+  "importFrom": "../../src/adapters/web/contracts/runtime.ts"
+}

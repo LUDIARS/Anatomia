@@ -419,7 +419,7 @@ export function scanForScreens(
   // Dedup declared screens by name+file (a name re-declared on multiple lines).
   const byKey = new Map<string, ScreenNode>();
   for (const s of [...declScreens, ...sceneScreens]) {
-    const k = `${s.name} ${s.file}`;
+    const k = `${s.name}\u0000${s.file}`;
     if (!byKey.has(k)) byKey.set(k, s);
   }
   const screens = [...byKey.values()].sort(

@@ -273,13 +273,13 @@ export async function buildReview(
     for (const e of await ctx.graph.edgesFrom(n.id)) {
       const td = domainOf.get(e.to);
       if (!td || td === fd) continue;
-      const k = `${fd} ${td}`;
+      const k = `${fd}\u0000${td}`;
       crossCount.set(k, (crossCount.get(k) ?? 0) + 1);
     }
   }
   const domainCoupling: ReviewDomainCoupling[] = [...crossCount.entries()]
     .map(([k, edges]) => {
-      const [from, to] = k.split(" ");
+      const [from, to] = k.split("\u0000");
       return { from: from!, to: to!, edges };
     })
     .sort((a, b) => b.edges - a.edges || cmp(a.from, b.from) || cmp(a.to, b.to));

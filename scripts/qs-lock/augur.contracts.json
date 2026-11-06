@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "contractsDir": "contracts",
+  "importFrom": "../../src/adapters/web/contracts/runtime.ts",
+  "contracts": [
+    {
+      "id": "C-1",
+      "criterion": "C-1 verifyQsLock(before, after): qs の固定版と公開 integrity を更新し、既存要求範囲と他のロック情報を維持する",
+      "symbol": "verifyQsLock",
+      "file": "verify.ts",
+      "module": "contracts/qs-lock.contract.ts",
+      "mode": "enforce",
+      "sample": 1
+    }
+  ]
+}
